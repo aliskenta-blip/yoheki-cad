@@ -3,1042 +3,1440 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.1 (パラメトリック擁壁エディタ)</title>
+<title>yoheki-cad v0.2 (フリーハンド編集対応)</title>
+<script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <style>
-  * { box-sizing: border-box; }
-  body {
+  * { box-sizing: border-box; -webkit-user-select: none; user-select: none; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
     font-family: 'Yu Gothic', 'Meiryo', sans-serif;
-    margin: 0; padding: 0; background: #f3f3f3; color: #222;
-    font-size: 13px;
+    background: #2b2b2b; color: #e0e0e0; font-size: 12px;
   }
   
-  /* ヘッダー */
-  header {
-    background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%);
-    color: white; padding: 10px 18px;
-    display: flex; justify-content: space-between; align-items: center;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  /* メニューバー */
+  .menubar {
+    background: #1e1e1e; color: white;
+    padding: 6px 12px;
+    display: flex; align-items: center; gap: 14px;
+    border-bottom: 1px solid #000;
+    height: 38px;
   }
-  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
-  header .ver { font-size: 11px; opacity: 0.7; margin-left: 8px; }
-  header .actions { display: flex; gap: 8px; }
-  header button {
-    background: rgba(255,255,255,0.15); color: white;
-    border: 1px solid rgba(255,255,255,0.4);
-    padding: 6px 14px; border-radius: 4px;
-    cursor: pointer; font-size: 12px; font-weight: 500;
-  }
-  header button:hover { background: rgba(255,255,255,0.25); }
-  header button.primary { background: #f97316; border-color: #f97316; }
-  header button.primary:hover { background: #ea580c; }
-  
-  /* メインレイアウト */
-  .app {
-    display: grid;
-    grid-template-columns: 320px 1fr 380px;
-    gap: 0;
-    height: calc(100vh - 50px);
-  }
-  
-  /* 左サイドバー: パラメータ */
-  .panel-left {
-    background: white; border-right: 1px solid #ddd;
-    overflow-y: auto; padding: 12px 14px;
-  }
-  
-  .section-title {
-    font-size: 12px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.5px;
-    color: #1e3a5f;
-    border-bottom: 2px solid #1e3a5f;
-    padding-bottom: 4px; margin-top: 16px; margin-bottom: 8px;
-  }
-  .section-title:first-child { margin-top: 0; }
-  
-  .param-row {
-    display: grid;
-    grid-template-columns: 1fr 90px 28px;
-    align-items: center; gap: 6px;
-    margin: 4px 0;
-  }
-  .param-row label { font-size: 12px; color: #444; }
-  .param-row input[type="number"], .param-row select {
-    width: 100%; padding: 4px 6px;
-    border: 1px solid #bbb; border-radius: 3px;
+  .menubar .logo { font-weight: 700; font-size: 14px; color: #fdc674; }
+  .menubar .ver { font-size: 10px; opacity: 0.6; }
+  .menu-item {
+    cursor: pointer; padding: 4px 10px; border-radius: 3px;
     font-size: 12px;
-    font-variant-numeric: tabular-nums;
   }
-  .param-row input:focus, .param-row select:focus {
-    outline: none; border-color: #2c5282; box-shadow: 0 0 0 2px rgba(44,82,130,0.2);
-  }
-  .param-row .unit { font-size: 11px; color: #888; }
+  .menu-item:hover { background: #333; }
+  .menu-divider { color: #555; }
   
-  .preset-buttons { display: flex; gap: 4px; flex-wrap: wrap; margin: 6px 0; }
-  .preset-buttons button {
-    flex: 1; min-width: 60px;
-    background: #f0f4f8; border: 1px solid #cbd5e0;
-    padding: 5px 8px; border-radius: 3px;
+  /* ツールバー */
+  .toolbar {
+    background: #333; padding: 4px;
+    display: flex; gap: 2px; align-items: center;
+    border-bottom: 1px solid #000;
+    height: 42px;
+    overflow-x: auto;
+  }
+  .tool-btn {
+    background: #444; color: #ddd;
+    border: 1px solid #555;
+    padding: 6px 10px; border-radius: 3px;
     cursor: pointer; font-size: 11px;
+    min-width: 32px;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 2px;
+    transition: all 0.1s;
   }
-  .preset-buttons button:hover { background: #e2e8f0; }
-  .preset-buttons button.active { background: #2c5282; color: white; border-color: #2c5282; }
+  .tool-btn:hover { background: #555; border-color: #777; }
+  .tool-btn.active { background: #f97316; border-color: #f97316; color: white; }
+  .tool-btn.active:hover { background: #ea580c; }
+  .tool-btn .icon { font-size: 16px; line-height: 1; }
+  .tool-btn .label { font-size: 9px; }
+  .tool-divider { width: 1px; background: #555; height: 30px; margin: 0 4px; }
   
-  /* 中央: 図面表示 */
-  .panel-center {
-    background: #d9d9d9; padding: 14px;
-    display: flex; flex-direction: column; gap: 10px;
-    overflow: auto;
+  /* メインエリア */
+  .main {
+    display: grid;
+    grid-template-columns: 220px 1fr 260px;
+    height: calc(100% - 80px);
   }
-  .drawing-card {
-    background: white;
-    border: 1px solid #999;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    padding: 10px;
-  }
-  .drawing-card .card-title {
-    font-size: 12px; font-weight: 700;
-    border-bottom: 1px solid #ddd; padding-bottom: 4px; margin-bottom: 6px;
-    display: flex; justify-content: space-between; align-items: center;
-  }
-  .drawing-card .card-title .scale { font-size: 10px; color: #666; font-weight: normal; }
   
-  svg.dwg { display: block; width: 100%; height: auto; }
+  /* 左パネル: ツール詳細・プロパティ */
+  .panel-left {
+    background: #353535; padding: 8px;
+    overflow-y: auto;
+    border-right: 1px solid #000;
+  }
+  .panel-section {
+    margin-bottom: 12px;
+    background: #404040; padding: 8px; border-radius: 4px;
+  }
+  .panel-section h4 {
+    margin: 0 0 6px; font-size: 11px; color: #fdc674;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 1px solid #555; padding-bottom: 3px;
+  }
   
-  /* 右サイドバー: 集計 */
+  /* キャンバスエリア */
+  .canvas-wrap {
+    position: relative;
+    background: #1f1f1f;
+    overflow: hidden;
+  }
+  #canvas-container {
+    background: #fafafa;
+    display: block;
+  }
+  
+  /* ステータスバー */
+  .statusbar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(30,30,30,0.95); color: #ccc;
+    padding: 4px 12px; font-size: 11px;
+    display: flex; gap: 18px; justify-content: space-between;
+    border-top: 1px solid #000;
+    font-variant-numeric: tabular-nums;
+    z-index: 10;
+  }
+  .statusbar .right { display: flex; gap: 14px; }
+  
+  /* 右パネル: レイヤー・プロパティ */
   .panel-right {
-    background: white; border-left: 1px solid #ddd;
-    overflow-y: auto; padding: 12px 14px;
+    background: #353535; padding: 8px;
+    overflow-y: auto;
+    border-left: 1px solid #000;
   }
   
-  table.compact {
-    width: 100%; border-collapse: collapse;
-    font-size: 11.5px; margin: 6px 0;
-  }
-  table.compact th, table.compact td {
-    border: 1px solid #ccc; padding: 4px 6px;
-  }
-  table.compact th {
-    background: #ecf0f4; font-weight: 600; text-align: center;
+  /* レイヤーリスト */
+  .layer-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    margin: 2px 0;
     font-size: 11px;
   }
-  table.compact td.r { text-align: right; font-variant-numeric: tabular-nums; }
-  table.compact td.c { text-align: center; }
-  table.compact tr.total { background: #fff9d0; font-weight: 700; }
-  table.compact tr.grand { background: #fff0a0; font-weight: 700; }
+  .layer-item:hover { background: #4a4a4a; }
+  .layer-item.active { background: #555; border-left: 3px solid #fdc674; padding-left: 3px; }
+  .layer-item .vis, .layer-item .lock { cursor: pointer; opacity: 0.7; }
+  .layer-item .vis:hover, .layer-item .lock:hover { opacity: 1; }
+  .layer-item .name { flex: 1; }
+  .layer-item .color-dot { width: 10px; height: 10px; border-radius: 2px; border: 1px solid #777; }
   
-  .summary-box {
-    background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%);
-    color: white; padding: 12px 14px; border-radius: 6px;
-    margin: 10px 0;
+  /* プロパティ */
+  .prop-row {
+    display: grid;
+    grid-template-columns: 50% 50%;
+    align-items: center; gap: 4px;
+    margin: 3px 0;
   }
-  .summary-box .label { font-size: 11px; opacity: 0.85; }
-  .summary-box .value {
-    font-size: 22px; font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    margin-top: 2px;
+  .prop-row label { font-size: 11px; color: #aaa; }
+  .prop-row input, .prop-row select {
+    background: #2a2a2a; color: #ddd; border: 1px solid #555;
+    padding: 3px 5px; border-radius: 2px; font-size: 11px;
+    width: 100%;
   }
-  .summary-box .unit { font-size: 13px; opacity: 0.8; margin-left: 4px; }
-  
-  /* バリデーション警告 */
-  .warning {
-    background: #fff5e6; border-left: 4px solid #f59e0b;
-    padding: 6px 10px; font-size: 11px; color: #92400e;
-    margin: 6px 0; border-radius: 3px;
-  }
-  .error {
-    background: #fee; border-left: 4px solid #c00;
-    padding: 6px 10px; font-size: 11px; color: #800;
-    margin: 6px 0; border-radius: 3px;
+  .prop-row input[type="color"] { padding: 0; height: 24px; }
+  .prop-row input:focus, .prop-row select:focus {
+    outline: none; border-color: #f97316;
   }
   
-  /* 印刷時 */
-  @media print {
-    .panel-left, .panel-right, header { display: none; }
-    .panel-center { background: white; padding: 0; }
-    .drawing-card { box-shadow: none; border: none; page-break-inside: avoid; }
+  /* ボタン */
+  .btn {
+    background: #555; color: white; border: none;
+    padding: 5px 10px; border-radius: 3px;
+    cursor: pointer; font-size: 11px;
   }
+  .btn:hover { background: #666; }
+  .btn.primary { background: #f97316; }
+  .btn.primary:hover { background: #ea580c; }
+  .btn.danger { background: #c33; }
+  .btn.danger:hover { background: #d44; }
+  .btn-row { display: flex; gap: 4px; margin: 4px 0; }
+  .btn-row .btn { flex: 1; }
+  
+  /* キーボードショートカット表示 */
+  kbd {
+    background: #1e1e1e; padding: 1px 4px; border-radius: 2px;
+    font-family: monospace; font-size: 10px; color: #fdc674;
+    border: 1px solid #555;
+  }
+  
+  /* モーダル */
+  .modal-bg {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center;
+    z-index: 1000;
+  }
+  .modal-bg.show { display: flex; }
+  .modal {
+    background: #2b2b2b; border: 1px solid #555;
+    padding: 16px 20px; border-radius: 6px;
+    max-width: 500px; max-height: 80vh; overflow-y: auto;
+  }
+  .modal h3 { margin: 0 0 10px; color: #fdc674; }
+  .modal .modal-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 14px; }
   
   /* スクロールバー */
-  ::-webkit-scrollbar { width: 8px; }
-  ::-webkit-scrollbar-track { background: #f1f1f1; }
-  ::-webkit-scrollbar-thumb { background: #c0c0c0; border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: #a0a0a0; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #2b2b2b; }
+  ::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #777; }
+  
+  /* チェックボックス */
+  input[type="checkbox"] {
+    width: auto; cursor: pointer;
+  }
 </style>
 </head>
 <body>
 
-<header>
-  <div>
-    <h1>📐 yoheki-cad <span class="ver">v0.1 (Phase 1+2 試作版)</span></h1>
-  </div>
-  <div class="actions">
-    <button onclick="exportJSON()">💾 JSON保存</button>
-    <button onclick="importJSON()">📂 JSON読込</button>
-    <button onclick="window.print()">🖨️ 印刷</button>
-    <button class="primary" onclick="resetToDefault()">↺ リセット</button>
-  </div>
-</header>
+<!-- メニューバー -->
+<div class="menubar">
+  <span class="logo">📐 yoheki-cad</span>
+  <span class="ver">v0.2 (フリーハンド編集対応)</span>
+  <span class="menu-divider">|</span>
+  <span class="menu-item" onclick="newDrawing()">📄 新規</span>
+  <span class="menu-item" onclick="openJSON()">📂 開く</span>
+  <span class="menu-item" onclick="saveJSON()">💾 保存</span>
+  <span class="menu-item" onclick="loadTemplateMenu()">📋 テンプレート</span>
+  <span class="menu-divider">|</span>
+  <span class="menu-item" onclick="exportSVG()">SVG出力</span>
+  <span class="menu-item" onclick="exportPNG()">PNG出力</span>
+  <span class="menu-item" onclick="window.print()">🖨️ 印刷</span>
+  <span class="menu-divider">|</span>
+  <span class="menu-item" onclick="showHelp()">❓ ヘルプ</span>
+</div>
 
-<div class="app">
+<!-- ツールバー -->
+<div class="toolbar">
+  <button class="tool-btn active" data-tool="select" title="選択 (S)" onclick="setTool('select')">
+    <span class="icon">↖</span><span class="label">選択</span>
+  </button>
+  <div class="tool-divider"></div>
   
-  <!-- ===== 左パネル: パラメータ入力 ===== -->
+  <button class="tool-btn" data-tool="line" title="直線 (L)" onclick="setTool('line')">
+    <span class="icon">╱</span><span class="label">線</span>
+  </button>
+  <button class="tool-btn" data-tool="rect" title="矩形 (R)" onclick="setTool('rect')">
+    <span class="icon">▭</span><span class="label">矩形</span>
+  </button>
+  <button class="tool-btn" data-tool="circle" title="円 (C)" onclick="setTool('circle')">
+    <span class="icon">○</span><span class="label">円</span>
+  </button>
+  <button class="tool-btn" data-tool="polygon" title="多角形" onclick="setTool('polygon')">
+    <span class="icon">⬡</span><span class="label">多角形</span>
+  </button>
+  <button class="tool-btn" data-tool="freehand" title="フリーハンド (F)" onclick="setTool('freehand')">
+    <span class="icon">✎</span><span class="label">手書き</span>
+  </button>
+  <div class="tool-divider"></div>
+  
+  <button class="tool-btn" data-tool="dim" title="寸法線 (D)" onclick="setTool('dim')">
+    <span class="icon">↔</span><span class="label">寸法</span>
+  </button>
+  <button class="tool-btn" data-tool="rebar" title="鉄筋 (B)" onclick="setTool('rebar')">
+    <span class="icon">▬</span><span class="label">鉄筋</span>
+  </button>
+  <button class="tool-btn" data-tool="text" title="テキスト (T)" onclick="setTool('text')">
+    <span class="icon">𝐀</span><span class="label">文字</span>
+  </button>
+  <div class="tool-divider"></div>
+  
+  <button class="tool-btn" onclick="undo()" title="元に戻す (Ctrl+Z)">
+    <span class="icon">↶</span><span class="label">元に戻す</span>
+  </button>
+  <button class="tool-btn" onclick="redo()" title="やり直し (Ctrl+Y)">
+    <span class="icon">↷</span><span class="label">やり直し</span>
+  </button>
+  <div class="tool-divider"></div>
+  
+  <button class="tool-btn" onclick="deleteSelected()" title="削除 (Delete)">
+    <span class="icon">🗑</span><span class="label">削除</span>
+  </button>
+  <button class="tool-btn" onclick="duplicateSelected()" title="複製 (Ctrl+D)">
+    <span class="icon">⎘</span><span class="label">複製</span>
+  </button>
+  <div class="tool-divider"></div>
+  
+  <button class="tool-btn" onclick="zoomFit()" title="全体表示 (F)">
+    <span class="icon">⛶</span><span class="label">全体</span>
+  </button>
+  <button class="tool-btn" onclick="zoom(1.25)" title="ズームイン (+)">
+    <span class="icon">+</span><span class="label">拡大</span>
+  </button>
+  <button class="tool-btn" onclick="zoom(0.8)" title="ズームアウト (-)">
+    <span class="icon">−</span><span class="label">縮小</span>
+  </button>
+</div>
+
+<!-- メインエリア -->
+<div class="main">
+  
+  <!-- 左パネル -->
   <div class="panel-left">
     
-    <div class="section-title">テンプレート</div>
-    <div class="preset-buttons">
-      <button class="active" onclick="applyPreset('matiuke')">待ち受け式</button>
-      <button onclick="applyPreset('L-chiba')">千葉市L型</button>
-      <button onclick="applyPreset('inv-T')">逆T型</button>
+    <div class="panel-section">
+      <h4>表示設定</h4>
+      <div class="prop-row">
+        <label><input type="checkbox" id="grid-show" checked onchange="updateGrid()"> グリッド</label>
+        <input type="number" id="grid-size" value="50" min="10" max="500" step="10" onchange="updateGrid()">
+      </div>
+      <div class="prop-row">
+        <label><input type="checkbox" id="grid-snap" checked> グリッドスナップ</label>
+        <span></span>
+      </div>
+      <div class="prop-row">
+        <label><input type="checkbox" id="ortho"> 直交モード <kbd>Shift</kbd></label>
+        <span></span>
+      </div>
+      <div class="prop-row">
+        <label>縮尺</label>
+        <select id="scale-select" onchange="updateScale()">
+          <option value="0.05">1:20</option>
+          <option value="0.033" selected>1:30</option>
+          <option value="0.025">1:40</option>
+          <option value="0.02">1:50</option>
+          <option value="0.01">1:100</option>
+        </select>
+      </div>
     </div>
     
-    <div class="section-title">構造寸法</div>
-    
-    <div class="param-row">
-      <label>全高 H</label>
-      <input type="number" id="H_total" value="3800" min="1000" max="8000" step="100">
-      <span class="unit">mm</span>
-    </div>
-    <div class="param-row">
-      <label>地上高 H1</label>
-      <input type="number" id="H_above" value="3000" min="500" max="6000" step="100">
-      <span class="unit">mm</span>
-    </div>
-    <div class="param-row">
-      <label>根入れ Df</label>
-      <input type="number" id="Df" value="800" min="300" max="2000" step="50">
-      <span class="unit">mm</span>
-    </div>
-    <div class="param-row">
-      <label>底版幅 B</label>
-      <input type="number" id="B" value="1600" min="800" max="4000" step="100">
-      <span class="unit">mm</span>
-    </div>
-    <div class="param-row">
-      <label>底版厚 t</label>
-      <input type="number" id="slab_t" value="400" min="200" max="800" step="50">
-      <span class="unit">mm</span>
-    </div>
-    <div class="param-row">
-      <label>つま先長</label>
-      <input type="number" id="toe" value="100" min="0" max="1000" step="50">
-      <span class="unit">mm</span>
-    </div>
-    <div class="param-row">
-      <label>全長 L</label>
-      <input type="number" id="L_total" value="7000" min="1000" max="50000" step="500">
-      <span class="unit">mm</span>
+    <div class="panel-section">
+      <h4>線の設定</h4>
+      <div class="prop-row">
+        <label>色</label>
+        <input type="color" id="stroke-color" value="#000000">
+      </div>
+      <div class="prop-row">
+        <label>太さ</label>
+        <input type="number" id="stroke-width" value="2" min="0.5" max="20" step="0.5">
+      </div>
+      <div class="prop-row">
+        <label>スタイル</label>
+        <select id="stroke-style">
+          <option value="">実線</option>
+          <option value="10,5">破線</option>
+          <option value="3,3">点線</option>
+          <option value="15,5,3,5">一点鎖線</option>
+        </select>
+      </div>
+      <div class="prop-row">
+        <label>塗り</label>
+        <input type="color" id="fill-color" value="#ffffff">
+      </div>
+      <div class="prop-row">
+        <label><input type="checkbox" id="fill-none" checked> 塗りなし</label>
+        <span></span>
+      </div>
     </div>
     
-    <div class="section-title">壁体形状</div>
-    
-    <div class="param-row">
-      <label>壁天端厚</label>
-      <input type="number" id="t_top" value="200" min="100" max="500" step="50">
-      <span class="unit">mm</span>
-    </div>
-    <div class="param-row">
-      <label>壁底部厚</label>
-      <input type="number" id="t_bot" value="500" min="150" max="800" step="50">
-      <span class="unit">mm</span>
-    </div>
-    
-    <div class="section-title">配筋 - 竪壁</div>
-    
-    <div class="param-row">
-      <label>W1 背面主筋</label>
-      <select id="W1_dia">
-        <option>D10</option><option>D13</option>
-        <option selected>D16</option><option>D19</option><option>D22</option>
-      </select>
-      <span class="unit"></span>
-    </div>
-    <div class="param-row">
-      <label>W2 前面主筋</label>
-      <select id="W2_dia">
-        <option>D10</option><option selected>D13</option>
-        <option>D16</option><option>D19</option>
-      </select>
-      <span class="unit"></span>
-    </div>
-    <div class="param-row">
-      <label>W3 配力筋</label>
-      <select id="W3_dia">
-        <option>D10</option><option selected>D13</option><option>D16</option>
-      </select>
-      <span class="unit"></span>
-    </div>
-    <div class="param-row">
-      <label>主筋ピッチ</label>
-      <input type="number" id="wall_pitch" value="300" min="100" max="500" step="25">
-      <span class="unit">mm</span>
+    <div class="panel-section" id="rebar-settings" style="display:none">
+      <h4>鉄筋設定</h4>
+      <div class="prop-row">
+        <label>径</label>
+        <select id="rebar-dia">
+          <option>D10</option><option>D13</option>
+          <option selected>D16</option><option>D19</option><option>D22</option>
+        </select>
+      </div>
+      <div class="prop-row">
+        <label>規格</label>
+        <select id="rebar-grade">
+          <option>SD295</option><option selected>SD345</option>
+        </select>
+      </div>
+      <div class="prop-row">
+        <label>左端</label>
+        <select id="rebar-hook-l">
+          <option value="none">なし</option>
+          <option value="90">90°曲げ</option>
+          <option value="135">135°フック</option>
+          <option value="180">180°フック</option>
+        </select>
+      </div>
+      <div class="prop-row">
+        <label>右端</label>
+        <select id="rebar-hook-r">
+          <option value="none">なし</option>
+          <option value="90" selected>90°曲げ</option>
+          <option value="135">135°フック</option>
+          <option value="180">180°フック</option>
+        </select>
+      </div>
     </div>
     
-    <div class="section-title">配筋 - 底版</div>
-    
-    <div class="param-row">
-      <label>B1 上端筋</label>
-      <select id="B1_dia">
-        <option>D10</option><option>D13</option>
-        <option selected>D16</option><option>D19</option>
-      </select>
-      <span class="unit"></span>
-    </div>
-    <div class="param-row">
-      <label>B2 下端筋</label>
-      <select id="B2_dia">
-        <option>D10</option><option selected>D13</option>
-        <option>D16</option><option>D19</option>
-      </select>
-      <span class="unit"></span>
-    </div>
-    <div class="param-row">
-      <label>B3 配力筋</label>
-      <select id="B3_dia">
-        <option>D10</option><option selected>D13</option><option>D16</option>
-      </select>
-      <span class="unit"></span>
-    </div>
-    <div class="param-row">
-      <label>底版筋ピッチ</label>
-      <input type="number" id="slab_pitch" value="300" min="100" max="500" step="25">
-      <span class="unit">mm</span>
+    <div class="panel-section" id="dim-settings" style="display:none">
+      <h4>寸法線設定</h4>
+      <div class="prop-row">
+        <label>サイズ</label>
+        <input type="number" id="dim-size" value="14" min="8" max="48" step="1">
+      </div>
+      <div class="prop-row">
+        <label>単位</label>
+        <select id="dim-unit">
+          <option value="mm" selected>mm</option>
+          <option value="">無し</option>
+        </select>
+      </div>
     </div>
     
-    <div class="section-title">かぶり厚</div>
-    
-    <div class="param-row">
-      <label>標準かぶり</label>
-      <input type="number" id="cover" value="60" min="30" max="100" step="5">
-      <span class="unit">mm</span>
+    <div class="panel-section">
+      <h4>キーボード</h4>
+      <div style="font-size:10.5px; line-height: 1.7;">
+        <kbd>S</kbd> 選択　
+        <kbd>L</kbd> 線　
+        <kbd>R</kbd> 矩形<br>
+        <kbd>C</kbd> 円　
+        <kbd>D</kbd> 寸法　
+        <kbd>B</kbd> 鉄筋<br>
+        <kbd>T</kbd> 文字　
+        <kbd>F</kbd> 全体表示<br>
+        <kbd>Del</kbd> 削除　
+        <kbd>Esc</kbd> 解除<br>
+        <kbd>Ctrl+Z</kbd> 戻る<br>
+        <kbd>Ctrl+Y</kbd> 進む<br>
+        <kbd>Ctrl+D</kbd> 複製<br>
+        <kbd>Ctrl+A</kbd> 全選択<br>
+        <kbd>Shift</kbd> 直交モード<br>
+        <kbd>Space+drag</kbd> パン<br>
+        <kbd>マウスホイール</kbd> ズーム
+      </div>
     </div>
-    <div class="param-row">
-      <label>天端かぶり</label>
-      <input type="number" id="cover_top" value="40" min="20" max="80" step="5">
-      <span class="unit">mm</span>
-    </div>
-    
-    <div class="section-title">単価設定</div>
-    
-    <div class="param-row">
-      <label>鉄筋単価</label>
-      <input type="number" id="price_rebar" value="200000" min="100000" max="400000" step="10000">
-      <span class="unit">円/t</span>
-    </div>
-    <div class="param-row">
-      <label>コンクリート</label>
-      <input type="number" id="price_conc" value="22000" min="10000" max="40000" step="1000">
-      <span class="unit">円/m³</span>
-    </div>
-    <div class="param-row">
-      <label>型枠工</label>
-      <input type="number" id="price_form" value="6500" min="2000" max="15000" step="500">
-      <span class="unit">円/m²</span>
-    </div>
-    <div class="param-row">
-      <label>栗石</label>
-      <input type="number" id="price_stone" value="8500" min="3000" max="20000" step="500">
-      <span class="unit">円/m³</span>
-    </div>
-    
-    <div id="warnings"></div>
   </div>
   
-  <!-- ===== 中央パネル: 図面 ===== -->
-  <div class="panel-center">
-    
-    <div class="drawing-card">
-      <div class="card-title">
-        <span>断面図</span>
-        <span class="scale" id="scale-display">S=1:30  単位:mm</span>
+  <!-- キャンバスエリア -->
+  <div class="canvas-wrap">
+    <canvas id="canvas-container"></canvas>
+    <div class="statusbar">
+      <span id="status-mode">モード: 選択</span>
+      <div class="right">
+        <span id="status-coord">X: 0  Y: 0</span>
+        <span id="status-zoom">100%</span>
+        <span id="status-count">オブジェクト: 0</span>
       </div>
-      <svg id="cross-section" class="dwg" viewBox="0 0 3500 5100" xmlns="http://www.w3.org/2000/svg">
-        <!-- 動的に生成 -->
-      </svg>
     </div>
-    
-    <div class="drawing-card">
-      <div class="card-title">
-        <span>底版配筋詳細図（B1⊓型 + B2⊔型）</span>
-        <span class="scale">S=1:20  単位:mm</span>
-      </div>
-      <svg id="slab-detail" class="dwg" viewBox="0 0 2200 1100" xmlns="http://www.w3.org/2000/svg">
-      </svg>
-    </div>
-    
   </div>
   
-  <!-- ===== 右パネル: 集計 ===== -->
+  <!-- 右パネル -->
   <div class="panel-right">
     
-    <div class="summary-box">
-      <div class="label">概算工事費（材料費ベース）</div>
-      <div class="value">¥<span id="total-cost">0</span><span class="unit">円</span></div>
-      <div style="font-size:11px; opacity:0.8; margin-top:4px;">
-        鉄筋 + コンクリート + 型枠 + 栗石
+    <div class="panel-section">
+      <h4>レイヤー</h4>
+      <div id="layer-list"></div>
+      <div class="btn-row">
+        <button class="btn" onclick="addLayer()">＋ 追加</button>
+        <button class="btn" onclick="renameLayer()">名前</button>
       </div>
     </div>
     
-    <div class="section-title">鉄筋加工帳</div>
-    <table class="compact" id="rebar-table">
-      <thead>
-        <tr>
-          <th>記号</th><th>径</th><th>全長</th><th>本数</th><th>質量</th>
-        </tr>
-      </thead>
-      <tbody id="rebar-tbody">
-      </tbody>
-    </table>
+    <div class="panel-section" id="selected-prop">
+      <h4>選択オブジェクト</h4>
+      <div id="prop-content" style="font-size:11px; color:#999;">
+        オブジェクトを選択してください
+      </div>
+    </div>
     
-    <div class="section-title">数量集計</div>
-    <table class="compact" id="quantity-table">
-      <thead>
-        <tr>
-          <th>項目</th><th>単位</th><th>1m</th><th>合計</th>
-        </tr>
-      </thead>
-      <tbody id="quantity-tbody">
-      </tbody>
-    </table>
+    <div class="panel-section">
+      <h4>統計</h4>
+      <div style="font-size:11px;">
+        <div id="stat-rebar">鉄筋: 0 本</div>
+        <div id="stat-line">線: 0</div>
+        <div id="stat-shape">図形: 0</div>
+      </div>
+    </div>
     
-    <div class="section-title">材料費内訳</div>
-    <table class="compact" id="cost-table">
-      <thead>
-        <tr>
-          <th>項目</th><th>数量</th><th>単価</th><th>金額</th>
-        </tr>
-      </thead>
-      <tbody id="cost-tbody">
-      </tbody>
-    </table>
-    
+  </div>
+</div>
+
+<!-- ヘルプモーダル -->
+<div class="modal-bg" id="modal-help">
+  <div class="modal">
+    <h3>yoheki-cad v0.2 使い方</h3>
+    <div style="font-size:12px; line-height: 1.7;">
+      <p><b>基本操作:</b></p>
+      <ul>
+        <li>ツールバーで描画モードを選択</li>
+        <li>キャンバスをクリック&ドラッグで描画</li>
+        <li>選択モード(<kbd>S</kbd>)でオブジェクトをクリックして編集</li>
+      </ul>
+      <p><b>線・図形:</b></p>
+      <ul>
+        <li><kbd>L</kbd> 直線：始点→終点をクリック</li>
+        <li><kbd>R</kbd> 矩形：ドラッグで描画</li>
+        <li><kbd>C</kbd> 円：ドラッグで半径指定</li>
+        <li>多角形：クリック連続→<kbd>Enter</kbd>または右クリックで完了</li>
+        <li>フリーハンド：マウス押しっぱなしで線</li>
+      </ul>
+      <p><b>寸法線:</b></p>
+      <ul>
+        <li><kbd>D</kbd> 寸法線：始点→終点でドラッグ。長さは自動計算&表示</li>
+      </ul>
+      <p><b>鉄筋:</b></p>
+      <ul>
+        <li><kbd>B</kbd> 鉄筋：始点→終点でドラッグ。径と端部曲げは左パネルで事前設定</li>
+        <li>鉄筋を選択 → 右パネルで径・規格・端部曲げを変更可能</li>
+      </ul>
+      <p><b>編集:</b></p>
+      <ul>
+        <li>選択 → ドラッグで移動</li>
+        <li>選択 → 四隅でリサイズ、上端で回転</li>
+        <li><kbd>Delete</kbd> 削除</li>
+        <li><kbd>Ctrl+D</kbd> 複製</li>
+        <li><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd> Undo/Redo</li>
+        <li><kbd>Ctrl+A</kbd> 全選択</li>
+      </ul>
+      <p><b>表示:</b></p>
+      <ul>
+        <li>マウスホイール：ズームイン/アウト</li>
+        <li><kbd>Space</kbd>+ドラッグ：パン</li>
+        <li><kbd>F</kbd>：全体表示</li>
+      </ul>
+      <p><b>保存:</b></p>
+      <ul>
+        <li>💾 JSON保存：編集状態を完全に保存</li>
+        <li>SVG/PNG出力：画像として出力</li>
+        <li>テンプレート：v0.1のパラメトリック擁壁を読み込み</li>
+      </ul>
+    </div>
+    <div class="modal-actions">
+      <button class="btn primary" onclick="closeModal('modal-help')">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- テンプレート選択モーダル -->
+<div class="modal-bg" id="modal-template">
+  <div class="modal">
+    <h3>テンプレート読み込み</h3>
+    <p style="font-size:12px; color:#aaa;">パラメトリック設計したテンプレートを編集可能なオブジェクトとしてキャンバスに展開します。</p>
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-top:10px;">
+      <button class="btn primary" onclick="loadTemplate('matiuke'); closeModal('modal-template')">待ち受け式擁壁<br><small>H=3.8m</small></button>
+      <button class="btn primary" onclick="loadTemplate('L-chiba'); closeModal('modal-template')">千葉市L型<br><small>H=2.5m</small></button>
+      <button class="btn primary" onclick="loadTemplate('inv-T'); closeModal('modal-template')">逆T型<br><small>H=3.5m</small></button>
+      <button class="btn" onclick="loadTemplate('blank'); closeModal('modal-template')">空白で開始</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-template')">キャンセル</button>
+    </div>
   </div>
 </div>
 
 <script>
 // ============================================================
-// 計算ロジック
+// 初期化
 // ============================================================
 
-// 鉄筋の単位質量(kg/m)
-const REBAR_WEIGHT = {
-  "D10": 0.560, "D13": 0.995, "D16": 1.560,
-  "D19": 2.250, "D22": 3.040, "D25": 3.980
-};
-const REBAR_DIA = {
-  "D10": 10, "D13": 13, "D16": 16, "D19": 19, "D22": 22, "D25": 25
+const canvas = new fabric.Canvas('canvas-container', {
+  backgroundColor: '#fafafa',
+  selection: true,
+  preserveObjectStacking: true,
+  fireRightClick: true,
+  stopContextMenu: true
+});
+
+// グローバル状態
+let state = {
+  tool: 'select',
+  isDrawing: false,
+  startPoint: null,
+  tempObject: null,
+  polygonPoints: [],
+  history: [],
+  historyIndex: -1,
+  isLoadingHistory: false,
+  gridSize: 50,
+  showGrid: true,
+  snapToGrid: true,
+  orthoMode: false,
+  spacePressed: false,
+  isPanning: false,
+  lastPan: null,
+  layers: [
+    {name: '構造体', color: '#000000', visible: true, locked: false},
+    {name: '配筋', color: '#cc0000', visible: true, locked: false},
+    {name: '寸法線', color: '#666666', visible: true, locked: false},
+    {name: '注記', color: '#0066cc', visible: true, locked: false},
+    {name: '補助線', color: '#cccccc', visible: true, locked: false},
+  ],
+  activeLayer: 0,
+  scale: 0.033  // 1:30
 };
 
-// パラメータ取得
-function getParams() {
+// キャンバスサイズを動的に
+function resizeCanvas() {
+  const wrap = document.querySelector('.canvas-wrap');
+  canvas.setWidth(wrap.clientWidth);
+  canvas.setHeight(wrap.clientHeight - 30);  // statusbar分
+  drawGrid();
+  canvas.renderAll();
+}
+window.addEventListener('resize', resizeCanvas);
+setTimeout(resizeCanvas, 100);
+
+// ============================================================
+// グリッド描画
+// ============================================================
+
+let gridLines = [];
+function drawGrid() {
+  // 既存のグリッドを削除
+  gridLines.forEach(line => canvas.remove(line));
+  gridLines = [];
+  
+  if (!state.showGrid) return;
+  
+  const w = canvas.getWidth();
+  const h = canvas.getHeight();
+  const size = state.gridSize;
+  
+  for (let i = 0; i < w; i += size) {
+    const line = new fabric.Line([i, 0, i, h], {
+      stroke: i % (size * 5) === 0 ? '#c0c0c0' : '#e0e0e0',
+      strokeWidth: 1,
+      selectable: false, evented: false,
+      excludeFromExport: true,
+      hoverCursor: 'default',
+      _isGrid: true
+    });
+    gridLines.push(line);
+    canvas.add(line);
+    canvas.sendToBack(line);
+  }
+  for (let i = 0; i < h; i += size) {
+    const line = new fabric.Line([0, i, w, i], {
+      stroke: i % (size * 5) === 0 ? '#c0c0c0' : '#e0e0e0',
+      strokeWidth: 1,
+      selectable: false, evented: false,
+      excludeFromExport: true,
+      hoverCursor: 'default',
+      _isGrid: true
+    });
+    gridLines.push(line);
+    canvas.add(line);
+    canvas.sendToBack(line);
+  }
+  canvas.renderAll();
+}
+
+function updateGrid() {
+  state.showGrid = document.getElementById('grid-show').checked;
+  state.gridSize = parseFloat(document.getElementById('grid-size').value);
+  drawGrid();
+}
+
+function snapPoint(pt) {
+  if (!state.snapToGrid || !document.getElementById('grid-snap').checked) return pt;
   return {
-    H_total: parseFloat(document.getElementById('H_total').value),
-    H_above: parseFloat(document.getElementById('H_above').value),
-    Df: parseFloat(document.getElementById('Df').value),
-    B: parseFloat(document.getElementById('B').value),
-    slab_t: parseFloat(document.getElementById('slab_t').value),
-    toe: parseFloat(document.getElementById('toe').value),
-    L_total: parseFloat(document.getElementById('L_total').value),
-    t_top: parseFloat(document.getElementById('t_top').value),
-    t_bot: parseFloat(document.getElementById('t_bot').value),
-    W1_dia: document.getElementById('W1_dia').value,
-    W2_dia: document.getElementById('W2_dia').value,
-    W3_dia: document.getElementById('W3_dia').value,
-    wall_pitch: parseFloat(document.getElementById('wall_pitch').value),
-    B1_dia: document.getElementById('B1_dia').value,
-    B2_dia: document.getElementById('B2_dia').value,
-    B3_dia: document.getElementById('B3_dia').value,
-    slab_pitch: parseFloat(document.getElementById('slab_pitch').value),
-    cover: parseFloat(document.getElementById('cover').value),
-    cover_top: parseFloat(document.getElementById('cover_top').value),
-    price_rebar: parseFloat(document.getElementById('price_rebar').value),
-    price_conc: parseFloat(document.getElementById('price_conc').value),
-    price_form: parseFloat(document.getElementById('price_form').value),
-    price_stone: parseFloat(document.getElementById('price_stone').value)
+    x: Math.round(pt.x / state.gridSize) * state.gridSize,
+    y: Math.round(pt.y / state.gridSize) * state.gridSize
   };
 }
 
-// 構造計算（座標生成）
-function calcGeometry(p) {
-  const heel = p.B - p.t_bot - p.toe;
-  const wall_h = p.H_total - p.slab_t;
+function orthoPoint(start, end) {
+  if (!state.orthoMode && !window.shiftPressed) return end;
+  const dx = Math.abs(end.x - start.x);
+  const dy = Math.abs(end.y - start.y);
+  if (dx > dy) return {x: end.x, y: start.y};
+  else return {x: start.x, y: end.y};
+}
+
+// ============================================================
+// ツール切り替え
+// ============================================================
+
+function setTool(tool) {
+  state.tool = tool;
+  state.polygonPoints = [];
+  if (state.tempObject) {
+    canvas.remove(state.tempObject);
+    state.tempObject = null;
+  }
   
-  // 基準座標 (SVG単位=mm)
-  // 底版BL=(700, p.H_total + 400)
-  const ox = 700, oy = 400;  // 構造体上端 = y=400, 下端 = y=400+H_total
+  // 全ボタンのactive解除
+  document.querySelectorAll('.tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
+  // アクティブツールのボタンをactiveに
+  const btn = document.querySelector(`.tool-btn[data-tool="${tool}"]`);
+  if (btn) btn.classList.add('active');
   
-  const slab_BL = [ox, oy + p.H_total];
-  const slab_BR = [ox + p.B, oy + p.H_total];
-  const slab_TR = [ox + p.B, oy + p.H_total - p.slab_t];
-  const wall_back_bot = [ox + p.toe + p.t_bot, oy + p.H_total - p.slab_t];
-  const wall_back_top = [ox + p.toe + p.t_bot, oy];
-  const wall_top_front = [ox + p.toe + p.t_bot - p.t_top, oy];
-  const wall_front_bot = [ox + p.toe, oy + p.H_total - p.slab_t];
-  const slab_TL = [ox, oy + p.H_total - p.slab_t];
+  // フリーハンドモードのON/OFF
+  canvas.isDrawingMode = (tool === 'freehand');
+  if (canvas.isDrawingMode) {
+    canvas.freeDrawingBrush.color = document.getElementById('stroke-color').value;
+    canvas.freeDrawingBrush.width = parseFloat(document.getElementById('stroke-width').value);
+  }
   
-  // 前面斜面の単位法線ベクトル(壁内側)
-  const dx = wall_top_front[0] - wall_front_bot[0];  // -300 (上が前に寄る)
-  const dy = wall_top_front[1] - wall_front_bot[1];  // -3400
-  const L = Math.sqrt(dx*dx + dy*dy);
-  const nx = -dy/L, ny = dx/L;  // 90° CCW回転（壁内側を向く）
-  // (壁内側 = +x方向であるべきなので符号確認)
+  // 選択モード以外では選択不可
+  canvas.selection = (tool === 'select');
+  canvas.forEachObject(obj => {
+    if (obj._isGrid) return;
+    obj.selectable = (tool === 'select');
+    obj.evented = (tool === 'select');
+  });
   
-  // W2 (前面主筋、テーパー追随、被り p.cover)
-  const W2_top = [wall_top_front[0] + p.cover * nx, wall_top_front[1] + p.cover_top];
-  const W2_bot = [wall_front_bot[0] + p.cover * nx, wall_front_bot[1] - p.cover];
+  // カーソル
+  canvas.defaultCursor = (tool === 'select') ? 'default' : 'crosshair';
   
-  // W2底版定着位置（B1レベルへ）
-  const B1_y = oy + p.H_total - p.slab_t + p.cover;
-  // W2線をy=B1_yまで延長
-  const t = (B1_y - W2_top[1]) / (W2_bot[1] - W2_top[1]);
-  const W2_at_slab = [W2_top[0] + t*(W2_bot[0]-W2_top[0]), B1_y];
-  const W2_anchor_end = [W2_at_slab[0] + 40*REBAR_DIA[p.W2_dia], B1_y];
+  // ツール別パネル表示
+  document.getElementById('rebar-settings').style.display = (tool === 'rebar') ? 'block' : 'none';
+  document.getElementById('dim-settings').style.display = (tool === 'dim') ? 'block' : 'none';
   
-  // W1 (背面主筋、鉛直、被りcover)
-  const W1_x = wall_back_top[0] - p.cover;
-  const W1_top_y = oy + p.cover_top;
-  const W1_bot_y = oy + p.H_total - p.cover;
-  const W1_anchor_end_x = W1_x + 40*REBAR_DIA[p.W1_dia];
-  
-  // B1 (底版上端筋、⊓型、両端90°曲げ)
-  const B1_y_top = oy + p.H_total - p.slab_t + p.cover;
-  const B1_y_bot = oy + p.H_total - p.cover;
-  const B1_x_left = ox + p.cover;
-  const B1_x_right = ox + p.B - p.cover;
-  
-  // B2 (底版下端筋、⊔型、両端90°曲げ)
-  // 同じ範囲だが、形状が逆
-  
-  return {
-    structure: [slab_BL, slab_BR, slab_TR, wall_back_bot, wall_back_top, 
-                wall_top_front, wall_front_bot, slab_TL],
-    wall_h: wall_h, heel: heel,
-    ox: ox, oy: oy,
-    nx: nx, ny: ny,
-    W1: {top: [W1_x, W1_top_y], bot: [W1_x, W1_bot_y], anchor_end: [W1_anchor_end_x, W1_bot_y]},
-    W2: {top: W2_top, bot: W2_at_slab, anchor_end: W2_anchor_end},
-    B1: {x_left: B1_x_left, x_right: B1_x_right, y_top: B1_y_top, y_bot: B1_y_bot},
-    B2: {x_left: B1_x_left, x_right: B1_x_right, y_top: B1_y_top, y_bot: B1_y_bot}
+  // ステータス
+  const labels = {
+    'select': '選択', 'line': '直線', 'rect': '矩形', 'circle': '円',
+    'polygon': '多角形', 'freehand': 'フリーハンド', 'dim': '寸法線',
+    'rebar': '鉄筋', 'text': 'テキスト'
   };
-}
-
-// 鉄筋数量計算
-function calcRebars(p, g) {
-  const wall_h = p.H_total - p.slab_t;
-  const n_wall = Math.ceil(p.L_total / p.wall_pitch);
-  const n_slab = Math.ceil(p.L_total / p.slab_pitch);
+  document.getElementById('status-mode').textContent = 'モード: ' + (labels[tool] || tool);
   
-  // W1 長さ: 上端フック(0.5d×8 ≈ 80mm) + 鉛直部 + 90°曲げ底版方向40d
-  const W1_len = Math.round((g.W1.bot[1] - g.W1.top[1]) + 40*REBAR_DIA[p.W1_dia] + 80);
-  
-  // W2 長さ: 斜辺 + 定着40d + フック
-  const dx = g.W2.bot[0] - g.W2.top[0];
-  const dy = g.W2.bot[1] - g.W2.top[1];
-  const slant = Math.sqrt(dx*dx + dy*dy);
-  const W2_len = Math.round(slant + 40*REBAR_DIA[p.W2_dia] + 80);
-  
-  // W3 配力筋 (長手方向、全長 + 余長)
-  const W3_len = p.L_total;
-  const n_W3_layers = Math.ceil(wall_h / p.wall_pitch);
-  const W3_count = n_W3_layers * 2;  // 両面
-  
-  // B1 ⊓型: 曲げ部(slab_t - cover×2)×2 + 水平部
-  const B1_bend = p.slab_t - p.cover * 2;
-  const B1_len = Math.round(B1_bend * 2 + (g.B1.x_right - g.B1.x_left));
-  
-  // B2 ⊔型: 同じ
-  const B2_len = B1_len;
-  
-  // B3 底版配力筋（長手）
-  const B3_len = p.L_total;
-  const n_B3_layers = Math.ceil(p.B / p.slab_pitch / 2);
-  const B3_count = n_B3_layers * 2;  // 上下
-  
-  return [
-    {id:"W1", name:"竪壁背面主筋", dia:p.W1_dia, pitch:p.wall_pitch, 
-     len:W1_len, count:n_wall, weight: W1_len/1000 * n_wall * REBAR_WEIGHT[p.W1_dia]},
-    {id:"W2", name:"竪壁前面主筋(斜)", dia:p.W2_dia, pitch:p.wall_pitch, 
-     len:W2_len, count:n_wall, weight: W2_len/1000 * n_wall * REBAR_WEIGHT[p.W2_dia]},
-    {id:"W3", name:"竪壁配力筋", dia:p.W3_dia, pitch:p.wall_pitch, 
-     len:W3_len, count:W3_count, weight: W3_len/1000 * W3_count * REBAR_WEIGHT[p.W3_dia]},
-    {id:"B1", name:"底版上端(⊓型)", dia:p.B1_dia, pitch:p.slab_pitch, 
-     len:B1_len, count:n_slab, weight: B1_len/1000 * n_slab * REBAR_WEIGHT[p.B1_dia]},
-    {id:"B2", name:"底版下端(⊔型)", dia:p.B2_dia, pitch:p.slab_pitch, 
-     len:B2_len, count:n_slab, weight: B2_len/1000 * n_slab * REBAR_WEIGHT[p.B2_dia]},
-    {id:"B3", name:"底版配力筋", dia:p.B3_dia, pitch:p.slab_pitch, 
-     len:B3_len, count:B3_count, weight: B3_len/1000 * B3_count * REBAR_WEIGHT[p.B3_dia]}
-  ];
-}
-
-// 数量計算
-function calcQuantities(p, g) {
-  const wall_h = p.H_total - p.slab_t;
-  
-  // 壁体コンクリート (テーパー断面 × L)
-  const wall_area = (p.t_top + p.t_bot) / 2 * wall_h / 1e6;
-  const wall_conc = wall_area * p.L_total / 1000;
-  
-  // 底版コンクリート
-  const slab_conc = p.B * p.slab_t / 1e6 * p.L_total / 1000;
-  
-  // 壁体型枠
-  const front_len = Math.sqrt(wall_h*wall_h + (p.t_bot - p.t_top)*(p.t_bot - p.t_top));
-  const wall_form = (front_len + wall_h + p.t_top) / 1000 * p.L_total / 1000;
-  
-  // 底版型枠
-  const slab_form = p.slab_t / 1000 * 2 * p.L_total / 1000;
-  
-  // 栗石フィルター
-  const heel = p.B - p.t_bot - p.toe;
-  const filter_h = wall_h - 250 - 50;  // 天端250下から、キャップ50考慮
-  const filter_vol = heel / 1000 * filter_h / 1000 * p.L_total / 1000;
-  
-  // 砕石基礎
-  const crushed_stone = (p.B + 300) / 1000 * 0.4 * p.L_total / 1000;
-  
-  // 捨コン
-  const sutekon = (p.B + 200) / 1000 * 0.05 * p.L_total / 1000;
-  
-  // キャップコン
-  const cap_conc = heel / 1000 * 0.05 * p.L_total / 1000;
-  
-  // 根切り
-  const excavation = (p.B + 400) / 1000 * (p.Df + p.slab_t + 50 + 400) / 1000 * p.L_total / 1000;
-  
-  return [
-    {name:"根切り", unit:"m³", val: excavation},
-    {name:"砕石(C-40)", unit:"m³", val: crushed_stone},
-    {name:"捨てコン(t=50)", unit:"m³", val: sutekon},
-    {name:"コンクリート本体", unit:"m³", val: wall_conc + slab_conc},
-    {name:"型枠工", unit:"m²", val: wall_form + slab_form},
-    {name:"栗石・砂利", unit:"m³", val: filter_vol},
-    {name:"キャップコン", unit:"m³", val: cap_conc},
-    {name:"水抜きパイプ", unit:"本", val: wall_h/1000 * p.L_total/1000 / 3}
-  ];
-}
-
-// バリデーション
-function validate(p) {
-  const warnings = [];
-  if (p.H_total !== p.H_above + p.Df) {
-    warnings.push(`<div class="warning">⚠ 全高(${p.H_total}) ≠ 地上高(${p.H_above}) + 根入れ(${p.Df}) = ${p.H_above + p.Df}</div>`);
-  }
-  if (p.B < p.t_bot + p.toe) {
-    warnings.push(`<div class="error">✗ 底版幅(${p.B}) < 壁底厚(${p.t_bot}) + つま先(${p.toe}) = ${p.t_bot + p.toe}</div>`);
-  }
-  if (p.t_top > p.t_bot) {
-    warnings.push(`<div class="warning">⚠ 壁天端厚(${p.t_top}) > 底部厚(${p.t_bot}) のため逆テーパーになります</div>`);
-  }
-  if (p.H_above > 2000) {
-    warnings.push(`<div class="warning">📋 H>2m: 建築確認申請が必要（建基法第88条）</div>`);
-  }
-  if (p.cover < 60 && p.H_above > 2000) {
-    warnings.push(`<div class="warning">⚠ 千葉市標準等ではかぶり60mm以上が一般的</div>`);
-  }
-  if (p.cover < 40) {
-    warnings.push(`<div class="error">✗ かぶり40mm未満は建基法令79条違反</div>`);
-  }
-  return warnings;
+  canvas.renderAll();
 }
 
 // ============================================================
-// SVG 描画
+// マウスイベント
 // ============================================================
 
-function renderCrossSection(p, g, rebars) {
-  // viewBox 動的調整
-  const vb_w = 3500;
-  const vb_h = p.H_total + 1300;
+canvas.on('mouse:down', (opt) => {
+  const e = opt.e;
   
-  const svg = document.getElementById('cross-section');
-  svg.setAttribute('viewBox', `0 0 ${vb_w} ${vb_h}`);
+  // Space+ドラッグでパン
+  if (state.spacePressed) {
+    state.isPanning = true;
+    state.lastPan = {x: e.clientX, y: e.clientY};
+    canvas.defaultCursor = 'grabbing';
+    return;
+  }
   
-  const GL_y = g.oy + p.Df;  // 地上面位置
+  if (state.tool === 'select') return;
   
-  let html = `
-    <defs>
-      <pattern id="con" patternUnits="userSpaceOnUse" width="60" height="60" patternTransform="rotate(45)">
-        <line x1="0" y1="0" x2="0" y2="60" stroke="#888" stroke-width="1.6"/>
-      </pattern>
-      <pattern id="stone" patternUnits="userSpaceOnUse" width="130" height="130">
-        <circle cx="40" cy="40" r="22" fill="white" stroke="#666" stroke-width="3"/>
-        <circle cx="95" cy="60" r="18" fill="white" stroke="#666" stroke-width="3"/>
-        <circle cx="60" cy="100" r="20" fill="white" stroke="#666" stroke-width="3"/>
-        <circle cx="110" cy="110" r="14" fill="white" stroke="#666" stroke-width="3"/>
-      </pattern>
-      <pattern id="gravel" patternUnits="userSpaceOnUse" width="45" height="45">
-        <circle cx="8" cy="8" r="4" fill="white" stroke="#888" stroke-width="1.5"/>
-        <circle cx="28" cy="20" r="3.5" fill="white" stroke="#888" stroke-width="1.5"/>
-        <circle cx="16" cy="33" r="3" fill="white" stroke="#888" stroke-width="1.5"/>
-        <circle cx="36" cy="36" r="3.5" fill="white" stroke="#888" stroke-width="1.5"/>
-      </pattern>
-      <pattern id="gr" patternUnits="userSpaceOnUse" width="100" height="100">
-        <path d="M0,100 L100,0" stroke="#888" stroke-width="1.5"/>
-      </pattern>
-      <marker id="ae" viewBox="0 0 30 30" refX="28" refY="15" markerWidth="20" markerHeight="20" orient="auto">
-        <path d="M0,5 L28,15 L0,25 Z" fill="#000"/>
-      </marker>
-      <marker id="as" viewBox="0 0 30 30" refX="2" refY="15" markerWidth="20" markerHeight="20" orient="auto">
-        <path d="M30,5 L2,15 L30,25 Z" fill="#000"/>
-      </marker>
-    </defs>
-  `;
+  let pt = canvas.getPointer(opt.e);
+  pt = snapPoint(pt);
+  state.startPoint = pt;
+  state.isDrawing = true;
   
-  // 地盤(つま先側)
-  html += `<rect x="60" y="${GL_y}" width="640" height="${vb_h - GL_y - 200}" fill="url(#gr)" opacity="0.4"/>
-           <line x1="60" y1="${GL_y}" x2="700" y2="${GL_y}" stroke="#000" stroke-width="4"/>
-           <text x="100" y="${GL_y - 40}" font-size="86" font-weight="700" fill="#a00">GL</text>`;
+  const strokeColor = document.getElementById('stroke-color').value;
+  const strokeWidth = parseFloat(document.getElementById('stroke-width').value);
+  const strokeStyle = document.getElementById('stroke-style').value;
+  const fillColor = document.getElementById('fill-none').checked ? '' : document.getElementById('fill-color').value;
   
-  // 自然崖（背面）
-  const heel_x = g.ox + p.toe + p.t_bot;
-  const back_x = g.ox + p.B;
-  html += `<line x1="${back_x}" y1="600" x2="${back_x}" y2="${GL_y}" stroke="#000" stroke-width="5"/>
-           <line x1="${back_x}" y1="${GL_y}" x2="${back_x}" y2="${g.oy + p.H_total}" stroke="#666" stroke-width="2.5" stroke-dasharray="20,10"/>
-           <polygon points="${back_x},600 ${back_x+450},200 ${back_x+1050},200 ${back_x+1050},${g.oy + p.H_total} ${back_x},${g.oy + p.H_total}" fill="url(#gr)" opacity="0.4"/>`;
+  const baseProps = {
+    stroke: strokeColor,
+    strokeWidth: strokeWidth,
+    fill: fillColor,
+    strokeDashArray: strokeStyle ? strokeStyle.split(',').map(Number) : null,
+    selectable: false,  // 描画中は選択不可
+    _layer: state.activeLayer
+  };
   
-  // 栗石フィルター
-  const filter_y_top = 650;
-  const filter_y_bot = g.oy + p.H_total - p.slab_t;
-  html += `<rect x="${heel_x}" y="${filter_y_top}" width="${back_x - heel_x}" height="${filter_y_bot - filter_y_top}" fill="url(#stone)"/>
-           <rect x="${heel_x}" y="${filter_y_top}" width="${back_x - heel_x}" height="${filter_y_bot - filter_y_top}" fill="none" stroke="#000" stroke-width="3"/>`;
-  
-  // キャップコン
-  html += `<rect x="${heel_x}" y="${filter_y_top - 50}" width="${back_x - heel_x}" height="50" fill="url(#con)" stroke="#000" stroke-width="4"/>`;
-  
-  // 擁壁本体
-  const polygon = `M ${g.structure[0][0]},${g.structure[0][1]} 
-                   L ${g.structure[1][0]},${g.structure[1][1]} 
-                   L ${g.structure[2][0]},${g.structure[2][1]} 
-                   L ${g.structure[3][0]},${g.structure[3][1]} 
-                   L ${g.structure[4][0]},${g.structure[4][1]} 
-                   L ${g.structure[5][0]},${g.structure[5][1]} 
-                   L ${g.structure[6][0]},${g.structure[6][1]} 
-                   L ${g.structure[7][0]},${g.structure[7][1]} Z`;
-  html += `<path d="${polygon}" fill="url(#con)" stroke="#000" stroke-width="11"/>`;
-  
-  // 基礎下: 捨コン + 砕石
-  const base_y1 = g.oy + p.H_total;
-  html += `<rect x="${g.ox - 100}" y="${base_y1}" width="${p.B + 200}" height="50" fill="url(#con)" stroke="#000" stroke-width="3"/>
-           <rect x="${g.ox - 150}" y="${base_y1 + 50}" width="${p.B + 300}" height="200" fill="url(#gravel)" stroke="#666" stroke-width="2"/>
-           <rect x="${g.ox - 150}" y="${base_y1 + 250}" width="${p.B + 300}" height="200" fill="url(#gravel)" stroke="#666" stroke-width="2"/>`;
-  
-  // 水抜き穴
-  const drain_y = g.oy + (p.H_total - p.slab_t) * 0.7;
-  const drain_x = g.structure[6][0] + 100;
-  html += `<circle cx="${drain_x}" cy="${drain_y}" r="42" fill="white" stroke="#000" stroke-width="4"/>`;
-  
-  // ===== 配筋描画 =====
-  // W1 背面主筋
-  html += `<g stroke="#c00" stroke-width="10" fill="none">
-    <path d="M ${g.W1.top[0]},${g.W1.top[1]} L ${g.W1.bot[0]},${g.W1.bot[1]} L ${g.W1.anchor_end[0]},${g.W1.anchor_end[1]}"/>
-    <path d="M ${g.W1.top[0]},${g.W1.top[1]} L ${g.W1.top[0] - 42},${g.W1.top[1] + 42}"/>
-  </g>`;
-  
-  // W2 前面主筋（テーパー追随）
-  html += `<g stroke="#0066cc" stroke-width="8" fill="none">
-    <path d="M ${g.W2.top[0]},${g.W2.top[1]} L ${g.W2.bot[0]},${g.W2.bot[1]} L ${g.W2.anchor_end[0]},${g.W2.anchor_end[1]}"/>
-    <path d="M ${g.W2.top[0]},${g.W2.top[1]} L ${g.W2.top[0] + 39},${g.W2.top[1] + 46}"/>
-  </g>`;
-  
-  // W3 配力筋ドット
-  const wall_h_actual = p.H_total - p.slab_t;
-  const n_W3_layers = Math.ceil(wall_h_actual / p.wall_pitch);
-  for (let i = 1; i < n_W3_layers; i++) {
-    const y = g.oy + i * p.wall_pitch + 100;
-    if (y >= g.W1.top[1] && y <= g.W1.bot[1] - 100) {
-      // W2位置を計算
-      const t = (y - g.W2.top[1]) / (g.W2.bot[1] - g.W2.top[1]);
-      const x_W2 = g.W2.top[0] + t * (g.W2.bot[0] - g.W2.top[0]);
-      html += `<circle cx="${g.W1.top[0]}" cy="${y}" r="14" fill="#0a8"/>
-               <circle cx="${x_W2}" cy="${y}" r="14" fill="#0a8"/>`;
+  if (state.tool === 'line') {
+    state.tempObject = new fabric.Line([pt.x, pt.y, pt.x, pt.y], baseProps);
+    canvas.add(state.tempObject);
+  } else if (state.tool === 'rect') {
+    state.tempObject = new fabric.Rect({
+      ...baseProps, left: pt.x, top: pt.y, width: 1, height: 1
+    });
+    canvas.add(state.tempObject);
+  } else if (state.tool === 'circle') {
+    state.tempObject = new fabric.Circle({
+      ...baseProps, left: pt.x, top: pt.y, radius: 1, originX: 'center', originY: 'center'
+    });
+    canvas.add(state.tempObject);
+  } else if (state.tool === 'polygon') {
+    state.polygonPoints.push(pt);
+    if (state.tempObject) canvas.remove(state.tempObject);
+    if (state.polygonPoints.length >= 2) {
+      state.tempObject = new fabric.Polyline(state.polygonPoints.map(p => ({x:p.x, y:p.y})), {
+        ...baseProps, fill: ''
+      });
+      canvas.add(state.tempObject);
     }
+  } else if (state.tool === 'dim') {
+    state.tempObject = createDimensionLine(pt, pt);
+    canvas.add(state.tempObject);
+  } else if (state.tool === 'rebar') {
+    state.tempObject = createRebar(pt, pt);
+    canvas.add(state.tempObject);
+  } else if (state.tool === 'text') {
+    const text = prompt('テキストを入力:', '注記');
+    if (text) {
+      const t = new fabric.IText(text, {
+        left: pt.x, top: pt.y,
+        fontSize: 16, fill: strokeColor,
+        fontFamily: 'Yu Gothic, sans-serif',
+        _layer: state.activeLayer
+      });
+      canvas.add(t);
+      saveHistory();
+    }
+    state.isDrawing = false;
+    setTool('select');
+    return;
+  }
+});
+
+canvas.on('mouse:move', (opt) => {
+  const e = opt.e;
+  let pt = canvas.getPointer(opt.e);
+  pt = snapPoint(pt);
+  
+  document.getElementById('status-coord').textContent = `X: ${Math.round(pt.x)}  Y: ${Math.round(pt.y)}`;
+  
+  // パン中
+  if (state.isPanning) {
+    const dx = e.clientX - state.lastPan.x;
+    const dy = e.clientY - state.lastPan.y;
+    const vpt = canvas.viewportTransform;
+    vpt[4] += dx;
+    vpt[5] += dy;
+    canvas.setViewportTransform(vpt);
+    state.lastPan = {x: e.clientX, y: e.clientY};
+    return;
   }
   
-  // B1 ⊓型
-  html += `<g stroke="#c00" stroke-width="9" fill="none">
-    <path d="M ${g.B1.x_left},${g.B1.y_bot} L ${g.B1.x_left},${g.B1.y_top} L ${g.B1.x_right},${g.B1.y_top} L ${g.B1.x_right},${g.B1.y_bot}"/>
-  </g>`;
+  if (!state.isDrawing || !state.tempObject) return;
   
-  // B2 ⊔型
-  html += `<g stroke="#0066cc" stroke-width="8" fill="none">
-    <path d="M ${g.B2.x_left},${g.B2.y_top} L ${g.B2.x_left},${g.B2.y_bot} L ${g.B2.x_right},${g.B2.y_bot} L ${g.B2.x_right},${g.B2.y_top}"/>
-  </g>`;
+  let endPt = pt;
+  if (state.startPoint && (state.orthoMode || window.shiftPressed)) {
+    endPt = orthoPoint(state.startPoint, pt);
+  }
   
-  // ===== 寸法線 =====
-  // 横方向 B
-  const dim_y = g.oy + p.H_total + 600;
-  html += `<line x1="${g.ox}" y1="${dim_y + 40}" x2="${g.ox}" y2="${dim_y - 60}" stroke="#000" stroke-width="2.5"/>
-           <line x1="${g.ox + p.B}" y1="${dim_y + 40}" x2="${g.ox + p.B}" y2="${dim_y - 60}" stroke="#000" stroke-width="2.5"/>
-           <line x1="${g.ox}" y1="${dim_y}" x2="${g.ox + p.B}" y2="${dim_y}" stroke="#000" stroke-width="3.5" marker-start="url(#as)" marker-end="url(#ae)"/>
-           <text x="${g.ox + p.B/2}" y="${dim_y - 30}" text-anchor="middle" font-size="74" font-weight="700">${p.B.toLocaleString()}</text>`;
+  if (state.tool === 'line') {
+    state.tempObject.set({x2: endPt.x, y2: endPt.y});
+  } else if (state.tool === 'rect') {
+    state.tempObject.set({
+      width: Math.abs(endPt.x - state.startPoint.x),
+      height: Math.abs(endPt.y - state.startPoint.y),
+      left: Math.min(state.startPoint.x, endPt.x),
+      top: Math.min(state.startPoint.y, endPt.y)
+    });
+  } else if (state.tool === 'circle') {
+    const r = Math.sqrt(Math.pow(endPt.x - state.startPoint.x, 2) + Math.pow(endPt.y - state.startPoint.y, 2));
+    state.tempObject.set({radius: r});
+  } else if (state.tool === 'dim') {
+    canvas.remove(state.tempObject);
+    state.tempObject = createDimensionLine(state.startPoint, endPt);
+    canvas.add(state.tempObject);
+  } else if (state.tool === 'rebar') {
+    canvas.remove(state.tempObject);
+    state.tempObject = createRebar(state.startPoint, endPt);
+    canvas.add(state.tempObject);
+  }
   
-  // 縦方向 H
-  html += `<line x1="540" y1="${g.oy}" x2="450" y2="${g.oy}" stroke="#000" stroke-width="2"/>
-           <line x1="540" y1="${g.oy + p.H_total}" x2="450" y2="${g.oy + p.H_total}" stroke="#000" stroke-width="2"/>
-           <line x1="500" y1="${g.oy}" x2="500" y2="${g.oy + p.H_total}" stroke="#000" stroke-width="3.5" marker-start="url(#as)" marker-end="url(#ae)"/>
-           <text x="430" y="${g.oy + p.H_total/2}" text-anchor="middle" font-size="80" font-weight="700" transform="rotate(-90, 430, ${g.oy + p.H_total/2})">${p.H_total.toLocaleString()}</text>`;
+  canvas.renderAll();
+});
+
+canvas.on('mouse:up', (opt) => {
+  if (state.isPanning) {
+    state.isPanning = false;
+    canvas.defaultCursor = state.spacePressed ? 'grab' : 'default';
+    return;
+  }
   
-  // 副寸法 H_above / Df
-  html += `<line x1="340" y1="${g.oy}" x2="260" y2="${g.oy}" stroke="#000" stroke-width="2"/>
-           <line x1="340" y1="${GL_y}" x2="260" y2="${GL_y}" stroke="#000" stroke-width="2"/>
-           <line x1="340" y1="${g.oy + p.H_total}" x2="260" y2="${g.oy + p.H_total}" stroke="#000" stroke-width="2"/>
-           <line x1="300" y1="${g.oy}" x2="300" y2="${GL_y}" stroke="#000" stroke-width="3" marker-start="url(#as)" marker-end="url(#ae)"/>
-           <line x1="300" y1="${GL_y}" x2="300" y2="${g.oy + p.H_total}" stroke="#000" stroke-width="3" marker-start="url(#as)" marker-end="url(#ae)"/>
-           <text x="235" y="${(g.oy + GL_y)/2}" text-anchor="middle" font-size="58" transform="rotate(-90, 235, ${(g.oy + GL_y)/2})">${p.H_above.toLocaleString()}</text>
-           <text x="235" y="${(GL_y + g.oy + p.H_total)/2}" text-anchor="middle" font-size="56" fill="#a00" font-weight="600" transform="rotate(-90, 235, ${(GL_y + g.oy + p.H_total)/2})">${p.Df}</text>`;
+  if (!state.isDrawing) return;
   
-  // 配筋ラベル
-  html += `<text x="${back_x + 240}" y="${g.oy + p.H_total/2}" font-size="52" fill="#c00" font-weight="700">${p.W1_dia}@${p.wall_pitch}</text>
-           <text x="${back_x + 240}" y="${g.oy + p.H_total/2 + 50}" font-size="38" fill="#c00">(W1)</text>`;
-  html += `<text x="100" y="${g.oy + p.H_total/2}" font-size="52" fill="#0066cc" font-weight="700">${p.W2_dia}@${p.wall_pitch}</text>
-           <text x="100" y="${g.oy + p.H_total/2 + 50}" font-size="38" fill="#0066cc">(W2 斜)</text>`;
+  if (state.tool === 'polygon') {
+    // 多角形は continue, Enter or 右クリックで完了
+    return;
+  }
   
-  svg.innerHTML = html;
+  if (state.tempObject) {
+    state.tempObject.setCoords();
+    // 完成後は選択可能に
+    state.tempObject.selectable = (state.tool === 'select');
+    state.tempObject.evented = true;
+    state.tempObject = null;
+    saveHistory();
+    updateStats();
+  }
+  state.isDrawing = false;
+});
+
+// 多角形の確定
+canvas.on('mouse:dblclick', () => {
+  if (state.tool === 'polygon' && state.polygonPoints.length >= 3) {
+    finishPolygon();
+  }
+});
+
+function finishPolygon() {
+  if (state.tempObject) canvas.remove(state.tempObject);
+  const strokeColor = document.getElementById('stroke-color').value;
+  const strokeWidth = parseFloat(document.getElementById('stroke-width').value);
+  const fillColor = document.getElementById('fill-none').checked ? '' : document.getElementById('fill-color').value;
+  
+  const poly = new fabric.Polygon(state.polygonPoints.map(p => ({x:p.x, y:p.y})), {
+    stroke: strokeColor,
+    strokeWidth: strokeWidth,
+    fill: fillColor,
+    _layer: state.activeLayer
+  });
+  canvas.add(poly);
+  state.polygonPoints = [];
+  state.tempObject = null;
+  saveHistory();
+  updateStats();
 }
 
-function renderSlabDetail(p, g) {
-  const svg = document.getElementById('slab-detail');
-  const vb_w = p.B + 600;
-  const vb_h = 1100;
-  svg.setAttribute('viewBox', `0 0 ${vb_w} ${vb_h}`);
+// マウスホイールでズーム
+canvas.on('mouse:wheel', (opt) => {
+  const delta = opt.e.deltaY;
+  let z = canvas.getZoom();
+  z *= 0.999 ** delta;
+  if (z > 20) z = 20;
+  if (z < 0.1) z = 0.1;
+  canvas.zoomToPoint({x: opt.e.offsetX, y: opt.e.offsetY}, z);
+  opt.e.preventDefault();
+  opt.e.stopPropagation();
+  document.getElementById('status-zoom').textContent = Math.round(z*100) + '%';
+});
+
+// オブジェクト選択
+canvas.on('selection:created', updateSelectedProps);
+canvas.on('selection:updated', updateSelectedProps);
+canvas.on('selection:cleared', () => {
+  document.getElementById('prop-content').innerHTML = 'オブジェクトを選択してください';
+});
+
+canvas.on('object:modified', () => {
+  saveHistory();
+});
+
+// ============================================================
+// 寸法線オブジェクト（カスタム）
+// ============================================================
+
+function createDimensionLine(start, end) {
+  const len = Math.sqrt(Math.pow(end.x-start.x, 2) + Math.pow(end.y-start.y, 2));
+  const realLen = Math.round(len);  // mm
+  const angle = Math.atan2(end.y-start.y, end.x-start.x) * 180 / Math.PI;
+  const perpAngle = (angle + 90) * Math.PI / 180;
   
-  const sox = 300, soy = 400;
+  const dimSize = parseFloat(document.getElementById('dim-size').value) || 14;
+  const ext = 10;
   
-  let html = `
-    <defs>
-      <pattern id="con-bf" patternUnits="userSpaceOnUse" width="60" height="60" patternTransform="rotate(45)">
-        <line x1="0" y1="0" x2="0" y2="60" stroke="#999" stroke-width="1.6"/>
-      </pattern>
-      <marker id="ae3" viewBox="0 0 30 30" refX="28" refY="15" markerWidth="20" markerHeight="20" orient="auto">
-        <path d="M0,5 L28,15 L0,25 Z" fill="#000"/>
-      </marker>
-      <marker id="as3" viewBox="0 0 30 30" refX="2" refY="15" markerWidth="20" markerHeight="20" orient="auto">
-        <path d="M30,5 L2,15 L30,25 Z" fill="#000"/>
-      </marker>
-    </defs>
-  `;
+  // 寸法線本体
+  const line = new fabric.Line([start.x, start.y, end.x, end.y], {
+    stroke: '#666', strokeWidth: 1
+  });
   
-  // 底版断面
-  html += `<rect x="${sox}" y="${soy}" width="${p.B}" height="${p.slab_t}" fill="url(#con-bf)" stroke="#000" stroke-width="6"/>`;
+  // 矢印（簡易表現）
+  const arrowSize = 8;
+  const arrowAngle = Math.PI / 8;
+  const dx = end.x - start.x, dy = end.y - start.y;
+  const ang = Math.atan2(dy, dx);
   
-  // B1 ⊓型
-  html += `<g stroke="#c00" stroke-width="7" fill="none">
-    <path d="M ${sox + p.cover},${soy + p.slab_t - p.cover} L ${sox + p.cover},${soy + p.cover} L ${sox + p.B - p.cover},${soy + p.cover} L ${sox + p.B - p.cover},${soy + p.slab_t - p.cover}"/>
-  </g>`;
+  // 補助線(ext lines)
+  const ext1 = new fabric.Line([
+    start.x - ext * Math.cos(perpAngle), start.y - ext * Math.sin(perpAngle),
+    start.x + ext * Math.cos(perpAngle), start.y + ext * Math.sin(perpAngle)
+  ], {stroke: '#666', strokeWidth: 1});
+  const ext2 = new fabric.Line([
+    end.x - ext * Math.cos(perpAngle), end.y - ext * Math.sin(perpAngle),
+    end.x + ext * Math.cos(perpAngle), end.y + ext * Math.sin(perpAngle)
+  ], {stroke: '#666', strokeWidth: 1});
   
-  // B2 ⊔型
-  html += `<g stroke="#0066cc" stroke-width="6" fill="none">
-    <path d="M ${sox + p.cover},${soy + p.cover} L ${sox + p.cover},${soy + p.slab_t - p.cover} L ${sox + p.B - p.cover},${soy + p.slab_t - p.cover} L ${sox + p.B - p.cover},${soy + p.cover}"/>
-  </g>`;
+  const arrow1 = new fabric.Polygon([
+    {x: start.x, y: start.y},
+    {x: start.x + arrowSize*Math.cos(ang-arrowAngle), y: start.y + arrowSize*Math.sin(ang-arrowAngle)},
+    {x: start.x + arrowSize*Math.cos(ang+arrowAngle), y: start.y + arrowSize*Math.sin(ang+arrowAngle)}
+  ], {fill: '#666', stroke: '#666'});
   
-  // 鉄筋断面ドット
-  const n_dot = 6;
-  for (let i = 0; i < n_dot; i++) {
-    const x = sox + p.cover + (p.B - 2*p.cover) * i / (n_dot - 1);
-    html += `<circle cx="${x}" cy="${soy + p.cover}" r="12" fill="#c00"/>`;
-    html += `<circle cx="${x}" cy="${soy + p.slab_t - p.cover}" r="11" fill="#0066cc"/>`;
-  }
+  const arrow2 = new fabric.Polygon([
+    {x: end.x, y: end.y},
+    {x: end.x - arrowSize*Math.cos(ang-arrowAngle), y: end.y - arrowSize*Math.sin(ang-arrowAngle)},
+    {x: end.x - arrowSize*Math.cos(ang+arrowAngle), y: end.y - arrowSize*Math.sin(ang+arrowAngle)}
+  ], {fill: '#666', stroke: '#666'});
   
-  // 配力筋ドット
-  for (let i = 1; i < n_dot; i += 2) {
-    const x = sox + p.cover + (p.B - 2*p.cover) * i / (n_dot - 1);
-    html += `<circle cx="${x}" cy="${soy + p.cover}" r="9" fill="#0a8"/>`;
-    html += `<circle cx="${x}" cy="${soy + p.slab_t - p.cover}" r="9" fill="#0a8"/>`;
-  }
+  const mid = {x: (start.x+end.x)/2, y: (start.y+end.y)/2};
+  const unit = document.getElementById('dim-unit').value;
+  const text = new fabric.Text(realLen + (unit ? ' ' + unit : ''), {
+    left: mid.x, top: mid.y - dimSize - 4,
+    fontSize: dimSize,
+    fontFamily: 'Yu Gothic, sans-serif',
+    fill: '#000',
+    originX: 'center', originY: 'center',
+    angle: angle > 90 || angle < -90 ? angle + 180 : angle
+  });
   
-  // ラベル
-  html += `<text x="${sox + p.B/2}" y="250" text-anchor="middle" font-size="56" font-weight="700" fill="#000">
-    B1(⊓型 ${p.B1_dia}) + B2(⊔型 ${p.B2_dia}) で閉鎖ボックス
-  </text>`;
-  html += `<text x="${sox + p.B/2}" y="310" text-anchor="middle" font-size="40" fill="#555">
-    両端を90°曲げて端部のせん断補強と被り確保
-  </text>`;
+  const group = new fabric.Group([line, ext1, ext2, arrow1, arrow2, text], {
+    _type: 'dimension',
+    _length: realLen,
+    _layer: state.activeLayer,
+    selectable: state.tool === 'select'
+  });
   
-  // 配筋ラベル
-  html += `<text x="100" y="${soy + 50}" font-size="48" fill="#c00" font-weight="700">B1</text>
-           <text x="100" y="${soy + 100}" font-size="34" fill="#c00">${p.B1_dia}@${p.slab_pitch} (⊓)</text>`;
-  html += `<text x="100" y="${soy + p.slab_t - 50}" font-size="48" fill="#0066cc" font-weight="700">B2</text>
-           <text x="100" y="${soy + p.slab_t}" font-size="34" fill="#0066cc">${p.B2_dia}@${p.slab_pitch} (⊔)</text>`;
-  
-  // 寸法
-  const dy = soy + p.slab_t + 100;
-  html += `<line x1="${sox}" y1="${dy + 40}" x2="${sox}" y2="${dy - 40}" stroke="#000" stroke-width="1.5"/>
-           <line x1="${sox + p.B}" y1="${dy + 40}" x2="${sox + p.B}" y2="${dy - 40}" stroke="#000" stroke-width="1.5"/>
-           <line x1="${sox}" y1="${dy}" x2="${sox + p.B}" y2="${dy}" stroke="#000" stroke-width="2.5" marker-start="url(#as3)" marker-end="url(#ae3)"/>
-           <text x="${sox + p.B/2}" y="${dy + 70}" text-anchor="middle" font-size="56" font-weight="700">底版幅 ${p.B.toLocaleString()}</text>`;
-  
-  html += `<line x1="${sox + p.B + 80}" y1="${soy}" x2="${sox + p.B + 150}" y2="${soy}" stroke="#000" stroke-width="1.5"/>
-           <line x1="${sox + p.B + 80}" y1="${soy + p.slab_t}" x2="${sox + p.B + 150}" y2="${soy + p.slab_t}" stroke="#000" stroke-width="1.5"/>
-           <line x1="${sox + p.B + 120}" y1="${soy}" x2="${sox + p.B + 120}" y2="${soy + p.slab_t}" stroke="#000" stroke-width="2.5" marker-start="url(#as3)" marker-end="url(#ae3)"/>
-           <text x="${sox + p.B + 200}" y="${soy + p.slab_t/2}" font-size="50" font-weight="700" transform="rotate(-90, ${sox + p.B + 200}, ${soy + p.slab_t/2})" text-anchor="middle">${p.slab_t}</text>`;
-  
-  // かぶり表記
-  html += `<text x="${sox + p.cover}" y="${soy - 20}" text-anchor="middle" font-size="28" fill="#0055aa" font-weight="600">${p.cover}</text>
-           <text x="${sox + p.cover}" y="${soy + p.slab_t + 35}" text-anchor="middle" font-size="28" fill="#0055aa" font-weight="600">${p.cover}</text>`;
-  
-  svg.innerHTML = html;
+  return group;
 }
 
 // ============================================================
-// テーブル更新
+// 鉄筋オブジェクト（カスタム）
 // ============================================================
 
-function renderTables(p, rebars, quantities) {
-  // 鉄筋加工帳
+function createRebar(start, end) {
+  const dia = document.getElementById('rebar-dia').value;
+  const grade = document.getElementById('rebar-grade').value;
+  const hookL = document.getElementById('rebar-hook-l').value;
+  const hookR = document.getElementById('rebar-hook-r').value;
+  
+  const diaMap = {'D10': 10, 'D13': 13, 'D16': 16, 'D19': 19, 'D22': 22};
+  const widthMap = {'D10': 3, 'D13': 4, 'D16': 5, 'D19': 6, 'D22': 7};
+  const colorMap = {'D10': '#888', 'D13': '#0066cc', 'D16': '#c00', 'D19': '#900', 'D22': '#600'};
+  
+  const strokeColor = colorMap[dia] || '#c00';
+  const strokeWidth = widthMap[dia] || 4;
+  
+  const dx = end.x - start.x, dy = end.y - start.y;
+  const len = Math.sqrt(dx*dx + dy*dy);
+  const ang = Math.atan2(dy, dx);
+  
+  // 90°曲げの長さ（鉄筋径の40倍 / 縮尺で表示）
+  const bendLen = diaMap[dia] * 1.5;  // 表示上のサイズ
+  
+  // フック方向（線に対して垂直、左側）
+  const perpAng = ang + Math.PI/2;
+  
+  const points = [];
+  
+  // 左端フック処理
+  if (hookL === '90') {
+    points.push({
+      x: start.x + bendLen * Math.cos(perpAng),
+      y: start.y + bendLen * Math.sin(perpAng)
+    });
+    points.push({x: start.x, y: start.y});
+  } else if (hookL === '135') {
+    const hookAng = ang + Math.PI * 0.75;
+    points.push({
+      x: start.x + bendLen * 0.7 * Math.cos(hookAng),
+      y: start.y + bendLen * 0.7 * Math.sin(hookAng)
+    });
+    points.push({x: start.x, y: start.y});
+  } else if (hookL === '180') {
+    const hookAng = ang + Math.PI;
+    points.push({
+      x: start.x + bendLen * 0.6 * Math.cos(hookAng),
+      y: start.y + bendLen * 0.6 * Math.sin(hookAng)
+    });
+    points.push({x: start.x, y: start.y});
+  } else {
+    points.push({x: start.x, y: start.y});
+  }
+  
+  // 主線終点
+  points.push({x: end.x, y: end.y});
+  
+  // 右端フック処理
+  if (hookR === '90') {
+    points.push({
+      x: end.x + bendLen * Math.cos(perpAng),
+      y: end.y + bendLen * Math.sin(perpAng)
+    });
+  } else if (hookR === '135') {
+    const hookAng = ang + Math.PI * 0.75;
+    points.push({
+      x: end.x + bendLen * 0.7 * Math.cos(hookAng),
+      y: end.y + bendLen * 0.7 * Math.sin(hookAng)
+    });
+  } else if (hookR === '180') {
+    points.push({
+      x: end.x - bendLen * 0.6 * Math.cos(ang),
+      y: end.y - bendLen * 0.6 * Math.sin(ang)
+    });
+  }
+  
+  const polyline = new fabric.Polyline(points, {
+    stroke: strokeColor,
+    strokeWidth: strokeWidth,
+    fill: '',
+    _type: 'rebar',
+    _dia: dia,
+    _grade: grade,
+    _hookL: hookL,
+    _hookR: hookR,
+    _length: Math.round(len),
+    _layer: state.activeLayer,
+    selectable: state.tool === 'select'
+  });
+  
+  return polyline;
+}
+
+// ============================================================
+// 履歴管理
+// ============================================================
+
+function saveHistory() {
+  if (state.isLoadingHistory) return;
+  // グリッドは除外
+  const objs = canvas.getObjects().filter(o => !o._isGrid);
+  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer']));
+  state.history = state.history.slice(0, state.historyIndex + 1);
+  state.history.push(snap);
+  state.historyIndex++;
+  if (state.history.length > 50) {
+    state.history.shift();
+    state.historyIndex--;
+  }
+}
+
+function undo() {
+  if (state.historyIndex <= 0) return;
+  state.historyIndex--;
+  loadFromHistory();
+}
+
+function redo() {
+  if (state.historyIndex >= state.history.length - 1) return;
+  state.historyIndex++;
+  loadFromHistory();
+}
+
+function loadFromHistory() {
+  state.isLoadingHistory = true;
+  canvas.loadFromJSON(state.history[state.historyIndex], () => {
+    drawGrid();
+    canvas.renderAll();
+    state.isLoadingHistory = false;
+    updateStats();
+  });
+}
+
+// ============================================================
+// オブジェクト操作
+// ============================================================
+
+function deleteSelected() {
+  const active = canvas.getActiveObjects();
+  active.forEach(obj => canvas.remove(obj));
+  canvas.discardActiveObject();
+  canvas.renderAll();
+  saveHistory();
+  updateStats();
+}
+
+function duplicateSelected() {
+  const active = canvas.getActiveObject();
+  if (!active) return;
+  active.clone((cloned) => {
+    cloned.set({
+      left: cloned.left + 30,
+      top: cloned.top + 30
+    });
+    canvas.add(cloned);
+    canvas.setActiveObject(cloned);
+    canvas.renderAll();
+    saveHistory();
+    updateStats();
+  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer']);
+}
+
+function selectAll() {
+  canvas.discardActiveObject();
+  const objs = canvas.getObjects().filter(o => !o._isGrid);
+  const sel = new fabric.ActiveSelection(objs, {canvas});
+  canvas.setActiveObject(sel);
+  canvas.renderAll();
+}
+
+function zoom(factor) {
+  const z = canvas.getZoom() * factor;
+  canvas.setZoom(z);
+  document.getElementById('status-zoom').textContent = Math.round(z*100) + '%';
+  canvas.renderAll();
+}
+
+function zoomFit() {
+  canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+  canvas.setZoom(1);
+  document.getElementById('status-zoom').textContent = '100%';
+  canvas.renderAll();
+}
+
+// ============================================================
+// プロパティ更新
+// ============================================================
+
+function updateSelectedProps() {
+  const obj = canvas.getActiveObject();
+  if (!obj) return;
+  
+  const propDiv = document.getElementById('prop-content');
   let html = '';
-  let totalRebar = 0;
-  rebars.forEach(r => {
-    totalRebar += r.weight;
-    html += `<tr>
-      <td class="c"><b>${r.id}</b></td>
-      <td class="c">${r.dia}</td>
-      <td class="r">${r.len.toLocaleString()}</td>
-      <td class="r">${r.count}</td>
-      <td class="r">${r.weight.toFixed(1)}</td>
-    </tr>`;
-  });
-  html += `<tr class="total"><td colspan="4" class="r">小計</td><td class="r">${totalRebar.toFixed(1)} kg</td></tr>`;
-  html += `<tr class="grand"><td colspan="4" class="r">+10%余長</td><td class="r">${(totalRebar*1.1).toFixed(1)} kg</td></tr>`;
-  document.getElementById('rebar-tbody').innerHTML = html;
   
-  // 数量集計
-  html = '';
-  quantities.forEach(q => {
-    html += `<tr>
-      <td>${q.name}</td>
-      <td class="c">${q.unit}</td>
-      <td class="r">${(q.val / (p.L_total/1000)).toFixed(3)}</td>
-      <td class="r">${q.val.toFixed(2)}</td>
-    </tr>`;
-  });
-  document.getElementById('quantity-tbody').innerHTML = html;
-  
-  // 材料費
-  const rebarTotal = totalRebar * 1.1;
-  const concVol = quantities.find(q => q.name === "コンクリート本体").val;
-  const formArea = quantities.find(q => q.name === "型枠工").val;
-  const stoneVol = quantities.find(q => q.name === "栗石・砂利").val;
-  const sutekonVol = quantities.find(q => q.name === "捨てコン(t=50)").val;
-  const crushedVol = quantities.find(q => q.name === "砕石(C-40)").val;
-  const capVol = quantities.find(q => q.name === "キャップコン").val;
-  
-  const costRebar = rebarTotal / 1000 * p.price_rebar;
-  const costConc = concVol * p.price_conc;
-  const costForm = formArea * p.price_form;
-  const costStone = stoneVol * p.price_stone;
-  const costSutekon = sutekonVol * (p.price_conc * 0.85);
-  const costCrushed = crushedVol * 4500;
-  const costCap = capVol * (p.price_conc * 0.85);
-  
-  const totalCost = costRebar + costConc + costForm + costStone + costSutekon + costCrushed + costCap;
-  
-  html = `
-    <tr><td>鉄筋</td><td class="r">${rebarTotal.toFixed(0)}kg</td><td class="r">${(p.price_rebar/1000).toLocaleString()}/kg</td><td class="r">¥${Math.round(costRebar).toLocaleString()}</td></tr>
-    <tr><td>コンクリート(本体)</td><td class="r">${concVol.toFixed(2)}m³</td><td class="r">${p.price_conc.toLocaleString()}</td><td class="r">¥${Math.round(costConc).toLocaleString()}</td></tr>
-    <tr><td>型枠工</td><td class="r">${formArea.toFixed(2)}m²</td><td class="r">${p.price_form.toLocaleString()}</td><td class="r">¥${Math.round(costForm).toLocaleString()}</td></tr>
-    <tr><td>栗石・砂利</td><td class="r">${stoneVol.toFixed(2)}m³</td><td class="r">${p.price_stone.toLocaleString()}</td><td class="r">¥${Math.round(costStone).toLocaleString()}</td></tr>
-    <tr><td>捨てコン</td><td class="r">${sutekonVol.toFixed(2)}m³</td><td class="r">${Math.round(p.price_conc*0.85).toLocaleString()}</td><td class="r">¥${Math.round(costSutekon).toLocaleString()}</td></tr>
-    <tr><td>砕石基礎</td><td class="r">${crushedVol.toFixed(2)}m³</td><td class="r">4,500</td><td class="r">¥${Math.round(costCrushed).toLocaleString()}</td></tr>
-    <tr><td>キャップコン</td><td class="r">${capVol.toFixed(2)}m³</td><td class="r">${Math.round(p.price_conc*0.85).toLocaleString()}</td><td class="r">¥${Math.round(costCap).toLocaleString()}</td></tr>
-    <tr class="grand"><td colspan="3" class="r">材料費合計</td><td class="r">¥${Math.round(totalCost).toLocaleString()}</td></tr>
-  `;
-  document.getElementById('cost-tbody').innerHTML = html;
-  
-  document.getElementById('total-cost').textContent = Math.round(totalCost).toLocaleString();
-}
-
-// ============================================================
-// メイン更新ループ
-// ============================================================
-
-function update() {
-  const p = getParams();
-  const warnings = validate(p);
-  document.getElementById('warnings').innerHTML = warnings.join('');
-  
-  const g = calcGeometry(p);
-  const rebars = calcRebars(p, g);
-  const quantities = calcQuantities(p, g);
-  
-  renderCrossSection(p, g, rebars);
-  renderSlabDetail(p, g);
-  renderTables(p, rebars, quantities);
-}
-
-// イベント
-document.querySelectorAll('input, select').forEach(el => {
-  el.addEventListener('input', update);
-  el.addEventListener('change', update);
-});
-
-// 自動連動: H_above + Df = H_total
-['H_above', 'Df'].forEach(id => {
-  document.getElementById(id).addEventListener('input', () => {
-    const H_above = parseFloat(document.getElementById('H_above').value);
-    const Df = parseFloat(document.getElementById('Df').value);
-    document.getElementById('H_total').value = H_above + Df;
-    update();
-  });
-});
-
-// ============================================================
-// プリセット
-// ============================================================
-
-const PRESETS = {
-  matiuke: {
-    H_total: 3800, H_above: 3000, Df: 800, B: 1600, slab_t: 400, toe: 100, L_total: 7000,
-    t_top: 200, t_bot: 500, 
-    W1_dia: "D16", W2_dia: "D13", W3_dia: "D13", wall_pitch: 300,
-    B1_dia: "D16", B2_dia: "D13", B3_dia: "D13", slab_pitch: 300,
-    cover: 60, cover_top: 40
-  },
-  'L-chiba': {
-    H_total: 2900, H_above: 2500, Df: 400, B: 3000, slab_t: 400, toe: 250, L_total: 7000,
-    t_top: 250, t_bot: 250,
-    W1_dia: "D16", W2_dia: "D13", W3_dia: "D13", wall_pitch: 125,
-    B1_dia: "D16", B2_dia: "D13", B3_dia: "D13", slab_pitch: 250,
-    cover: 60, cover_top: 60
-  },
-  'inv-T': {
-    H_total: 3500, H_above: 3000, Df: 500, B: 2500, slab_t: 400, toe: 600, L_total: 7000,
-    t_top: 250, t_bot: 350,
-    W1_dia: "D16", W2_dia: "D13", W3_dia: "D13", wall_pitch: 200,
-    B1_dia: "D16", B2_dia: "D13", B3_dia: "D13", slab_pitch: 200,
-    cover: 60, cover_top: 40
+  if (obj._type === 'rebar') {
+    html = `
+      <div class="prop-row"><label>種別</label><span>鉄筋</span></div>
+      <div class="prop-row"><label>径</label>
+        <select id="prop-rebar-dia" onchange="updateRebarProp('dia', this.value)">
+          <option ${obj._dia==='D10'?'selected':''}>D10</option>
+          <option ${obj._dia==='D13'?'selected':''}>D13</option>
+          <option ${obj._dia==='D16'?'selected':''}>D16</option>
+          <option ${obj._dia==='D19'?'selected':''}>D19</option>
+          <option ${obj._dia==='D22'?'selected':''}>D22</option>
+        </select>
+      </div>
+      <div class="prop-row"><label>規格</label>
+        <select onchange="updateRebarProp('grade', this.value)">
+          <option ${obj._grade==='SD295'?'selected':''}>SD295</option>
+          <option ${obj._grade==='SD345'?'selected':''}>SD345</option>
+        </select>
+      </div>
+      <div class="prop-row"><label>長さ</label><span>${obj._length} mm</span></div>
+      <div class="prop-row"><label>左端</label>
+        <select onchange="updateRebarProp('hookL', this.value)">
+          <option value="none" ${obj._hookL==='none'?'selected':''}>なし</option>
+          <option value="90" ${obj._hookL==='90'?'selected':''}>90°</option>
+          <option value="135" ${obj._hookL==='135'?'selected':''}>135°</option>
+          <option value="180" ${obj._hookL==='180'?'selected':''}>180°</option>
+        </select>
+      </div>
+      <div class="prop-row"><label>右端</label>
+        <select onchange="updateRebarProp('hookR', this.value)">
+          <option value="none" ${obj._hookR==='none'?'selected':''}>なし</option>
+          <option value="90" ${obj._hookR==='90'?'selected':''}>90°</option>
+          <option value="135" ${obj._hookR==='135'?'selected':''}>135°</option>
+          <option value="180" ${obj._hookR==='180'?'selected':''}>180°</option>
+        </select>
+      </div>
+    `;
+  } else if (obj._type === 'dimension') {
+    html = `
+      <div class="prop-row"><label>種別</label><span>寸法線</span></div>
+      <div class="prop-row"><label>長さ</label><span>${obj._length} mm</span></div>
+    `;
+  } else {
+    const type = obj.type || 'object';
+    const typeLabel = {
+      'line': '直線', 'rect': '矩形', 'circle': '円',
+      'polygon': '多角形', 'polyline': '折れ線',
+      'path': 'パス', 'i-text': 'テキスト', 'text': 'テキスト',
+      'group': 'グループ', 'activeSelection': '複数選択'
+    };
+    html = `<div class="prop-row"><label>種別</label><span>${typeLabel[type] || type}</span></div>`;
+    
+    if (obj.left !== undefined) {
+      html += `<div class="prop-row"><label>X</label><input type="number" value="${Math.round(obj.left)}" onchange="updateObjProp('left', this.value)"></div>`;
+      html += `<div class="prop-row"><label>Y</label><input type="number" value="${Math.round(obj.top)}" onchange="updateObjProp('top', this.value)"></div>`;
+    }
+    if (obj.width !== undefined && obj.type === 'rect') {
+      html += `<div class="prop-row"><label>幅</label><input type="number" value="${Math.round(obj.width)}" onchange="updateObjProp('width', this.value)"></div>`;
+      html += `<div class="prop-row"><label>高さ</label><input type="number" value="${Math.round(obj.height)}" onchange="updateObjProp('height', this.value)"></div>`;
+    }
+    if (obj.radius !== undefined) {
+      html += `<div class="prop-row"><label>半径</label><input type="number" value="${Math.round(obj.radius)}" onchange="updateObjProp('radius', this.value)"></div>`;
+    }
+    if (obj.angle !== undefined) {
+      html += `<div class="prop-row"><label>回転</label><input type="number" value="${Math.round(obj.angle)}" onchange="updateObjProp('angle', this.value)"></div>`;
+    }
+    html += `<div class="prop-row"><label>色</label><input type="color" value="${obj.stroke || '#000000'}" onchange="updateObjProp('stroke', this.value)"></div>`;
+    html += `<div class="prop-row"><label>太さ</label><input type="number" value="${obj.strokeWidth || 1}" onchange="updateObjProp('strokeWidth', this.value)"></div>`;
   }
-};
+  
+  propDiv.innerHTML = html;
+}
 
-function applyPreset(name) {
-  const preset = PRESETS[name];
-  if (!preset) return;
-  Object.keys(preset).forEach(key => {
-    const el = document.getElementById(key);
-    if (el) el.value = preset[key];
+function updateRebarProp(key, val) {
+  const obj = canvas.getActiveObject();
+  if (!obj || obj._type !== 'rebar') return;
+  
+  // 鉄筋を作り直す
+  const start = obj.points[obj.points.length-3] || obj.points[0];
+  const end = obj.points[obj.points.length-2] || obj.points[obj.points.length-1];
+  
+  // 古い値を取得して更新
+  document.getElementById('rebar-dia').value = key==='dia' ? val : obj._dia;
+  document.getElementById('rebar-grade').value = key==='grade' ? val : obj._grade;
+  document.getElementById('rebar-hook-l').value = key==='hookL' ? val : obj._hookL;
+  document.getElementById('rebar-hook-r').value = key==='hookR' ? val : obj._hookR;
+  
+  const offsetX = obj.left || 0;
+  const offsetY = obj.top || 0;
+  const realStart = {x: start.x + offsetX, y: start.y + offsetY};
+  const realEnd = {x: end.x + offsetX, y: end.y + offsetY};
+  
+  const newRebar = createRebar(realStart, realEnd);
+  newRebar.selectable = true;
+  newRebar.evented = true;
+  
+  canvas.remove(obj);
+  canvas.add(newRebar);
+  canvas.setActiveObject(newRebar);
+  canvas.renderAll();
+  saveHistory();
+  updateSelectedProps();
+}
+
+function updateObjProp(key, val) {
+  const obj = canvas.getActiveObject();
+  if (!obj) return;
+  obj.set(key, isNaN(val) ? val : parseFloat(val));
+  obj.setCoords();
+  canvas.renderAll();
+  saveHistory();
+}
+
+// ============================================================
+// レイヤー管理
+// ============================================================
+
+function renderLayerList() {
+  const list = document.getElementById('layer-list');
+  list.innerHTML = '';
+  state.layers.forEach((layer, i) => {
+    const item = document.createElement('div');
+    item.className = 'layer-item' + (i === state.activeLayer ? ' active' : '');
+    item.onclick = () => { state.activeLayer = i; renderLayerList(); };
+    item.innerHTML = `
+      <span class="vis" onclick="event.stopPropagation(); toggleLayerVis(${i})">${layer.visible ? '👁' : '○'}</span>
+      <span class="lock" onclick="event.stopPropagation(); toggleLayerLock(${i})">${layer.locked ? '🔒' : '🔓'}</span>
+      <span class="color-dot" style="background:${layer.color}"></span>
+      <span class="name">${layer.name}</span>
+    `;
+    list.appendChild(item);
   });
-  // ボタンのアクティブ状態
-  document.querySelectorAll('.preset-buttons button').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
-  update();
 }
 
-function resetToDefault() {
-  applyPreset('matiuke');
-  document.querySelector('.preset-buttons button').classList.add('active');
+function toggleLayerVis(i) {
+  state.layers[i].visible = !state.layers[i].visible;
+  canvas.forEachObject(obj => {
+    if (obj._layer === i) {
+      obj.visible = state.layers[i].visible;
+    }
+  });
+  canvas.renderAll();
+  renderLayerList();
 }
+
+function toggleLayerLock(i) {
+  state.layers[i].locked = !state.layers[i].locked;
+  canvas.forEachObject(obj => {
+    if (obj._layer === i) {
+      obj.selectable = !state.layers[i].locked && state.tool === 'select';
+      obj.evented = !state.layers[i].locked;
+    }
+  });
+  renderLayerList();
+}
+
+function addLayer() {
+  const name = prompt('レイヤー名:', '新しいレイヤー');
+  if (!name) return;
+  state.layers.push({name, color: '#888888', visible: true, locked: false});
+  renderLayerList();
+}
+
+function renameLayer() {
+  const layer = state.layers[state.activeLayer];
+  const newName = prompt('レイヤー名:', layer.name);
+  if (newName) {
+    layer.name = newName;
+    renderLayerList();
+  }
+}
+
+// ============================================================
+// 統計更新
+// ============================================================
+
+function updateStats() {
+  const objs = canvas.getObjects().filter(o => !o._isGrid);
+  let rebarCount = 0, lineCount = 0, shapeCount = 0;
+  objs.forEach(o => {
+    if (o._type === 'rebar') rebarCount++;
+    else if (o.type === 'line' || o.type === 'polyline') lineCount++;
+    else shapeCount++;
+  });
+  document.getElementById('stat-rebar').textContent = `鉄筋: ${rebarCount} 本`;
+  document.getElementById('stat-line').textContent = `線: ${lineCount}`;
+  document.getElementById('stat-shape').textContent = `図形: ${shapeCount}`;
+  document.getElementById('status-count').textContent = `オブジェクト: ${objs.length}`;
+}
+
+// ============================================================
+// キーボード
+// ============================================================
+
+document.addEventListener('keydown', (e) => {
+  // 入力フィールドではショートカットを無効
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+  
+  if (e.shiftKey) window.shiftPressed = true;
+  if (e.code === 'Space') {
+    state.spacePressed = true;
+    canvas.defaultCursor = 'grab';
+    e.preventDefault();
+    return;
+  }
+  
+  if (e.ctrlKey || e.metaKey) {
+    if (e.key === 'z') { undo(); e.preventDefault(); }
+    else if (e.key === 'y') { redo(); e.preventDefault(); }
+    else if (e.key === 'd') { duplicateSelected(); e.preventDefault(); }
+    else if (e.key === 'a') { selectAll(); e.preventDefault(); }
+    else if (e.key === 's') { saveJSON(); e.preventDefault(); }
+    return;
+  }
+  
+  if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); e.preventDefault(); }
+  else if (e.key === 'Escape') {
+    canvas.discardActiveObject();
+    if (state.tool === 'polygon' && state.polygonPoints.length >= 3) {
+      finishPolygon();
+    } else {
+      setTool('select');
+    }
+    canvas.renderAll();
+  }
+  else if (e.key === 'Enter' && state.tool === 'polygon' && state.polygonPoints.length >= 3) {
+    finishPolygon();
+  }
+  // ツールショートカット
+  else if (e.key === 's') setTool('select');
+  else if (e.key === 'l') setTool('line');
+  else if (e.key === 'r') setTool('rect');
+  else if (e.key === 'c') setTool('circle');
+  else if (e.key === 'd') setTool('dim');
+  else if (e.key === 'b') setTool('rebar');
+  else if (e.key === 't') setTool('text');
+  else if (e.key === 'f') zoomFit();
+});
+
+document.addEventListener('keyup', (e) => {
+  if (!e.shiftKey) window.shiftPressed = false;
+  if (e.code === 'Space') {
+    state.spacePressed = false;
+    canvas.defaultCursor = state.tool === 'select' ? 'default' : 'crosshair';
+  }
+});
 
 // ============================================================
 // JSON 入出力
 // ============================================================
 
-function exportJSON() {
-  const p = getParams();
-  const json = {
-    type: "yoheki-cad",
-    version: "0.1",
+function newDrawing() {
+  if (!confirm('現在の図面をクリアしますか?')) return;
+  canvas.clear();
+  canvas.setBackgroundColor('#fafafa', canvas.renderAll.bind(canvas));
+  drawGrid();
+  state.history = [];
+  state.historyIndex = -1;
+  saveHistory();
+  updateStats();
+}
+
+function saveJSON() {
+  const data = {
+    type: 'yoheki-cad',
+    version: '0.2',
     created: new Date().toISOString(),
-    parameters: p
+    layers: state.layers,
+    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer'])
   };
-  const blob = new Blob([JSON.stringify(json, null, 2)], {type: "application/json"});
+  // グリッドは除外
+  data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid);
+  
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -1047,7 +1445,7 @@ function exportJSON() {
   URL.revokeObjectURL(url);
 }
 
-function importJSON() {
+function openJSON() {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = '.json';
@@ -1057,17 +1455,18 @@ function importJSON() {
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const json = JSON.parse(ev.target.result);
-        if (json.parameters) {
-          Object.keys(json.parameters).forEach(key => {
-            const el = document.getElementById(key);
-            if (el) el.value = json.parameters[key];
+        const data = JSON.parse(ev.target.result);
+        if (data.canvas) {
+          if (data.layers) state.layers = data.layers;
+          canvas.loadFromJSON(data.canvas, () => {
+            drawGrid();
+            renderLayerList();
+            canvas.renderAll();
+            updateStats();
           });
-          update();
-          alert('読み込みました');
         }
       } catch (err) {
-        alert('JSONの読み込みに失敗しました: ' + err.message);
+        alert('読み込みエラー: ' + err.message);
       }
     };
     reader.readAsText(file);
@@ -1075,8 +1474,277 @@ function importJSON() {
   input.click();
 }
 
-// 初期描画
-update();
+function exportSVG() {
+  // グリッドを除外したSVG出力
+  const svg = canvas.toSVG({
+    suppressPreamble: false
+  }, function(o) {
+    // グリッドはスキップ
+    if (o._isGrid) return false;
+    return o;
+  });
+  const blob = new Blob([svg], {type: 'image/svg+xml'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `yoheki_${Date.now()}.svg`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportPNG() {
+  // 一時的にグリッドを非表示
+  gridLines.forEach(l => l.visible = false);
+  canvas.renderAll();
+  
+  const dataURL = canvas.toDataURL({format: 'png', quality: 1.0, multiplier: 2});
+  const a = document.createElement('a');
+  a.href = dataURL;
+  a.download = `yoheki_${Date.now()}.png`;
+  a.click();
+  
+  gridLines.forEach(l => l.visible = true);
+  canvas.renderAll();
+}
+
+// ============================================================
+// テンプレート読み込み
+// ============================================================
+
+function loadTemplateMenu() {
+  document.getElementById('modal-template').classList.add('show');
+}
+
+function loadTemplate(name) {
+  if (canvas.getObjects().filter(o => !o._isGrid).length > 0) {
+    if (!confirm('現在の図面をクリアしてテンプレートを読み込みますか?')) return;
+  }
+  
+  canvas.clear();
+  canvas.setBackgroundColor('#fafafa', canvas.renderAll.bind(canvas));
+  
+  if (name === 'blank') {
+    drawGrid();
+    saveHistory();
+    updateStats();
+    return;
+  }
+  
+  const templates = {
+    'matiuke': () => buildMatiuke(),
+    'L-chiba': () => buildLChiba(),
+    'inv-T': () => buildInvT()
+  };
+  
+  templates[name]();
+  drawGrid();
+  saveHistory();
+  updateStats();
+}
+
+function buildMatiuke() {
+  // 待ち受け式擁壁 H=3.8m を編集可能オブジェクトとしてキャンバスに展開
+  // スケール: 1mm = 0.1 pixel (1:10で表示しキャンバスに収まるサイズ)
+  const sc = 0.15;  // 1mm = 0.15px
+  const ox = 100, oy = 80;  // オフセット
+  
+  // 構造体ポリゴン
+  const structure = new fabric.Polygon([
+    {x: ox + 700*sc, y: oy + 4200*sc},
+    {x: ox + 2300*sc, y: oy + 4200*sc},
+    {x: ox + 2300*sc, y: oy + 3800*sc},
+    {x: ox + 1300*sc, y: oy + 3800*sc},
+    {x: ox + 1300*sc, y: oy + 400*sc},
+    {x: ox + 1100*sc, y: oy + 400*sc},
+    {x: ox + 800*sc, y: oy + 3800*sc},
+    {x: ox + 700*sc, y: oy + 3800*sc}
+  ], {
+    fill: '#f5f5f5', stroke: '#000', strokeWidth: 2,
+    _layer: 0
+  });
+  canvas.add(structure);
+  
+  // W1 背面主筋
+  const w1Start = {x: ox + 1240*sc, y: oy + 440*sc};
+  const w1End = {x: ox + 1240*sc, y: oy + 4140*sc};
+  document.getElementById('rebar-dia').value = 'D16';
+  document.getElementById('rebar-hook-l').value = 'none';
+  document.getElementById('rebar-hook-r').value = '90';
+  const w1 = createRebar(w1Start, w1End);
+  w1._label = 'W1';
+  w1._layer = 1;
+  canvas.add(w1);
+  
+  // W2 前面主筋（テーパー追随）
+  const w2Start = {x: ox + 1158*sc, y: oy + 440*sc};
+  const w2End = {x: ox + 855*sc, y: oy + 3860*sc};
+  document.getElementById('rebar-dia').value = 'D13';
+  document.getElementById('rebar-hook-l').value = 'none';
+  document.getElementById('rebar-hook-r').value = '90';
+  const w2 = createRebar(w2Start, w2End);
+  w2._label = 'W2';
+  w2._layer = 1;
+  canvas.add(w2);
+  
+  // B1 底版上端筋 (⊓型)
+  const b1Path = new fabric.Polyline([
+    {x: ox + 760*sc, y: oy + 4140*sc},
+    {x: ox + 760*sc, y: oy + 3860*sc},
+    {x: ox + 2240*sc, y: oy + 3860*sc},
+    {x: ox + 2240*sc, y: oy + 4140*sc}
+  ], {
+    stroke: '#c00', strokeWidth: 5, fill: '',
+    _type: 'rebar', _dia: 'D16', _grade: 'SD345',
+    _hookL: '90', _hookR: '90', _length: 2040,
+    _layer: 1
+  });
+  canvas.add(b1Path);
+  
+  // B2 底版下端筋 (⊔型)
+  const b2Path = new fabric.Polyline([
+    {x: ox + 760*sc, y: oy + 3860*sc},
+    {x: ox + 760*sc, y: oy + 4140*sc},
+    {x: ox + 2240*sc, y: oy + 4140*sc},
+    {x: ox + 2240*sc, y: oy + 3860*sc}
+  ], {
+    stroke: '#0066cc', strokeWidth: 4, fill: '',
+    _type: 'rebar', _dia: 'D13', _grade: 'SD295',
+    _hookL: '90', _hookR: '90', _length: 2040,
+    _layer: 1
+  });
+  canvas.add(b2Path);
+  
+  // 寸法線 B=1600
+  const dimY = oy + 4500*sc;
+  const dim1 = createDimensionLine(
+    {x: ox + 700*sc, y: dimY},
+    {x: ox + 2300*sc, y: dimY}
+  );
+  dim1._layer = 2;
+  canvas.add(dim1);
+  
+  // 寸法線 H=3800
+  const dimX = ox + 500*sc;
+  const dim2 = createDimensionLine(
+    {x: dimX, y: oy + 400*sc},
+    {x: dimX, y: oy + 4200*sc}
+  );
+  dim2._layer = 2;
+  canvas.add(dim2);
+  
+  // ラベル
+  const lbl1 = new fabric.Text('W1 D16@300', {
+    left: ox + 1300*sc, top: oy + 2200*sc,
+    fontSize: 14, fill: '#c00', fontFamily: 'Yu Gothic',
+    _layer: 3
+  });
+  canvas.add(lbl1);
+  
+  const lbl2 = new fabric.Text('W2 D13@300', {
+    left: ox + 200, top: oy + 2200*sc,
+    fontSize: 14, fill: '#0066cc', fontFamily: 'Yu Gothic',
+    _layer: 3
+  });
+  canvas.add(lbl2);
+  
+  canvas.renderAll();
+}
+
+function buildLChiba() {
+  // 千葉市L型 (簡易版)
+  const sc = 0.2;
+  const ox = 150, oy = 80;
+  
+  const structure = new fabric.Polygon([
+    {x: ox + 0*sc, y: oy + 2900*sc},
+    {x: ox + 3000*sc, y: oy + 2900*sc},
+    {x: ox + 3000*sc, y: oy + 2500*sc},
+    {x: ox + 600*sc, y: oy + 2500*sc},
+    {x: ox + 600*sc, y: oy + 0*sc},
+    {x: ox + 350*sc, y: oy + 0*sc},
+    {x: ox + 350*sc, y: oy + 2200*sc},
+    {x: ox + 0*sc, y: oy + 2200*sc},
+    {x: ox + 0*sc, y: oy + 2500*sc}
+  ], {
+    fill: '#f5f5f5', stroke: '#000', strokeWidth: 2,
+    _layer: 0
+  });
+  canvas.add(structure);
+  
+  // 寸法線
+  const dim1 = createDimensionLine(
+    {x: ox, y: oy + 3050*sc},
+    {x: ox + 3000*sc, y: oy + 3050*sc}
+  );
+  dim1._layer = 2;
+  canvas.add(dim1);
+  
+  canvas.renderAll();
+}
+
+function buildInvT() {
+  // 逆T型擁壁
+  const sc = 0.15;
+  const ox = 150, oy = 80;
+  
+  const structure = new fabric.Polygon([
+    {x: ox + 0*sc, y: oy + 3500*sc},
+    {x: ox + 2500*sc, y: oy + 3500*sc},
+    {x: ox + 2500*sc, y: oy + 3100*sc},
+    {x: ox + 1500*sc, y: oy + 3100*sc},
+    {x: ox + 1500*sc, y: oy + 0*sc},
+    {x: ox + 1100*sc, y: oy + 0*sc},
+    {x: ox + 1100*sc, y: oy + 3100*sc},
+    {x: ox + 0*sc, y: oy + 3100*sc}
+  ], {
+    fill: '#f5f5f5', stroke: '#000', strokeWidth: 2,
+    _layer: 0
+  });
+  canvas.add(structure);
+  canvas.renderAll();
+}
+
+// ============================================================
+// モーダル
+// ============================================================
+
+function showHelp() {
+  document.getElementById('modal-help').classList.add('show');
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('show');
+}
+
+document.querySelectorAll('.modal-bg').forEach(bg => {
+  bg.addEventListener('click', (e) => {
+    if (e.target === bg) bg.classList.remove('show');
+  });
+});
+
+// 直交モードチェックボックス
+document.getElementById('ortho').addEventListener('change', (e) => {
+  state.orthoMode = e.target.checked;
+});
+
+// ============================================================
+// 初期化完了
+// ============================================================
+
+renderLayerList();
+drawGrid();
+saveHistory();
+updateStats();
+setTool('select');
+
+// 初回ガイド
+setTimeout(() => {
+  if (!localStorage.getItem('yoheki-cad-visited')) {
+    showHelp();
+    localStorage.setItem('yoheki-cad-visited', '1');
+  }
+}, 500);
+
 </script>
 
 </body>
