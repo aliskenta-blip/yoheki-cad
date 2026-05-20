@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>yoheki-cad v0.1 (パラメトリック擁壁エディタ)</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Yu Gothic', 'Meiryo', sans-serif;
+    margin: 0; padding: 0; background: #f3f3f3; color: #222;
+    font-size: 13px;
+  }
+  
+  /* ヘッダー */
+  header {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%);
+    color: white; padding: 10px 18px;
+    display: flex; justify-content: space-between; align-items: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header .ver { font-size: 11px; opacity: 0.7; margin-left: 8px; }
+  header .actions { display: flex; gap: 8px; }
+  header button {
+    background: rgba(255,255,255,0.15); color: white;
+    border: 1px solid rgba(255,255,255,0.4);
+    padding: 6px 14px; border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-weight: 500;
+  }
+  header button:hover { background: rgba(255,255,255,0.25); }
+  header button.primary { background: #f97316; border-color: #f97316; }
+  header button.primary:hover { background: #ea580c; }
+  
+  /* メインレイアウト */
+  .app {
+    display: grid;
+    grid-template-columns: 320px 1fr 380px;
+    gap: 0;
+    height: calc(100vh - 50px);
+  }
+  
+  /* 左サイドバー: パラメータ */
+  .panel-left {
+    background: white; border-right: 1px solid #ddd;
+    overflow-y: auto; padding: 12px 14px;
+  }
+  
+  .section-title {
+    font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    color: #1e3a5f;
+    border-bottom: 2px solid #1e3a5f;
+    padding-bottom: 4px; margin-top: 16px; margin-bottom: 8px;
+  }
+  .section-title:first-child { margin-top: 0; }
+  
+  .param-row {
+    display: grid;
+    grid-template-columns: 1fr 90px 28px;
+    align-items: center; gap: 6px;
+    margin: 4px 0;
+  }
+  .param-row label { font-size: 12px; color: #444; }
+  .param-row input[type="number"], .param-row select {
+    width: 100%; padding: 4px 6px;
+    border: 1px solid #bbb; border-radius: 3px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .param-row input:focus, .param-row select:focus {
+    outline: none; border-color: #2c5282; box-shadow: 0 0 0 2px rgba(44,82,130,0.2);
+  }
+  .param-row .unit { font-size: 11px; color: #888; }
+  
+  .preset-buttons { display: flex; gap: 4px; flex-wrap: wrap; margin: 6px 0; }
+  .preset-buttons button {
+    flex: 1; min-width: 60px;
+    background: #f0f4f8; border: 1px solid #cbd5e0;
+    padding: 5px 8px; border-radius: 3px;
+    cursor: pointer; font-size: 11px;
+  }
+  .preset-buttons button:hover { background: #e2e8f0; }
+  .preset-buttons button.active { background: #2c5282; color: white; border-color: #2c5282; }
+  
+  /* 中央: 図面表示 */
+  .panel-center {
+    background: #d9d9d9; padding: 14px;
+    display: flex; flex-direction: column; gap: 10px;
+    overflow: auto;
+  }
+  .drawing-card {
+    background: white;
+    border: 1px solid #999;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    padding: 10px;
+  }
+  .drawing-card .card-title {
+    font-size: 12px; font-weight: 700;
+    border-bottom: 1px solid #ddd; padding-bottom: 4px; margin-bottom: 6px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .drawing-card .card-title .scale { font-size: 10px; color: #666; font-weight: normal; }
+  
+  svg.dwg { display: block; width: 100%; height: auto; }
+  
+  /* 右サイドバー: 集計 */
+  .panel-right {
+    background: white; border-left: 1px solid #ddd;
+    overflow-y: auto; padding: 12px 14px;
+  }
+  
+  table.compact {
+    width: 100%; border-collapse: collapse;
+    font-size: 11.5px; margin: 6px 0;
+  }
+  table.compact th, table.compact td {
+    border: 1px solid #ccc; padding: 4px 6px;
+  }
+  table.compact th {
+    background: #ecf0f4; font-weight: 600; text-align: center;
+    font-size: 11px;
+  }
+  table.compact td.r { text-align: right; font-variant-numeric: tabular-nums; }
+  table.compact td.c { text-align: center; }
+  table.compact tr.total { background: #fff9d0; font-weight: 700; }
+  table.compact tr.grand { background: #fff0a0; font-weight: 700; }
+  
+  .summary-box {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%);
+    color: white; padding: 12px 14px; border-radius: 6px;
+    margin: 10px 0;
+  }
+  .summary-box .label { font-size: 11px; opacity: 0.85; }
+  .summary-box .value {
+    font-size: 22px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+  }
+  .summary-box .unit { font-size: 13px; opacity: 0.8; margin-left: 4px; }
+  
+  /* バリデーション警告 */
+  .warning {
+    background: #fff5e6; border-left: 4px solid #f59e0b;
+    padding: 6px 10px; font-size: 11px; color: #92400e;
+    margin: 6px 0; border-radius: 3px;
+  }
+  .error {
+    background: #fee; border-left: 4px solid #c00;
+    padding: 6px 10px; font-size: 11px; color: #800;
+    margin: 6px 0; border-radius: 3px;
+  }
+  
+  /* 印刷時 */
+  @media print {
+    .panel-left, .panel-right, header { display: none; }
+    .panel-center { background: white; padding: 0; }
+    .drawing-card { box-shadow: none; border: none; page-break-inside: avoid; }
+  }
+  
+  /* スクロールバー */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: #f1f1f1; }
+  ::-webkit-scrollbar-thumb { background: #c0c0c0; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #a0a0a0; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>📐 yoheki-cad <span class="ver">v0.1 (Phase 1+2 試作版)</span></h1>
+  </div>
+  <div class="actions">
+    <button onclick="exportJSON()">💾 JSON保存</button>
+    <button onclick="importJSON()">📂 JSON読込</button>
+    <button onclick="window.print()">🖨️ 印刷</button>
+    <button class="primary" onclick="resetToDefault()">↺ リセット</button>
+  </div>
+</header>
+
+<div class="app">
+  
+  <!-- ===== 左パネル: パラメータ入力 ===== -->
+  <div class="panel-left">
+    
+    <div class="section-title">テンプレート</div>
+    <div class="preset-buttons">
+      <button class="active" onclick="applyPreset('matiuke')">待ち受け式</button>
+      <button onclick="applyPreset('L-chiba')">千葉市L型</button>
+      <button onclick="applyPreset('inv-T')">逆T型</button>
+    </div>
+    
+    <div class="section-title">構造寸法</div>
+    
+    <div class="param-row">
+      <label>全高 H</label>
+      <input type="number" id="H_total" value="3800" min="1000" max="8000" step="100">
+      <span class="unit">mm</span>
+    </div>
+    <div class="param-row">
+      <label>地上高 H1</label>
+      <input type="number" id="H_above" value="3000" min="500" max="6000" step="100">
+      <span class="unit">mm</span>
+    </div>
+    <div class="param-row">
+      <label>根入れ Df</label>
+      <input type="number" id="Df" value="800" min="300" max="2000" step="50">
+      <span class="unit">mm</span>
+    </div>
+    <div class="param-row">
+      <label>底版幅 B</label>
+      <input type="number" id="B" value="1600" min="800" max="4000" step="100">
+      <span class="unit">mm</span>
+    </div>
+    <div class="param-row">
+      <label>底版厚 t</label>
+      <input type="number" id="slab_t" value="400" min="200" max="800" step="50">
+      <span class="unit">mm</span>
+    </div>
+    <div class="param-row">
+      <label>つま先長</label>
+      <input type="number" id="toe" value="100" min="0" max="1000" step="50">
+      <span class="unit">mm</span>
+    </div>
+    <div class="param-row">
+      <label>全長 L</label>
+      <input type="number" id="L_total" value="7000" min="1000" max="50000" step="500">
+      <span class="unit">mm</span>
+    </div>
+    
+    <div class="section-title">壁体形状</div>
+    
+    <div class="param-row">
+      <label>壁天端厚</label>
+      <input type="number" id="t_top" value="200" min="100" max="500" step="50">
+      <span class="unit">mm</span>
+    </div>
+    <div class="param-row">
+      <label>壁底部厚</label>
+      <input type="number" id="t_bot" value="500" min="150" max="800" step="50">
+      <span class="unit">mm</span>
+    </div>
+    
+    <div class="section-title">配筋 - 竪壁</div>
+    
+    <div class="param-row">
+      <label>W1 背面主筋</label>
+      <select id="W1_dia">
+        <option>D10</option><option>D13</option>
+        <option selected>D16</option><option>D19</option><option>D22</option>
+      </select>
+      <span class="unit"></span>
+    </div>
+    <div class="param-row">
+      <label>W2 前面主筋</label>
+      <select id="W2_dia">
+        <option>D10</option><option selected>D13</option>
+        <option>D16</option><option>D19</option>
+      </select>
+      <span class="unit"></span>
+    </div>
+    <div class="param-row">
+      <label>W3 配力筋</label>
+      <select id="W3_dia">
+        <option>D10</option><option selected>D13</option><option>D16</option>
+      </select>
+      <span class="unit"></span>
+    </div>
+    <div class="param-row">
+      <label>主筋ピッチ</label>
+      <input type="number" id="wall_pitch" value="300" min="100" max="500" step="25">
+      <span class="unit">mm</span>
+    </div>
+    
+    <div class="section-title">配筋 - 底版</div>
+    
+    <div class="param-row">
+      <label>B1 上端筋</label>
+      <select id="B1_dia">
+        <option>D10</option><option>D13</option>
+        <option selected>D16</option><option>D19</option>
+      </select>
+      <span class="unit"></span>
+    </div>
+    <div class="param-row">
+      <label>B2 下端筋</label>
+      <select id="B2_dia">
+        <option>D10</option><option selected>D13</option>
+        <option>D16</option><option>D19</option>
+      </select>
+      <span class="unit"></span>
+    </div>
+    <div class="param-row">
+      <label>B3 配力筋</label>
+      <select id="B3_dia">
+        <option>D10</option><option selected>D13</option><option>D16</option>
+      </select>
+      <span class="unit"></span>
+    </div>
+    <div class="param-row">
+      <label>底版筋ピッチ</label>
+      <input type="number" id="slab_pitch" value="300" min="100" max="500" step="25">
+      <span class="unit">mm</span>
+    </div>
+    
+    <div class="section-title">かぶり厚</div>
+    
+    <div class="param-row">
+      <label>標準かぶり</label>
+      <input type="number" id="cover" value="60" min="30" max="100" step="5">
+      <span class="unit">mm</span>
+    </div>
+    <div class="param-row">
+      <label>天端かぶり</label>
+      <input type="number" id="cover_top" value="40" min="20" max="80" step="5">
+      <span class="unit">mm</span>
+    </div>
+    
+    <div class="section-title">単価設定</div>
+    
+    <div class="param-row">
+      <label>鉄筋単価</label>
+      <input type="number" id="price_rebar" value="200000" min="100000" max="400000" step="10000">
+      <span class="unit">円/t</span>
+    </div>
+    <div class="param-row">
+      <label>コンクリート</label>
+      <input type="number" id="price_conc" value="22000" min="10000" max="40000" step="1000">
+      <span class="unit">円/m³</span>
+    </div>
+    <div class="param-row">
+      <label>型枠工</label>
+      <input type="number" id="price_form" value="6500" min="2000" max="15000" step="500">
+      <span class="unit">円/m²</span>
+    </div>
+    <div class="param-row">
+      <label>栗石</label>
+      <input type="number" id="price_stone" value="8500" min="3000" max="20000" step="500">
+      <span class="unit">円/m³</span>
+    </div>
+    
+    <div id="warnings"></div>
+  </div>
+  
+  <!-- ===== 中央パネル: 図面 ===== -->
+  <div class="panel-center">
+    
+    <div class="drawing-card">
+      <div class="card-title">
+        <span>断面図</span>
+        <span class="scale" id="scale-display">S=1:30  単位:mm</span>
+      </div>
+      <svg id="cross-section" class="dwg" viewBox="0 0 3500 5100" xmlns="http://www.w3.org/2000/svg">
+        <!-- 動的に生成 -->
+      </svg>
+    </div>
+    
+    <div class="drawing-card">
+      <div class="card-title">
+        <span>底版配筋詳細図（B1⊓型 + B2⊔型）</span>
+        <span class="scale">S=1:20  単位:mm</span>
+      </div>
+      <svg id="slab-detail" class="dwg" viewBox="0 0 2200 1100" xmlns="http://www.w3.org/2000/svg">
+      </svg>
+    </div>
+    
+  </div>
+  
+  <!-- ===== 右パネル: 集計 ===== -->
+  <div class="panel-right">
+    
+    <div class="summary-box">
+      <div class="label">概算工事費（材料費ベース）</div>
+      <div class="value">¥<span id="total-cost">0</span><span class="unit">円</span></div>
+      <div style="font-size:11px; opacity:0.8; margin-top:4px;">
+        鉄筋 + コンクリート + 型枠 + 栗石
+      </div>
+    </div>
+    
+    <div class="section-title">鉄筋加工帳</div>
+    <table class="compact" id="rebar-table">
+      <thead>
+        <tr>
+          <th>記号</th><th>径</th><th>全長</th><th>本数</th><th>質量</th>
+        </tr>
+      </thead>
+      <tbody id="rebar-tbody">
+      </tbody>
+    </table>
+    
+    <div class="section-title">数量集計</div>
+    <table class="compact" id="quantity-table">
+      <thead>
+        <tr>
+          <th>項目</th><th>単位</th><th>1m</th><th>合計</th>
+        </tr>
+      </thead>
+      <tbody id="quantity-tbody">
+      </tbody>
+    </table>
+    
+    <div class="section-title">材料費内訳</div>
+    <table class="compact" id="cost-table">
+      <thead>
+        <tr>
+          <th>項目</th><th>数量</th><th>単価</th><th>金額</th>
+        </tr>
+      </thead>
+      <tbody id="cost-tbody">
+      </tbody>
+    </table>
+    
+  </div>
+</div>
+
+<script>
+// ============================================================
+// 計算ロジック
+// ============================================================
+
+// 鉄筋の単位質量(kg/m)
+const REBAR_WEIGHT = {
+  "D10": 0.560, "D13": 0.995, "D16": 1.560,
+  "D19": 2.250, "D22": 3.040, "D25": 3.980
+};
+const REBAR_DIA = {
+  "D10": 10, "D13": 13, "D16": 16, "D19": 19, "D22": 22, "D25": 25
+};
+
+// パラメータ取得
+function getParams() {
+  return {
+    H_total: parseFloat(document.getElementById('H_total').value),
+    H_above: parseFloat(document.getElementById('H_above').value),
+    Df: parseFloat(document.getElementById('Df').value),
+    B: parseFloat(document.getElementById('B').value),
+    slab_t: parseFloat(document.getElementById('slab_t').value),
+    toe: parseFloat(document.getElementById('toe').value),
+    L_total: parseFloat(document.getElementById('L_total').value),
+    t_top: parseFloat(document.getElementById('t_top').value),
+    t_bot: parseFloat(document.getElementById('t_bot').value),
+    W1_dia: document.getElementById('W1_dia').value,
+    W2_dia: document.getElementById('W2_dia').value,
+    W3_dia: document.getElementById('W3_dia').value,
+    wall_pitch: parseFloat(document.getElementById('wall_pitch').value),
+    B1_dia: document.getElementById('B1_dia').value,
+    B2_dia: document.getElementById('B2_dia').value,
+    B3_dia: document.getElementById('B3_dia').value,
+    slab_pitch: parseFloat(document.getElementById('slab_pitch').value),
+    cover: parseFloat(document.getElementById('cover').value),
+    cover_top: parseFloat(document.getElementById('cover_top').value),
+    price_rebar: parseFloat(document.getElementById('price_rebar').value),
+    price_conc: parseFloat(document.getElementById('price_conc').value),
+    price_form: parseFloat(document.getElementById('price_form').value),
+    price_stone: parseFloat(document.getElementById('price_stone').value)
+  };
+}
+
+// 構造計算（座標生成）
+function calcGeometry(p) {
+  const heel = p.B - p.t_bot - p.toe;
+  const wall_h = p.H_total - p.slab_t;
+  
+  // 基準座標 (SVG単位=mm)
+  // 底版BL=(700, p.H_total + 400)
+  const ox = 700, oy = 400;  // 構造体上端 = y=400, 下端 = y=400+H_total
+  
+  const slab_BL = [ox, oy + p.H_total];
+  const slab_BR = [ox + p.B, oy + p.H_total];
+  const slab_TR = [ox + p.B, oy + p.H_total - p.slab_t];
+  const wall_back_bot = [ox + p.toe + p.t_bot, oy + p.H_total - p.slab_t];
+  const wall_back_top = [ox + p.toe + p.t_bot, oy];
+  const wall_top_front = [ox + p.toe + p.t_bot - p.t_top, oy];
+  const wall_front_bot = [ox + p.toe, oy + p.H_total - p.slab_t];
+  const slab_TL = [ox, oy + p.H_total - p.slab_t];
+  
+  // 前面斜面の単位法線ベクトル(壁内側)
+  const dx = wall_top_front[0] - wall_front_bot[0];  // -300 (上が前に寄る)
+  const dy = wall_top_front[1] - wall_front_bot[1];  // -3400
+  const L = Math.sqrt(dx*dx + dy*dy);
+  const nx = -dy/L, ny = dx/L;  // 90° CCW回転（壁内側を向く）
+  // (壁内側 = +x方向であるべきなので符号確認)
+  
+  // W2 (前面主筋、テーパー追随、被り p.cover)
+  const W2_top = [wall_top_front[0] + p.cover * nx, wall_top_front[1] + p.cover_top];
+  const W2_bot = [wall_front_bot[0] + p.cover * nx, wall_front_bot[1] - p.cover];
+  
+  // W2底版定着位置（B1レベルへ）
+  const B1_y = oy + p.H_total - p.slab_t + p.cover;
+  // W2線をy=B1_yまで延長
+  const t = (B1_y - W2_top[1]) / (W2_bot[1] - W2_top[1]);
+  const W2_at_slab = [W2_top[0] + t*(W2_bot[0]-W2_top[0]), B1_y];
+  const W2_anchor_end = [W2_at_slab[0] + 40*REBAR_DIA[p.W2_dia], B1_y];
+  
+  // W1 (背面主筋、鉛直、被りcover)
+  const W1_x = wall_back_top[0] - p.cover;
+  const W1_top_y = oy + p.cover_top;
+  const W1_bot_y = oy + p.H_total - p.cover;
+  const W1_anchor_end_x = W1_x + 40*REBAR_DIA[p.W1_dia];
+  
+  // B1 (底版上端筋、⊓型、両端90°曲げ)
+  const B1_y_top = oy + p.H_total - p.slab_t + p.cover;
+  const B1_y_bot = oy + p.H_total - p.cover;
+  const B1_x_left = ox + p.cover;
+  const B1_x_right = ox + p.B - p.cover;
+  
+  // B2 (底版下端筋、⊔型、両端90°曲げ)
+  // 同じ範囲だが、形状が逆
+  
+  return {
+    structure: [slab_BL, slab_BR, slab_TR, wall_back_bot, wall_back_top, 
+                wall_top_front, wall_front_bot, slab_TL],
+    wall_h: wall_h, heel: heel,
+    ox: ox, oy: oy,
+    nx: nx, ny: ny,
+    W1: {top: [W1_x, W1_top_y], bot: [W1_x, W1_bot_y], anchor_end: [W1_anchor_end_x, W1_bot_y]},
+    W2: {top: W2_top, bot: W2_at_slab, anchor_end: W2_anchor_end},
+    B1: {x_left: B1_x_left, x_right: B1_x_right, y_top: B1_y_top, y_bot: B1_y_bot},
+    B2: {x_left: B1_x_left, x_right: B1_x_right, y_top: B1_y_top, y_bot: B1_y_bot}
+  };
+}
+
+// 鉄筋数量計算
+function calcRebars(p, g) {
+  const wall_h = p.H_total - p.slab_t;
+  const n_wall = Math.ceil(p.L_total / p.wall_pitch);
+  const n_slab = Math.ceil(p.L_total / p.slab_pitch);
+  
+  // W1 長さ: 上端フック(0.5d×8 ≈ 80mm) + 鉛直部 + 90°曲げ底版方向40d
+  const W1_len = Math.round((g.W1.bot[1] - g.W1.top[1]) + 40*REBAR_DIA[p.W1_dia] + 80);
+  
+  // W2 長さ: 斜辺 + 定着40d + フック
+  const dx = g.W2.bot[0] - g.W2.top[0];
+  const dy = g.W2.bot[1] - g.W2.top[1];
+  const slant = Math.sqrt(dx*dx + dy*dy);
+  const W2_len = Math.round(slant + 40*REBAR_DIA[p.W2_dia] + 80);
+  
+  // W3 配力筋 (長手方向、全長 + 余長)
+  const W3_len = p.L_total;
+  const n_W3_layers = Math.ceil(wall_h / p.wall_pitch);
+  const W3_count = n_W3_layers * 2;  // 両面
+  
+  // B1 ⊓型: 曲げ部(slab_t - cover×2)×2 + 水平部
+  const B1_bend = p.slab_t - p.cover * 2;
+  const B1_len = Math.round(B1_bend * 2 + (g.B1.x_right - g.B1.x_left));
+  
+  // B2 ⊔型: 同じ
+  const B2_len = B1_len;
+  
+  // B3 底版配力筋（長手）
+  const B3_len = p.L_total;
+  const n_B3_layers = Math.ceil(p.B / p.slab_pitch / 2);
+  const B3_count = n_B3_layers * 2;  // 上下
+  
+  return [
+    {id:"W1", name:"竪壁背面主筋", dia:p.W1_dia, pitch:p.wall_pitch, 
+     len:W1_len, count:n_wall, weight: W1_len/1000 * n_wall * REBAR_WEIGHT[p.W1_dia]},
+    {id:"W2", name:"竪壁前面主筋(斜)", dia:p.W2_dia, pitch:p.wall_pitch, 
+     len:W2_len, count:n_wall, weight: W2_len/1000 * n_wall * REBAR_WEIGHT[p.W2_dia]},
+    {id:"W3", name:"竪壁配力筋", dia:p.W3_dia, pitch:p.wall_pitch, 
+     len:W3_len, count:W3_count, weight: W3_len/1000 * W3_count * REBAR_WEIGHT[p.W3_dia]},
+    {id:"B1", name:"底版上端(⊓型)", dia:p.B1_dia, pitch:p.slab_pitch, 
+     len:B1_len, count:n_slab, weight: B1_len/1000 * n_slab * REBAR_WEIGHT[p.B1_dia]},
+    {id:"B2", name:"底版下端(⊔型)", dia:p.B2_dia, pitch:p.slab_pitch, 
+     len:B2_len, count:n_slab, weight: B2_len/1000 * n_slab * REBAR_WEIGHT[p.B2_dia]},
+    {id:"B3", name:"底版配力筋", dia:p.B3_dia, pitch:p.slab_pitch, 
+     len:B3_len, count:B3_count, weight: B3_len/1000 * B3_count * REBAR_WEIGHT[p.B3_dia]}
+  ];
+}
+
+// 数量計算
+function calcQuantities(p, g) {
+  const wall_h = p.H_total - p.slab_t;
+  
+  // 壁体コンクリート (テーパー断面 × L)
+  const wall_area = (p.t_top + p.t_bot) / 2 * wall_h / 1e6;
+  const wall_conc = wall_area * p.L_total / 1000;
+  
+  // 底版コンクリート
+  const slab_conc = p.B * p.slab_t / 1e6 * p.L_total / 1000;
+  
+  // 壁体型枠
+  const front_len = Math.sqrt(wall_h*wall_h + (p.t_bot - p.t_top)*(p.t_bot - p.t_top));
+  const wall_form = (front_len + wall_h + p.t_top) / 1000 * p.L_total / 1000;
+  
+  // 底版型枠
+  const slab_form = p.slab_t / 1000 * 2 * p.L_total / 1000;
+  
+  // 栗石フィルター
+  const heel = p.B - p.t_bot - p.toe;
+  const filter_h = wall_h - 250 - 50;  // 天端250下から、キャップ50考慮
+  const filter_vol = heel / 1000 * filter_h / 1000 * p.L_total / 1000;
+  
+  // 砕石基礎
+  const crushed_stone = (p.B + 300) / 1000 * 0.4 * p.L_total / 1000;
+  
+  // 捨コン
+  const sutekon = (p.B + 200) / 1000 * 0.05 * p.L_total / 1000;
+  
+  // キャップコン
+  const cap_conc = heel / 1000 * 0.05 * p.L_total / 1000;
+  
+  // 根切り
+  const excavation = (p.B + 400) / 1000 * (p.Df + p.slab_t + 50 + 400) / 1000 * p.L_total / 1000;
+  
+  return [
+    {name:"根切り", unit:"m³", val: excavation},
+    {name:"砕石(C-40)", unit:"m³", val: crushed_stone},
+    {name:"捨てコン(t=50)", unit:"m³", val: sutekon},
+    {name:"コンクリート本体", unit:"m³", val: wall_conc + slab_conc},
+    {name:"型枠工", unit:"m²", val: wall_form + slab_form},
+    {name:"栗石・砂利", unit:"m³", val: filter_vol},
+    {name:"キャップコン", unit:"m³", val: cap_conc},
+    {name:"水抜きパイプ", unit:"本", val: wall_h/1000 * p.L_total/1000 / 3}
+  ];
+}
+
+// バリデーション
+function validate(p) {
+  const warnings = [];
+  if (p.H_total !== p.H_above + p.Df) {
+    warnings.push(`<div class="warning">⚠ 全高(${p.H_total}) ≠ 地上高(${p.H_above}) + 根入れ(${p.Df}) = ${p.H_above + p.Df}</div>`);
+  }
+  if (p.B < p.t_bot + p.toe) {
+    warnings.push(`<div class="error">✗ 底版幅(${p.B}) < 壁底厚(${p.t_bot}) + つま先(${p.toe}) = ${p.t_bot + p.toe}</div>`);
+  }
+  if (p.t_top > p.t_bot) {
+    warnings.push(`<div class="warning">⚠ 壁天端厚(${p.t_top}) > 底部厚(${p.t_bot}) のため逆テーパーになります</div>`);
+  }
+  if (p.H_above > 2000) {
+    warnings.push(`<div class="warning">📋 H>2m: 建築確認申請が必要（建基法第88条）</div>`);
+  }
+  if (p.cover < 60 && p.H_above > 2000) {
+    warnings.push(`<div class="warning">⚠ 千葉市標準等ではかぶり60mm以上が一般的</div>`);
+  }
+  if (p.cover < 40) {
+    warnings.push(`<div class="error">✗ かぶり40mm未満は建基法令79条違反</div>`);
+  }
+  return warnings;
+}
+
+// ============================================================
+// SVG 描画
+// ============================================================
+
+function renderCrossSection(p, g, rebars) {
+  // viewBox 動的調整
+  const vb_w = 3500;
+  const vb_h = p.H_total + 1300;
+  
+  const svg = document.getElementById('cross-section');
+  svg.setAttribute('viewBox', `0 0 ${vb_w} ${vb_h}`);
+  
+  const GL_y = g.oy + p.Df;  // 地上面位置
+  
+  let html = `
+    <defs>
+      <pattern id="con" patternUnits="userSpaceOnUse" width="60" height="60" patternTransform="rotate(45)">
+        <line x1="0" y1="0" x2="0" y2="60" stroke="#888" stroke-width="1.6"/>
+      </pattern>
+      <pattern id="stone" patternUnits="userSpaceOnUse" width="130" height="130">
+        <circle cx="40" cy="40" r="22" fill="white" stroke="#666" stroke-width="3"/>
+        <circle cx="95" cy="60" r="18" fill="white" stroke="#666" stroke-width="3"/>
+        <circle cx="60" cy="100" r="20" fill="white" stroke="#666" stroke-width="3"/>
+        <circle cx="110" cy="110" r="14" fill="white" stroke="#666" stroke-width="3"/>
+      </pattern>
+      <pattern id="gravel" patternUnits="userSpaceOnUse" width="45" height="45">
+        <circle cx="8" cy="8" r="4" fill="white" stroke="#888" stroke-width="1.5"/>
+        <circle cx="28" cy="20" r="3.5" fill="white" stroke="#888" stroke-width="1.5"/>
+        <circle cx="16" cy="33" r="3" fill="white" stroke="#888" stroke-width="1.5"/>
+        <circle cx="36" cy="36" r="3.5" fill="white" stroke="#888" stroke-width="1.5"/>
+      </pattern>
+      <pattern id="gr" patternUnits="userSpaceOnUse" width="100" height="100">
+        <path d="M0,100 L100,0" stroke="#888" stroke-width="1.5"/>
+      </pattern>
+      <marker id="ae" viewBox="0 0 30 30" refX="28" refY="15" markerWidth="20" markerHeight="20" orient="auto">
+        <path d="M0,5 L28,15 L0,25 Z" fill="#000"/>
+      </marker>
+      <marker id="as" viewBox="0 0 30 30" refX="2" refY="15" markerWidth="20" markerHeight="20" orient="auto">
+        <path d="M30,5 L2,15 L30,25 Z" fill="#000"/>
+      </marker>
+    </defs>
+  `;
+  
+  // 地盤(つま先側)
+  html += `<rect x="60" y="${GL_y}" width="640" height="${vb_h - GL_y - 200}" fill="url(#gr)" opacity="0.4"/>
+           <line x1="60" y1="${GL_y}" x2="700" y2="${GL_y}" stroke="#000" stroke-width="4"/>
+           <text x="100" y="${GL_y - 40}" font-size="86" font-weight="700" fill="#a00">GL</text>`;
+  
+  // 自然崖（背面）
+  const heel_x = g.ox + p.toe + p.t_bot;
+  const back_x = g.ox + p.B;
+  html += `<line x1="${back_x}" y1="600" x2="${back_x}" y2="${GL_y}" stroke="#000" stroke-width="5"/>
+           <line x1="${back_x}" y1="${GL_y}" x2="${back_x}" y2="${g.oy + p.H_total}" stroke="#666" stroke-width="2.5" stroke-dasharray="20,10"/>
+           <polygon points="${back_x},600 ${back_x+450},200 ${back_x+1050},200 ${back_x+1050},${g.oy + p.H_total} ${back_x},${g.oy + p.H_total}" fill="url(#gr)" opacity="0.4"/>`;
+  
+  // 栗石フィルター
+  const filter_y_top = 650;
+  const filter_y_bot = g.oy + p.H_total - p.slab_t;
+  html += `<rect x="${heel_x}" y="${filter_y_top}" width="${back_x - heel_x}" height="${filter_y_bot - filter_y_top}" fill="url(#stone)"/>
+           <rect x="${heel_x}" y="${filter_y_top}" width="${back_x - heel_x}" height="${filter_y_bot - filter_y_top}" fill="none" stroke="#000" stroke-width="3"/>`;
+  
+  // キャップコン
+  html += `<rect x="${heel_x}" y="${filter_y_top - 50}" width="${back_x - heel_x}" height="50" fill="url(#con)" stroke="#000" stroke-width="4"/>`;
+  
+  // 擁壁本体
+  const polygon = `M ${g.structure[0][0]},${g.structure[0][1]} 
+                   L ${g.structure[1][0]},${g.structure[1][1]} 
+                   L ${g.structure[2][0]},${g.structure[2][1]} 
+                   L ${g.structure[3][0]},${g.structure[3][1]} 
+                   L ${g.structure[4][0]},${g.structure[4][1]} 
+                   L ${g.structure[5][0]},${g.structure[5][1]} 
+                   L ${g.structure[6][0]},${g.structure[6][1]} 
+                   L ${g.structure[7][0]},${g.structure[7][1]} Z`;
+  html += `<path d="${polygon}" fill="url(#con)" stroke="#000" stroke-width="11"/>`;
+  
+  // 基礎下: 捨コン + 砕石
+  const base_y1 = g.oy + p.H_total;
+  html += `<rect x="${g.ox - 100}" y="${base_y1}" width="${p.B + 200}" height="50" fill="url(#con)" stroke="#000" stroke-width="3"/>
+           <rect x="${g.ox - 150}" y="${base_y1 + 50}" width="${p.B + 300}" height="200" fill="url(#gravel)" stroke="#666" stroke-width="2"/>
+           <rect x="${g.ox - 150}" y="${base_y1 + 250}" width="${p.B + 300}" height="200" fill="url(#gravel)" stroke="#666" stroke-width="2"/>`;
+  
+  // 水抜き穴
+  const drain_y = g.oy + (p.H_total - p.slab_t) * 0.7;
+  const drain_x = g.structure[6][0] + 100;
+  html += `<circle cx="${drain_x}" cy="${drain_y}" r="42" fill="white" stroke="#000" stroke-width="4"/>`;
+  
+  // ===== 配筋描画 =====
+  // W1 背面主筋
+  html += `<g stroke="#c00" stroke-width="10" fill="none">
+    <path d="M ${g.W1.top[0]},${g.W1.top[1]} L ${g.W1.bot[0]},${g.W1.bot[1]} L ${g.W1.anchor_end[0]},${g.W1.anchor_end[1]}"/>
+    <path d="M ${g.W1.top[0]},${g.W1.top[1]} L ${g.W1.top[0] - 42},${g.W1.top[1] + 42}"/>
+  </g>`;
+  
+  // W2 前面主筋（テーパー追随）
+  html += `<g stroke="#0066cc" stroke-width="8" fill="none">
+    <path d="M ${g.W2.top[0]},${g.W2.top[1]} L ${g.W2.bot[0]},${g.W2.bot[1]} L ${g.W2.anchor_end[0]},${g.W2.anchor_end[1]}"/>
+    <path d="M ${g.W2.top[0]},${g.W2.top[1]} L ${g.W2.top[0] + 39},${g.W2.top[1] + 46}"/>
+  </g>`;
+  
+  // W3 配力筋ドット
+  const wall_h_actual = p.H_total - p.slab_t;
+  const n_W3_layers = Math.ceil(wall_h_actual / p.wall_pitch);
+  for (let i = 1; i < n_W3_layers; i++) {
+    const y = g.oy + i * p.wall_pitch + 100;
+    if (y >= g.W1.top[1] && y <= g.W1.bot[1] - 100) {
+      // W2位置を計算
+      const t = (y - g.W2.top[1]) / (g.W2.bot[1] - g.W2.top[1]);
+      const x_W2 = g.W2.top[0] + t * (g.W2.bot[0] - g.W2.top[0]);
+      html += `<circle cx="${g.W1.top[0]}" cy="${y}" r="14" fill="#0a8"/>
+               <circle cx="${x_W2}" cy="${y}" r="14" fill="#0a8"/>`;
+    }
+  }
+  
+  // B1 ⊓型
+  html += `<g stroke="#c00" stroke-width="9" fill="none">
+    <path d="M ${g.B1.x_left},${g.B1.y_bot} L ${g.B1.x_left},${g.B1.y_top} L ${g.B1.x_right},${g.B1.y_top} L ${g.B1.x_right},${g.B1.y_bot}"/>
+  </g>`;
+  
+  // B2 ⊔型
+  html += `<g stroke="#0066cc" stroke-width="8" fill="none">
+    <path d="M ${g.B2.x_left},${g.B2.y_top} L ${g.B2.x_left},${g.B2.y_bot} L ${g.B2.x_right},${g.B2.y_bot} L ${g.B2.x_right},${g.B2.y_top}"/>
+  </g>`;
+  
+  // ===== 寸法線 =====
+  // 横方向 B
+  const dim_y = g.oy + p.H_total + 600;
+  html += `<line x1="${g.ox}" y1="${dim_y + 40}" x2="${g.ox}" y2="${dim_y - 60}" stroke="#000" stroke-width="2.5"/>
+           <line x1="${g.ox + p.B}" y1="${dim_y + 40}" x2="${g.ox + p.B}" y2="${dim_y - 60}" stroke="#000" stroke-width="2.5"/>
+           <line x1="${g.ox}" y1="${dim_y}" x2="${g.ox + p.B}" y2="${dim_y}" stroke="#000" stroke-width="3.5" marker-start="url(#as)" marker-end="url(#ae)"/>
+           <text x="${g.ox + p.B/2}" y="${dim_y - 30}" text-anchor="middle" font-size="74" font-weight="700">${p.B.toLocaleString()}</text>`;
+  
+  // 縦方向 H
+  html += `<line x1="540" y1="${g.oy}" x2="450" y2="${g.oy}" stroke="#000" stroke-width="2"/>
+           <line x1="540" y1="${g.oy + p.H_total}" x2="450" y2="${g.oy + p.H_total}" stroke="#000" stroke-width="2"/>
+           <line x1="500" y1="${g.oy}" x2="500" y2="${g.oy + p.H_total}" stroke="#000" stroke-width="3.5" marker-start="url(#as)" marker-end="url(#ae)"/>
+           <text x="430" y="${g.oy + p.H_total/2}" text-anchor="middle" font-size="80" font-weight="700" transform="rotate(-90, 430, ${g.oy + p.H_total/2})">${p.H_total.toLocaleString()}</text>`;
+  
+  // 副寸法 H_above / Df
+  html += `<line x1="340" y1="${g.oy}" x2="260" y2="${g.oy}" stroke="#000" stroke-width="2"/>
+           <line x1="340" y1="${GL_y}" x2="260" y2="${GL_y}" stroke="#000" stroke-width="2"/>
+           <line x1="340" y1="${g.oy + p.H_total}" x2="260" y2="${g.oy + p.H_total}" stroke="#000" stroke-width="2"/>
+           <line x1="300" y1="${g.oy}" x2="300" y2="${GL_y}" stroke="#000" stroke-width="3" marker-start="url(#as)" marker-end="url(#ae)"/>
+           <line x1="300" y1="${GL_y}" x2="300" y2="${g.oy + p.H_total}" stroke="#000" stroke-width="3" marker-start="url(#as)" marker-end="url(#ae)"/>
+           <text x="235" y="${(g.oy + GL_y)/2}" text-anchor="middle" font-size="58" transform="rotate(-90, 235, ${(g.oy + GL_y)/2})">${p.H_above.toLocaleString()}</text>
+           <text x="235" y="${(GL_y + g.oy + p.H_total)/2}" text-anchor="middle" font-size="56" fill="#a00" font-weight="600" transform="rotate(-90, 235, ${(GL_y + g.oy + p.H_total)/2})">${p.Df}</text>`;
+  
+  // 配筋ラベル
+  html += `<text x="${back_x + 240}" y="${g.oy + p.H_total/2}" font-size="52" fill="#c00" font-weight="700">${p.W1_dia}@${p.wall_pitch}</text>
+           <text x="${back_x + 240}" y="${g.oy + p.H_total/2 + 50}" font-size="38" fill="#c00">(W1)</text>`;
+  html += `<text x="100" y="${g.oy + p.H_total/2}" font-size="52" fill="#0066cc" font-weight="700">${p.W2_dia}@${p.wall_pitch}</text>
+           <text x="100" y="${g.oy + p.H_total/2 + 50}" font-size="38" fill="#0066cc">(W2 斜)</text>`;
+  
+  svg.innerHTML = html;
+}
+
+function renderSlabDetail(p, g) {
+  const svg = document.getElementById('slab-detail');
+  const vb_w = p.B + 600;
+  const vb_h = 1100;
+  svg.setAttribute('viewBox', `0 0 ${vb_w} ${vb_h}`);
+  
+  const sox = 300, soy = 400;
+  
+  let html = `
+    <defs>
+      <pattern id="con-bf" patternUnits="userSpaceOnUse" width="60" height="60" patternTransform="rotate(45)">
+        <line x1="0" y1="0" x2="0" y2="60" stroke="#999" stroke-width="1.6"/>
+      </pattern>
+      <marker id="ae3" viewBox="0 0 30 30" refX="28" refY="15" markerWidth="20" markerHeight="20" orient="auto">
+        <path d="M0,5 L28,15 L0,25 Z" fill="#000"/>
+      </marker>
+      <marker id="as3" viewBox="0 0 30 30" refX="2" refY="15" markerWidth="20" markerHeight="20" orient="auto">
+        <path d="M30,5 L2,15 L30,25 Z" fill="#000"/>
+      </marker>
+    </defs>
+  `;
+  
+  // 底版断面
+  html += `<rect x="${sox}" y="${soy}" width="${p.B}" height="${p.slab_t}" fill="url(#con-bf)" stroke="#000" stroke-width="6"/>`;
+  
+  // B1 ⊓型
+  html += `<g stroke="#c00" stroke-width="7" fill="none">
+    <path d="M ${sox + p.cover},${soy + p.slab_t - p.cover} L ${sox + p.cover},${soy + p.cover} L ${sox + p.B - p.cover},${soy + p.cover} L ${sox + p.B - p.cover},${soy + p.slab_t - p.cover}"/>
+  </g>`;
+  
+  // B2 ⊔型
+  html += `<g stroke="#0066cc" stroke-width="6" fill="none">
+    <path d="M ${sox + p.cover},${soy + p.cover} L ${sox + p.cover},${soy + p.slab_t - p.cover} L ${sox + p.B - p.cover},${soy + p.slab_t - p.cover} L ${sox + p.B - p.cover},${soy + p.cover}"/>
+  </g>`;
+  
+  // 鉄筋断面ドット
+  const n_dot = 6;
+  for (let i = 0; i < n_dot; i++) {
+    const x = sox + p.cover + (p.B - 2*p.cover) * i / (n_dot - 1);
+    html += `<circle cx="${x}" cy="${soy + p.cover}" r="12" fill="#c00"/>`;
+    html += `<circle cx="${x}" cy="${soy + p.slab_t - p.cover}" r="11" fill="#0066cc"/>`;
+  }
+  
+  // 配力筋ドット
+  for (let i = 1; i < n_dot; i += 2) {
+    const x = sox + p.cover + (p.B - 2*p.cover) * i / (n_dot - 1);
+    html += `<circle cx="${x}" cy="${soy + p.cover}" r="9" fill="#0a8"/>`;
+    html += `<circle cx="${x}" cy="${soy + p.slab_t - p.cover}" r="9" fill="#0a8"/>`;
+  }
+  
+  // ラベル
+  html += `<text x="${sox + p.B/2}" y="250" text-anchor="middle" font-size="56" font-weight="700" fill="#000">
+    B1(⊓型 ${p.B1_dia}) + B2(⊔型 ${p.B2_dia}) で閉鎖ボックス
+  </text>`;
+  html += `<text x="${sox + p.B/2}" y="310" text-anchor="middle" font-size="40" fill="#555">
+    両端を90°曲げて端部のせん断補強と被り確保
+  </text>`;
+  
+  // 配筋ラベル
+  html += `<text x="100" y="${soy + 50}" font-size="48" fill="#c00" font-weight="700">B1</text>
+           <text x="100" y="${soy + 100}" font-size="34" fill="#c00">${p.B1_dia}@${p.slab_pitch} (⊓)</text>`;
+  html += `<text x="100" y="${soy + p.slab_t - 50}" font-size="48" fill="#0066cc" font-weight="700">B2</text>
+           <text x="100" y="${soy + p.slab_t}" font-size="34" fill="#0066cc">${p.B2_dia}@${p.slab_pitch} (⊔)</text>`;
+  
+  // 寸法
+  const dy = soy + p.slab_t + 100;
+  html += `<line x1="${sox}" y1="${dy + 40}" x2="${sox}" y2="${dy - 40}" stroke="#000" stroke-width="1.5"/>
+           <line x1="${sox + p.B}" y1="${dy + 40}" x2="${sox + p.B}" y2="${dy - 40}" stroke="#000" stroke-width="1.5"/>
+           <line x1="${sox}" y1="${dy}" x2="${sox + p.B}" y2="${dy}" stroke="#000" stroke-width="2.5" marker-start="url(#as3)" marker-end="url(#ae3)"/>
+           <text x="${sox + p.B/2}" y="${dy + 70}" text-anchor="middle" font-size="56" font-weight="700">底版幅 ${p.B.toLocaleString()}</text>`;
+  
+  html += `<line x1="${sox + p.B + 80}" y1="${soy}" x2="${sox + p.B + 150}" y2="${soy}" stroke="#000" stroke-width="1.5"/>
+           <line x1="${sox + p.B + 80}" y1="${soy + p.slab_t}" x2="${sox + p.B + 150}" y2="${soy + p.slab_t}" stroke="#000" stroke-width="1.5"/>
+           <line x1="${sox + p.B + 120}" y1="${soy}" x2="${sox + p.B + 120}" y2="${soy + p.slab_t}" stroke="#000" stroke-width="2.5" marker-start="url(#as3)" marker-end="url(#ae3)"/>
+           <text x="${sox + p.B + 200}" y="${soy + p.slab_t/2}" font-size="50" font-weight="700" transform="rotate(-90, ${sox + p.B + 200}, ${soy + p.slab_t/2})" text-anchor="middle">${p.slab_t}</text>`;
+  
+  // かぶり表記
+  html += `<text x="${sox + p.cover}" y="${soy - 20}" text-anchor="middle" font-size="28" fill="#0055aa" font-weight="600">${p.cover}</text>
+           <text x="${sox + p.cover}" y="${soy + p.slab_t + 35}" text-anchor="middle" font-size="28" fill="#0055aa" font-weight="600">${p.cover}</text>`;
+  
+  svg.innerHTML = html;
+}
+
+// ============================================================
+// テーブル更新
+// ============================================================
+
+function renderTables(p, rebars, quantities) {
+  // 鉄筋加工帳
+  let html = '';
+  let totalRebar = 0;
+  rebars.forEach(r => {
+    totalRebar += r.weight;
+    html += `<tr>
+      <td class="c"><b>${r.id}</b></td>
+      <td class="c">${r.dia}</td>
+      <td class="r">${r.len.toLocaleString()}</td>
+      <td class="r">${r.count}</td>
+      <td class="r">${r.weight.toFixed(1)}</td>
+    </tr>`;
+  });
+  html += `<tr class="total"><td colspan="4" class="r">小計</td><td class="r">${totalRebar.toFixed(1)} kg</td></tr>`;
+  html += `<tr class="grand"><td colspan="4" class="r">+10%余長</td><td class="r">${(totalRebar*1.1).toFixed(1)} kg</td></tr>`;
+  document.getElementById('rebar-tbody').innerHTML = html;
+  
+  // 数量集計
+  html = '';
+  quantities.forEach(q => {
+    html += `<tr>
+      <td>${q.name}</td>
+      <td class="c">${q.unit}</td>
+      <td class="r">${(q.val / (p.L_total/1000)).toFixed(3)}</td>
+      <td class="r">${q.val.toFixed(2)}</td>
+    </tr>`;
+  });
+  document.getElementById('quantity-tbody').innerHTML = html;
+  
+  // 材料費
+  const rebarTotal = totalRebar * 1.1;
+  const concVol = quantities.find(q => q.name === "コンクリート本体").val;
+  const formArea = quantities.find(q => q.name === "型枠工").val;
+  const stoneVol = quantities.find(q => q.name === "栗石・砂利").val;
+  const sutekonVol = quantities.find(q => q.name === "捨てコン(t=50)").val;
+  const crushedVol = quantities.find(q => q.name === "砕石(C-40)").val;
+  const capVol = quantities.find(q => q.name === "キャップコン").val;
+  
+  const costRebar = rebarTotal / 1000 * p.price_rebar;
+  const costConc = concVol * p.price_conc;
+  const costForm = formArea * p.price_form;
+  const costStone = stoneVol * p.price_stone;
+  const costSutekon = sutekonVol * (p.price_conc * 0.85);
+  const costCrushed = crushedVol * 4500;
+  const costCap = capVol * (p.price_conc * 0.85);
+  
+  const totalCost = costRebar + costConc + costForm + costStone + costSutekon + costCrushed + costCap;
+  
+  html = `
+    <tr><td>鉄筋</td><td class="r">${rebarTotal.toFixed(0)}kg</td><td class="r">${(p.price_rebar/1000).toLocaleString()}/kg</td><td class="r">¥${Math.round(costRebar).toLocaleString()}</td></tr>
+    <tr><td>コンクリート(本体)</td><td class="r">${concVol.toFixed(2)}m³</td><td class="r">${p.price_conc.toLocaleString()}</td><td class="r">¥${Math.round(costConc).toLocaleString()}</td></tr>
+    <tr><td>型枠工</td><td class="r">${formArea.toFixed(2)}m²</td><td class="r">${p.price_form.toLocaleString()}</td><td class="r">¥${Math.round(costForm).toLocaleString()}</td></tr>
+    <tr><td>栗石・砂利</td><td class="r">${stoneVol.toFixed(2)}m³</td><td class="r">${p.price_stone.toLocaleString()}</td><td class="r">¥${Math.round(costStone).toLocaleString()}</td></tr>
+    <tr><td>捨てコン</td><td class="r">${sutekonVol.toFixed(2)}m³</td><td class="r">${Math.round(p.price_conc*0.85).toLocaleString()}</td><td class="r">¥${Math.round(costSutekon).toLocaleString()}</td></tr>
+    <tr><td>砕石基礎</td><td class="r">${crushedVol.toFixed(2)}m³</td><td class="r">4,500</td><td class="r">¥${Math.round(costCrushed).toLocaleString()}</td></tr>
+    <tr><td>キャップコン</td><td class="r">${capVol.toFixed(2)}m³</td><td class="r">${Math.round(p.price_conc*0.85).toLocaleString()}</td><td class="r">¥${Math.round(costCap).toLocaleString()}</td></tr>
+    <tr class="grand"><td colspan="3" class="r">材料費合計</td><td class="r">¥${Math.round(totalCost).toLocaleString()}</td></tr>
+  `;
+  document.getElementById('cost-tbody').innerHTML = html;
+  
+  document.getElementById('total-cost').textContent = Math.round(totalCost).toLocaleString();
+}
+
+// ============================================================
+// メイン更新ループ
+// ============================================================
+
+function update() {
+  const p = getParams();
+  const warnings = validate(p);
+  document.getElementById('warnings').innerHTML = warnings.join('');
+  
+  const g = calcGeometry(p);
+  const rebars = calcRebars(p, g);
+  const quantities = calcQuantities(p, g);
+  
+  renderCrossSection(p, g, rebars);
+  renderSlabDetail(p, g);
+  renderTables(p, rebars, quantities);
+}
+
+// イベント
+document.querySelectorAll('input, select').forEach(el => {
+  el.addEventListener('input', update);
+  el.addEventListener('change', update);
+});
+
+// 自動連動: H_above + Df = H_total
+['H_above', 'Df'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    const H_above = parseFloat(document.getElementById('H_above').value);
+    const Df = parseFloat(document.getElementById('Df').value);
+    document.getElementById('H_total').value = H_above + Df;
+    update();
+  });
+});
+
+// ============================================================
+// プリセット
+// ============================================================
+
+const PRESETS = {
+  matiuke: {
+    H_total: 3800, H_above: 3000, Df: 800, B: 1600, slab_t: 400, toe: 100, L_total: 7000,
+    t_top: 200, t_bot: 500, 
+    W1_dia: "D16", W2_dia: "D13", W3_dia: "D13", wall_pitch: 300,
+    B1_dia: "D16", B2_dia: "D13", B3_dia: "D13", slab_pitch: 300,
+    cover: 60, cover_top: 40
+  },
+  'L-chiba': {
+    H_total: 2900, H_above: 2500, Df: 400, B: 3000, slab_t: 400, toe: 250, L_total: 7000,
+    t_top: 250, t_bot: 250,
+    W1_dia: "D16", W2_dia: "D13", W3_dia: "D13", wall_pitch: 125,
+    B1_dia: "D16", B2_dia: "D13", B3_dia: "D13", slab_pitch: 250,
+    cover: 60, cover_top: 60
+  },
+  'inv-T': {
+    H_total: 3500, H_above: 3000, Df: 500, B: 2500, slab_t: 400, toe: 600, L_total: 7000,
+    t_top: 250, t_bot: 350,
+    W1_dia: "D16", W2_dia: "D13", W3_dia: "D13", wall_pitch: 200,
+    B1_dia: "D16", B2_dia: "D13", B3_dia: "D13", slab_pitch: 200,
+    cover: 60, cover_top: 40
+  }
+};
+
+function applyPreset(name) {
+  const preset = PRESETS[name];
+  if (!preset) return;
+  Object.keys(preset).forEach(key => {
+    const el = document.getElementById(key);
+    if (el) el.value = preset[key];
+  });
+  // ボタンのアクティブ状態
+  document.querySelectorAll('.preset-buttons button').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  update();
+}
+
+function resetToDefault() {
+  applyPreset('matiuke');
+  document.querySelector('.preset-buttons button').classList.add('active');
+}
+
+// ============================================================
+// JSON 入出力
+// ============================================================
+
+function exportJSON() {
+  const p = getParams();
+  const json = {
+    type: "yoheki-cad",
+    version: "0.1",
+    created: new Date().toISOString(),
+    parameters: p
+  };
+  const blob = new Blob([JSON.stringify(json, null, 2)], {type: "application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `yoheki_${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importJSON() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const json = JSON.parse(ev.target.result);
+        if (json.parameters) {
+          Object.keys(json.parameters).forEach(key => {
+            const el = document.getElementById(key);
+            if (el) el.value = json.parameters[key];
+          });
+          update();
+          alert('読み込みました');
+        }
+      } catch (err) {
+        alert('JSONの読み込みに失敗しました: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+// 初期描画
+update();
+</script>
+
+</body>
+</html>
