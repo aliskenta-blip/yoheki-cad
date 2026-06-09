@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.6 (ツールチップ・ガイド・3Dパース)</title>
+<title>yoheki-cad v0.6.1 (印刷・PNG修正)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.6 (ガイド・3Dパース)</span>
+  <span class="ver">v0.6.1 (ガイド・3Dパース)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -2603,33 +2603,64 @@ function outputRegion() {
 
 // 領域を指定してPNG dataURLを生成 (viewport一時リセット)
 function renderRegionPNG(multiplier) {
+  const reg = outputRegion();
+  if (!reg || reg.width < 1 || reg.height < 1) return null;
+
+  // 出力ピクセルが大きくなりすぎないよう倍率を自動調整(ブラウザのcanvas上限対策)
+  const MAX_PX = 8000;
+  let mult = multiplier || 2;
+  const longest = Math.max(reg.width, reg.height) * mult;
+  if (longest > MAX_PX) mult = MAX_PX / Math.max(reg.width, reg.height);
+  if (mult < 0.3) mult = 0.3;
+
+  // 一時ビューポートを「原点・等倍」にして、ワールド座標=スクリーン座標へ
   const vpt = canvas.viewportTransform.slice();
-  const zoom = canvas.getZoom();
-  // ビューポートを等倍・原点に
-  canvas.setViewportTransform([1,0,0,1,0,0]);
+  const savedW = canvas.getWidth(), savedH = canvas.getHeight();
   gridLines.forEach(l => l.visible = false);
   let frameVis = [];
-  if (paperFrame) { frameVis = [paperFrame.rect, ...paperFrame.labels]; }
-  // 枠線は印刷では薄く残す(任意)→ ここでは消す
+  if (paperFrame) frameVis = [paperFrame.rect, ...paperFrame.labels];
   frameVis.forEach(o => o.visible = false);
+
+  canvas.setViewportTransform([1,0,0,1, -reg.left, -reg.top]);
+  // 出力領域をカバーするようcanvasを一時拡大
+  canvas.setWidth(Math.ceil(reg.width));
+  canvas.setHeight(Math.ceil(reg.height));
   canvas.renderAll();
 
-  const reg = outputRegion();
-  const dataURL = canvas.toDataURL({
-    format:'png', quality:1.0, multiplier: multiplier || 2,
-    left:reg.left, top:reg.top, width:reg.width, height:reg.height
-  });
+  let dataURL = null;
+  try {
+    dataURL = canvas.toDataURL({
+      format: 'png',
+      multiplier: mult,
+      left: 0,
+      top: 0,
+      width: reg.width,
+      height: reg.height
+    });
+  } catch (e) {
+    console.error('PNG生成エラー', e);
+    dataURL = null;
+  }
 
   // 復元
   gridLines.forEach(l => l.visible = true);
   frameVis.forEach(o => o.visible = true);
   canvas.setViewportTransform(vpt);
+  canvas.setWidth(savedW); canvas.setHeight(savedH);
+  drawGrid();
   canvas.renderAll();
+
+  // dataURLが極端に短い=破損とみなす
+  if (!dataURL || dataURL.length < 100) return null;
   return dataURL;
 }
 
 function exportPNG() {
   const dataURL = renderRegionPNG(3);
+  if (!dataURL) {
+    alert('PNGの生成に失敗しました。図枠が大きすぎる場合は縮尺を上げる(数字を大きく)か、図枠OFFでお試しください。');
+    return;
+  }
   const a = document.createElement('a');
   a.href = dataURL;
   a.download = `yoheki_${Date.now()}.png`;
@@ -2639,17 +2670,26 @@ function exportPNG() {
 // ③ 図面だけを印刷
 function printDrawing() {
   const dataURL = renderRegionPNG(3);
+  if (!dataURL) {
+    alert('印刷用画像の生成に失敗しました。図枠が大きすぎる場合は縮尺を上げる(数字を大きく)か、図枠OFFでお試しください。');
+    return;
+  }
   const img = document.getElementById('print-img');
-  img.src = dataURL;
   let title = '';
   if (paperFrame) {
     const d = paperFrameDims();
     title = `${d.sizeKey.replace('L',' 横').replace('P',' 縦')}　縮尺 1/${d.S}`;
   }
   document.getElementById('print-title').textContent = title;
-  // 画像読み込み完了後に印刷
-  if (img.complete) { window.print(); }
-  else { img.onload = () => window.print(); }
+
+  let printed = false;
+  const doPrint = () => { if (printed) return; printed = true; window.print(); };
+  img.onload = doPrint;
+  img.onerror = () => { alert('印刷用画像の読み込みに失敗しました'); };
+  img.src = dataURL;
+  // 既にキャッシュ済みでonloadが来ない場合のフォールバック
+  if (img.complete && img.naturalWidth > 0) doPrint();
+  setTimeout(doPrint, 800);
 }
 
 // ============================================================
