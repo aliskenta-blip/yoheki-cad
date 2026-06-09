@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.2 (フリーハンド編集対応)</title>
+<title>yoheki-cad v0.3 (スナップ・配筋ツール・検査)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <style>
   * { box-sizing: border-box; -webkit-user-select: none; user-select: none; }
@@ -195,12 +195,15 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.2 (フリーハンド編集対応)</span>
+  <span class="ver">v0.3 (スナップ・配筋ツール・検査)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
   <span class="menu-item" onclick="saveJSON()">💾 保存</span>
   <span class="menu-item" onclick="loadTemplateMenu()">📋 テンプレート</span>
+  <span class="menu-divider">|</span>
+  <span class="menu-item" onclick="openRebarTools()">🔩 配筋ツール</span>
+  <span class="menu-item" onclick="runValidation()">🔍 配筋検査</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="exportSVG()">SVG出力</span>
   <span class="menu-item" onclick="exportPNG()">PNG出力</span>
@@ -288,17 +291,23 @@
         <span></span>
       </div>
       <div class="prop-row">
+        <label><input type="checkbox" id="osnap" checked> オブジェクトスナップ</label>
+        <span></span>
+      </div>
+      <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
+        <span>□端点 △中点 ✕交点 ◇垂線</span>
+      </div>
+      <div class="prop-row">
         <label><input type="checkbox" id="ortho"> 直交モード <kbd>Shift</kbd></label>
         <span></span>
       </div>
       <div class="prop-row">
         <label>縮尺</label>
         <select id="scale-select" onchange="updateScale()">
-          <option value="0.05">1:20</option>
-          <option value="0.033" selected>1:30</option>
-          <option value="0.025">1:40</option>
-          <option value="0.02">1:50</option>
-          <option value="0.01">1:100</option>
+          <option value="0.3">大 (0.30px/mm)</option>
+          <option value="0.15" selected>標準 (0.15px/mm)</option>
+          <option value="0.075">小 (0.075px/mm)</option>
+          <option value="0.0375">極小 (0.0375px/mm)</option>
         </select>
       </div>
     </div>
@@ -453,7 +462,7 @@
 <!-- ヘルプモーダル -->
 <div class="modal-bg" id="modal-help">
   <div class="modal">
-    <h3>yoheki-cad v0.2 使い方</h3>
+    <h3>yoheki-cad v0.3 使い方</h3>
     <div style="font-size:12px; line-height: 1.7;">
       <p><b>基本操作:</b></p>
       <ul>
@@ -477,6 +486,24 @@
       <ul>
         <li><kbd>B</kbd> 鉄筋：始点→終点でドラッグ。径と端部曲げは左パネルで事前設定</li>
         <li>鉄筋を選択 → 右パネルで径・規格・端部曲げを変更可能</li>
+      </ul>
+      <p><b>🆕 v0.3 スナップ:</b></p>
+      <ul>
+        <li>左パネル「オブジェクトスナップ」ON時、描画中にカーソルが近くの<b>端点(□)・中点(△)・交点(✕)・垂線(◇)</b>に吸着</li>
+        <li>緑のマーカーが表示された位置でクリックすると正確にスナップ</li>
+        <li>オブジェクトスナップが優先、無ければグリッドスナップ</li>
+      </ul>
+      <p><b>🆕 v0.3 配筋オートツール (🔩メニュー):</b></p>
+      <ul>
+        <li><b>U字キャップ生成</b>：主筋2本を選択 → 頭部をU字で連結(W4キャップ筋相当)</li>
+        <li><b>ボックス形成</b>：上下2本を選択 → 両端90°曲げで閉鎖ボックス(底版B1/B2相当)</li>
+        <li><b>ピッチ配置</b>：1本を選択 → ピッチ・本数・方向を指定して等間隔複製</li>
+      </ul>
+      <p><b>🆕 v0.3 配筋検査 (🔍メニュー):</b></p>
+      <ul>
+        <li>全鉄筋の<b>かぶり厚</b>(構造体外形からの距離)と<b>定着長</b>(径×係数)を一覧チェック</li>
+        <li>不足する鉄筋は赤丸でハイライト表示</li>
+        <li>最小かぶり・定着長係数はモーダル上部で変更可能</li>
       </ul>
       <p><b>編集:</b></p>
       <ul>
@@ -523,6 +550,79 @@
   </div>
 </div>
 
+<!-- 配筋ツールモーダル (v0.3) -->
+<div class="modal-bg" id="modal-rebar-tools">
+  <div class="modal" style="max-width:520px;">
+    <h3>🔩 配筋オートツール</h3>
+    <p style="font-size:12px; color:#aaa;">鉄筋を選択してから各機能を実行します。複数選択は <kbd>Shift</kbd>+クリック。</p>
+
+    <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:10px;">
+      <h4 style="margin-top:0;">① U字キャップ生成</h4>
+      <p style="font-size:11px; color:#aaa; margin:4px 0;">主筋2本を選択 → 頭部をU字(⊓)で連結。壁頭部のキャップ筋(W4相当)を自動生成します。</p>
+      <div class="prop-row">
+        <label>かぶり(mm)</label>
+        <input type="number" id="cap-cover" value="40" min="0" max="200" step="5">
+      </div>
+      <button class="btn primary" style="width:100%; margin-top:6px;" onclick="genUCap()">U字キャップを生成</button>
+    </div>
+
+    <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:8px;">
+      <h4 style="margin-top:0;">② ボックス形成 (⊓+⊔)</h4>
+      <p style="font-size:11px; color:#aaa; margin:4px 0;">上端筋・下端筋となる2本を選択 → 両端を90°曲げて閉鎖ボックスを形成(底版B1/B2相当)。</p>
+      <div class="prop-row">
+        <label>定着長(mm)</label>
+        <input type="number" id="box-anchor" value="280" min="0" max="1000" step="10">
+      </div>
+      <button class="btn primary" style="width:100%; margin-top:6px;" onclick="genBox()">ボックスを形成</button>
+    </div>
+
+    <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:8px;">
+      <h4 style="margin-top:0;">③ ピッチ配置 (連続複製)</h4>
+      <p style="font-size:11px; color:#aaa; margin:4px 0;">鉄筋1本を選択 → 指定方向・ピッチ・本数で等間隔に複製します。@マーク付きの配力筋・主筋並びに。</p>
+      <div class="prop-row">
+        <label>ピッチ(mm)</label>
+        <input type="number" id="pitch-val" value="200" min="10" max="1000" step="10">
+      </div>
+      <div class="prop-row">
+        <label>本数</label>
+        <input type="number" id="pitch-count" value="5" min="2" max="100" step="1">
+      </div>
+      <div class="prop-row">
+        <label>方向</label>
+        <select id="pitch-dir">
+          <option value="right">右へ →</option>
+          <option value="left">左へ ←</option>
+          <option value="down">下へ ↓</option>
+          <option value="up">上へ ↑</option>
+          <option value="perp">線に直交</option>
+        </select>
+      </div>
+      <button class="btn primary" style="width:100%; margin-top:6px;" onclick="genPitch()">ピッチ配置を実行</button>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-rebar-tools')">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 配筋検査結果モーダル (v0.3) -->
+<div class="modal-bg" id="modal-validation">
+  <div class="modal" style="max-width:560px;">
+    <h3>🔍 配筋検査結果</h3>
+    <div class="prop-row" style="margin-bottom:8px;">
+      <label>最小かぶり(mm)</label>
+      <input type="number" id="val-mincover" value="40" min="0" max="200" step="5" onchange="runValidation(true)">
+      <label style="margin-left:8px;">定着長係数 ×径</label>
+      <input type="number" id="val-anchor-factor" value="40" min="0" max="80" step="5" onchange="runValidation(true)">
+    </div>
+    <div id="validation-result" style="font-size:12px; max-height:340px; overflow-y:auto; background:#2b2b2b; border-radius:5px; padding:10px;"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="clearValidationHighlight(); closeModal('modal-validation')">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ============================================================
 // 初期化
@@ -561,7 +661,7 @@ let state = {
     {name: '補助線', color: '#cccccc', visible: true, locked: false},
   ],
   activeLayer: 0,
-  scale: 0.033  // 1:30
+  scale: 0.15  // 1mm = 0.15px (描画・mm換算の共通基準)
 };
 
 // キャンバスサイズを動的に
@@ -626,7 +726,160 @@ function updateGrid() {
   drawGrid();
 }
 
+// ============================================================
+// オブジェクトスナップ (v0.3)
+//   端点 / 中点 / 交点 / 垂線 への吸着
+// ============================================================
+
+const OSNAP_TOL = 12;       // スクリーン上の吸着しきい値(px)
+let snapMarker = null;       // スナップ位置表示マーカー
+let lastSnapInfo = null;     // 直近のスナップ情報 {x,y,type}
+
+// オブジェクトを線分(セグメント)の配列に分解
+function objToSegments(obj) {
+  const segs = [];
+  if (obj._isGrid || obj._isSnapMarker) return segs;
+  const t = obj.type;
+  if (t === 'line') {
+    segs.push([{x: obj.x1, y: obj.y1}, {x: obj.x2, y: obj.y2}]);
+  } else if (t === 'rect') {
+    const x = obj.left, y = obj.top, w = obj.width * (obj.scaleX||1), h = obj.height * (obj.scaleY||1);
+    const c = [{x:x,y:y},{x:x+w,y:y},{x:x+w,y:y+h},{x:x,y:y+h}];
+    for (let i=0;i<4;i++) segs.push([c[i], c[(i+1)%4]]);
+  } else if (t === 'polyline' || t === 'polygon') {
+    const pts = obj.points.map(p => fabric.util.transformPoint({x:p.x - obj.pathOffset.x, y:p.y - obj.pathOffset.y},
+      obj.calcTransformMatrix()));
+    for (let i=0;i<pts.length-1;i++) segs.push([pts[i], pts[i+1]]);
+    if (t === 'polygon' && pts.length>1) segs.push([pts[pts.length-1], pts[0]]);
+  }
+  return segs;
+}
+
+// 全オブジェクトのスナップ候補点を収集
+function collectSnapCandidates() {
+  const endpoints = [];   // 端点
+  const midpoints = [];   // 中点
+  const allSegs = [];     // 交点・垂線計算用
+  canvas.forEachObject(obj => {
+    if (obj._isGrid || obj._isSnapMarker || !obj.visible) return;
+    const segs = objToSegments(obj);
+    segs.forEach(s => {
+      allSegs.push(s);
+      endpoints.push({x:s[0].x, y:s[0].y});
+      endpoints.push({x:s[1].x, y:s[1].y});
+      midpoints.push({x:(s[0].x+s[1].x)/2, y:(s[0].y+s[1].y)/2});
+    });
+    // 円は中心と四象限点
+    if (obj.type === 'circle') {
+      const cx = obj.left, cy = obj.top, r = obj.radius * (obj.scaleX||1);
+      endpoints.push({x:cx, y:cy});
+      endpoints.push({x:cx+r, y:cy}); endpoints.push({x:cx-r, y:cy});
+      endpoints.push({x:cx, y:cy+r}); endpoints.push({x:cx, y:cy-r});
+    }
+  });
+  return {endpoints, midpoints, allSegs};
+}
+
+// 2線分の交点 (なければ null)
+function segIntersect(a, b) {
+  const x1=a[0].x,y1=a[0].y,x2=a[1].x,y2=a[1].y;
+  const x3=b[0].x,y3=b[0].y,x4=b[1].x,y4=b[1].y;
+  const d=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);
+  if (Math.abs(d)<1e-9) return null;
+  const t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/d;
+  const u=((x1-x3)*(y1-y2)-(y1-y3)*(x1-x2))/d;
+  if (t<-0.001||t>1.001||u<-0.001||u>1.001) return null;
+  return {x:x1+t*(x2-x1), y:y1+t*(y2-y1)};
+}
+
+// 点から線分への垂線の足
+function perpFoot(pt, seg) {
+  const x1=seg[0].x,y1=seg[0].y,x2=seg[1].x,y2=seg[1].y;
+  const dx=x2-x1, dy=y2-y1;
+  const L2=dx*dx+dy*dy;
+  if (L2<1e-9) return null;
+  let t=((pt.x-x1)*dx+(pt.y-y1)*dy)/L2;
+  if (t<0||t>1) return null;
+  return {x:x1+t*dx, y:y1+t*dy};
+}
+
+// 現在ズーム倍率に応じたワールド座標でのしきい値
+function snapTolWorld() {
+  return OSNAP_TOL / canvas.getZoom();
+}
+
+// メインのオブジェクトスナップ判定
+function objectSnap(pt) {
+  if (!document.getElementById('osnap').checked) return null;
+  // 描画系ツール時のみ有効 (選択・移動中は無効)
+  if (state.tool === 'select' || state.tool === 'freehand') return null;
+  const tol = snapTolWorld();
+  const {endpoints, midpoints, allSegs} = collectSnapCandidates();
+  let best = null, bestD = tol, bestType = null, bestPrio = 99;
+  // 優先度: 端点 > 交点 > 中点 > 垂線
+  const consider = (cand, type, prio) => {
+    if (!cand) return;
+    const d = Math.hypot(cand.x-pt.x, cand.y-pt.y);
+    if (d < tol && (best===null || prio < bestPrio || (prio===bestPrio && d<bestD))) {
+      best = cand; bestD = d; bestType = type; bestPrio = prio;
+    }
+  };
+  endpoints.forEach(c => consider(c, 'endpoint', 1));
+  // 交点 (セグメント数が多い場合は負荷軽減のためスキップ)
+  if (allSegs.length <= 120) {
+    for (let i=0;i<allSegs.length;i++) for (let j=i+1;j<allSegs.length;j++) {
+      const ip = segIntersect(allSegs[i], allSegs[j]);
+      if (ip) consider(ip, 'intersection', 2);
+    }
+  }
+  midpoints.forEach(c => consider(c, 'midpoint', 3));
+  // 垂線
+  allSegs.forEach(s => consider(perpFoot(pt, s), 'perp', 4));
+  if (best) return {x:best.x, y:best.y, type:bestType};
+  return null;
+}
+
+// スナップマーカーを描画
+function showSnapMarker(info) {
+  hideSnapMarker();
+  if (!info) return;
+  const z = canvas.getZoom();
+  const sz = 6 / z;
+  let shape;
+  const common = {left:info.x, top:info.y, originX:'center', originY:'center',
+    stroke:'#00c853', strokeWidth:1.5/z, fill:'', selectable:false, evented:false,
+    excludeFromExport:true, _isSnapMarker:true, hoverCursor:'default'};
+  if (info.type === 'endpoint') {
+    shape = new fabric.Rect({...common, width:sz*2, height:sz*2});
+  } else if (info.type === 'midpoint') {
+    shape = new fabric.Triangle({...common, width:sz*2.2, height:sz*2});
+  } else if (info.type === 'intersection') {
+    // ✕ マーク
+    const g = new fabric.Group([
+      new fabric.Line([-sz,-sz,sz,sz],{stroke:'#00c853',strokeWidth:1.5/z}),
+      new fabric.Line([-sz,sz,sz,-sz],{stroke:'#00c853',strokeWidth:1.5/z})
+    ], {...common});
+    shape = g;
+  } else { // perp ◇
+    shape = new fabric.Rect({...common, width:sz*2, height:sz*2, angle:45});
+  }
+  snapMarker = shape;
+  canvas.add(shape);
+  canvas.bringToFront(shape);
+  canvas.renderAll();
+}
+function hideSnapMarker() {
+  if (snapMarker) { canvas.remove(snapMarker); snapMarker = null; }
+}
+
+// スナップ統合: オブジェクトスナップ優先、なければグリッド
 function snapPoint(pt) {
+  const osnap = objectSnap(pt);
+  if (osnap) {
+    lastSnapInfo = osnap;
+    return {x: osnap.x, y: osnap.y};
+  }
+  lastSnapInfo = null;
   if (!state.snapToGrid || !document.getElementById('grid-snap').checked) return pt;
   return {
     x: Math.round(pt.x / state.gridSize) * state.gridSize,
@@ -649,6 +902,7 @@ function orthoPoint(start, end) {
 function setTool(tool) {
   state.tool = tool;
   state.polygonPoints = [];
+  hideSnapMarker();
   if (state.tempObject) {
     canvas.remove(state.tempObject);
     state.tempObject = null;
@@ -781,6 +1035,13 @@ canvas.on('mouse:move', (opt) => {
   pt = snapPoint(pt);
   
   document.getElementById('status-coord').textContent = `X: ${Math.round(pt.x)}  Y: ${Math.round(pt.y)}`;
+
+  // スナップマーカー表示 (描画系ツールのみ)
+  if (state.tool !== 'select' && state.tool !== 'freehand' && !state.spacePressed) {
+    showSnapMarker(lastSnapInfo);
+  } else {
+    hideSnapMarker();
+  }
   
   // パン中
   if (state.isPanning) {
@@ -846,6 +1107,7 @@ canvas.on('mouse:up', (opt) => {
     state.tempObject.selectable = (state.tool === 'select');
     state.tempObject.evented = true;
     state.tempObject = null;
+    hideSnapMarker();
     saveHistory();
     updateStats();
   }
@@ -1070,7 +1332,7 @@ function saveHistory() {
   if (state.isLoadingHistory) return;
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid);
-  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer']));
+  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch']));
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex++;
@@ -1128,7 +1390,7 @@ function duplicateSelected() {
     canvas.renderAll();
     saveHistory();
     updateStats();
-  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer']);
+  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch']);
 }
 
 function selectAll() {
@@ -1431,7 +1693,7 @@ function saveJSON() {
     version: '0.2',
     created: new Date().toISOString(),
     layers: state.layers,
-    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer'])
+    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch'])
   };
   // グリッドは除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid);
@@ -1545,7 +1807,7 @@ function loadTemplate(name) {
 function buildMatiuke() {
   // 待ち受け式擁壁 H=3.8m を編集可能オブジェクトとしてキャンバスに展開
   // スケール: 1mm = 0.1 pixel (1:10で表示しキャンバスに収まるサイズ)
-  const sc = 0.15;  // 1mm = 0.15px
+  const sc = state.scale;
   const ox = 100, oy = 80;  // オフセット
   
   // 構造体ポリゴン
@@ -1652,7 +1914,7 @@ function buildMatiuke() {
 
 function buildLChiba() {
   // 千葉市L型 (簡易版)
-  const sc = 0.2;
+  const sc = state.scale;
   const ox = 150, oy = 80;
   
   const structure = new fabric.Polygon([
@@ -1684,7 +1946,7 @@ function buildLChiba() {
 
 function buildInvT() {
   // 逆T型擁壁
-  const sc = 0.15;
+  const sc = state.scale;
   const ox = 150, oy = 80;
   
   const structure = new fabric.Polygon([
@@ -1702,6 +1964,293 @@ function buildInvT() {
   });
   canvas.add(structure);
   canvas.renderAll();
+}
+
+// ============================================================
+// 配筋オートツール (v0.3)
+// ============================================================
+
+// 縮尺変更 (v0.3で実装: 鉄筋ツール/検査がmm⇔px変換に使用)
+function updateScale() {
+  const v = parseFloat(document.getElementById('scale-select').value);
+  if (!isNaN(v) && v > 0) state.scale = v;
+}
+
+function openRebarTools() {
+  document.getElementById('modal-rebar-tools').classList.add('show');
+}
+
+// 鉄筋設定の現在値からプロパティを取得
+function currentRebarProps() {
+  const dia = document.getElementById('rebar-dia').value;
+  const grade = document.getElementById('rebar-grade').value;
+  const diaMap = {'D10':10,'D13':13,'D16':16,'D19':19,'D22':22};
+  const widthMap = {'D10':3,'D13':4,'D16':5,'D19':6,'D22':7};
+  const colorMap = {'D10':'#888','D13':'#0066cc','D16':'#c00','D19':'#900','D22':'#600'};
+  return {dia, grade, diaMm:diaMap[dia], strokeWidth:widthMap[dia], color:colorMap[dia]};
+}
+
+// ポリラインから主線の2端点を推定(最長セグメントの両端)
+function rebarMainEndpoints(obj) {
+  const m = obj.calcTransformMatrix();
+  const pts = obj.points.map(p =>
+    fabric.util.transformPoint({x:p.x - obj.pathOffset.x, y:p.y - obj.pathOffset.y}, m));
+  let maxLen = -1, a = pts[0], b = pts[pts.length-1];
+  for (let i=0;i<pts.length-1;i++) {
+    const L = Math.hypot(pts[i+1].x-pts[i].x, pts[i+1].y-pts[i].y);
+    if (L > maxLen) { maxLen = L; a = pts[i]; b = pts[i+1]; }
+  }
+  return {a:{x:a.x,y:a.y}, b:{x:b.x,y:b.y}, len:maxLen};
+}
+
+function getSelectedRebars() {
+  return canvas.getActiveObjects().filter(o => o._type === 'rebar');
+}
+
+// --- ① U字キャップ生成 ---
+function genUCap() {
+  const bars = getSelectedRebars();
+  if (bars.length !== 2) { alert('主筋を2本選択してください(現在 ' + bars.length + ' 本)'); return; }
+  const cover = parseFloat(document.getElementById('cap-cover').value) || 0;
+  const p = currentRebarProps();
+  const sc = state.scale || 0.033;
+  const e1 = rebarMainEndpoints(bars[0]);
+  const e2 = rebarMainEndpoints(bars[1]);
+  // 各筋の「頭部」= 互いに近い側の端点を選ぶ
+  const cands = [[e1.a,e2.a],[e1.a,e2.b],[e1.b,e2.a],[e1.b,e2.b]];
+  let best = cands[0], bd = Infinity;
+  cands.forEach(c => { const d=Math.hypot(c[0].x-c[1].x,c[0].y-c[1].y); if(d<bd){bd=d;best=c;} });
+  const t1 = best[0], t2 = best[1];
+  // U字(⊓): t1 → 上に立ち上げ → 水平 → t2 へ下ろす
+  const riseDir = (t1.y < (e1.a.y+e1.b.y)/2) ? -1 : -1; // 上方向に立ち上げ
+  const rise = Math.max(20, cover) * sc * 1.5;
+  const capPts = [
+    {x:t1.x, y:t1.y},
+    {x:t1.x, y:t1.y - rise},
+    {x:t2.x, y:t2.y - rise},
+    {x:t2.x, y:t2.y}
+  ];
+  const cap = new fabric.Polyline(capPts, {
+    stroke:p.color, strokeWidth:p.strokeWidth, fill:'',
+    _type:'rebar', _dia:p.dia, _grade:p.grade, _hookL:'90', _hookR:'90',
+    _role:'cap', _length:Math.round(bd/sc),
+    _layer: bars[0]._layer ?? 1, selectable:true
+  });
+  canvas.add(cap);
+  canvas.discardActiveObject();
+  canvas.renderAll();
+  saveHistory(); updateStats();
+  closeModal('modal-rebar-tools');
+}
+
+// --- ② ボックス形成 (⊓型 + ⊔型 の閉鎖ボックス) ---
+function genBox() {
+  const bars = getSelectedRebars();
+  if (bars.length !== 2) { alert('上端筋・下端筋となる鉄筋を2本選択してください(現在 ' + bars.length + ' 本)'); return; }
+  const anchor = parseFloat(document.getElementById('box-anchor').value) || 0;
+  const sc = state.scale || 0.033;
+  const aPx = anchor * sc;
+  const p = currentRebarProps();
+
+  // 2本のうち上(top)と下(bottom)を判定
+  let top = bars[0], bot = bars[1];
+  const c0 = rebarMainEndpoints(bars[0]), c1 = rebarMainEndpoints(bars[1]);
+  const y0 = (c0.a.y+c0.b.y)/2, y1 = (c1.a.y+c1.b.y)/2;
+  if (y0 > y1) { top = bars[1]; bot = bars[0]; }
+  const et = rebarMainEndpoints(top), eb = rebarMainEndpoints(bot);
+  // 左右を揃える
+  const tL = et.a.x < et.b.x ? et.a : et.b, tR = et.a.x < et.b.x ? et.b : et.a;
+  const bL = eb.a.x < eb.b.x ? eb.a : eb.b, bR = eb.a.x < eb.b.x ? eb.b : eb.a;
+
+  // ⊓型(上端筋): 両端を下に折る
+  const topBox = new fabric.Polyline([
+    {x:tL.x, y:tL.y + aPx}, {x:tL.x, y:tL.y}, {x:tR.x, y:tR.y}, {x:tR.x, y:tR.y + aPx}
+  ], {stroke:p.color, strokeWidth:p.strokeWidth, fill:'',
+      _type:'rebar', _dia:p.dia, _grade:p.grade, _hookL:'90', _hookR:'90',
+      _role:'box-top', _length:Math.round(Math.hypot(tR.x-tL.x,tR.y-tL.y)/sc),
+      _layer: top._layer ?? 1, selectable:true});
+  // ⊔型(下端筋): 両端を上に折る
+  const botBox = new fabric.Polyline([
+    {x:bL.x, y:bL.y - aPx}, {x:bL.x, y:bL.y}, {x:bR.x, y:bR.y}, {x:bR.x, y:bR.y - aPx}
+  ], {stroke:p.color, strokeWidth:p.strokeWidth, fill:'',
+      _type:'rebar', _dia:p.dia, _grade:p.grade, _hookL:'90', _hookR:'90',
+      _role:'box-bot', _length:Math.round(Math.hypot(bR.x-bL.x,bR.y-bL.y)/sc),
+      _layer: bot._layer ?? 1, selectable:true});
+
+  // 元の2本は置き換え
+  canvas.remove(top); canvas.remove(bot);
+  canvas.add(topBox); canvas.add(botBox);
+  canvas.discardActiveObject();
+  canvas.renderAll();
+  saveHistory(); updateStats();
+  closeModal('modal-rebar-tools');
+}
+
+// --- ③ ピッチ配置(連続複製) ---
+function genPitch() {
+  const bars = getSelectedRebars();
+  if (bars.length !== 1) { alert('複製元の鉄筋を1本だけ選択してください(現在 ' + bars.length + ' 本)'); return; }
+  const pitch = parseFloat(document.getElementById('pitch-val').value) || 200;
+  const count = parseInt(document.getElementById('pitch-count').value) || 2;
+  const dir = document.getElementById('pitch-dir').value;
+  const sc = state.scale || 0.033;
+  const stepPx = pitch * sc;
+  const src = bars[0];
+
+  let vx = 0, vy = 0;
+  if (dir === 'right') { vx = stepPx; }
+  else if (dir === 'left') { vx = -stepPx; }
+  else if (dir === 'down') { vy = stepPx; }
+  else if (dir === 'up') { vy = -stepPx; }
+  else if (dir === 'perp') {
+    const e = rebarMainEndpoints(src);
+    const ang = Math.atan2(e.b.y-e.a.y, e.b.x-e.a.x) + Math.PI/2;
+    vx = Math.cos(ang)*stepPx; vy = Math.sin(ang)*stepPx;
+  }
+
+  const created = [];
+  for (let i=1;i<count;i++) {
+    src.clone(cl => {
+      cl.set({left: src.left + vx*i, top: src.top + vy*i,
+        _type:'rebar', _dia:src._dia, _grade:src._grade,
+        _hookL:src._hookL, _hookR:src._hookR, _length:src._length,
+        _role:'pitch', _pitch:pitch, _layer:src._layer, selectable:true});
+      canvas.add(cl);
+      created.push(cl);
+      if (created.length === count-1) {
+        canvas.discardActiveObject();
+        canvas.renderAll();
+        saveHistory(); updateStats();
+      }
+    }, ['_type','_dia','_grade','_hookL','_hookR','_length','_layer','_role','_pitch']);
+  }
+  closeModal('modal-rebar-tools');
+}
+
+// ============================================================
+// 配筋検査 (v0.3) — かぶり厚 / 定着長チェック
+// ============================================================
+
+let valHighlights = [];
+
+function clearValidationHighlight() {
+  valHighlights.forEach(h => canvas.remove(h));
+  valHighlights = [];
+  canvas.renderAll();
+}
+
+// 構造体ポリゴン(レイヤー0=構造体 かつ polygon/rect)を集める
+function getStructurePolys() {
+  const polys = [];
+  canvas.forEachObject(obj => {
+    if (obj._isGrid || obj._isSnapMarker) return;
+    if (obj._type === 'rebar') return;
+    if ((obj._layer ?? 0) !== 0) return;
+    if (obj.type === 'polygon' || obj.type === 'rect') polys.push(obj);
+  });
+  return polys;
+}
+
+// 点から構造体外形までの最短距離(px)。外形セグメント全てに対して。
+function distPointToStructure(pt, polys) {
+  let min = Infinity;
+  polys.forEach(poly => {
+    objToSegments(poly).forEach(s => {
+      const f = perpFoot(pt, s);
+      let d;
+      if (f) d = Math.hypot(f.x-pt.x, f.y-pt.y);
+      else d = Math.min(Math.hypot(s[0].x-pt.x, s[0].y-pt.y), Math.hypot(s[1].x-pt.x, s[1].y-pt.y));
+      if (d < min) min = d;
+    });
+  });
+  return min;
+}
+
+function runValidation(keepOpen) {
+  clearValidationHighlight();
+  const sc = state.scale || 0.033;
+  const minCover = parseFloat(document.getElementById('val-mincover').value) || 40;
+  const af = parseFloat(document.getElementById('val-anchor-factor').value) || 40;
+  const polys = getStructurePolys();
+  const rebars = [];
+  canvas.forEachObject(o => { if (o._type === 'rebar') rebars.push(o); });
+
+  const diaMm = {'D10':10,'D13':13,'D16':16,'D19':19,'D22':22};
+  let html = '';
+  let nCover = 0, nAnchor = 0;
+
+  if (rebars.length === 0) {
+    html = '<p style="color:#aaa;">鉄筋オブジェクトがありません。</p>';
+  } else {
+    html += `<table style="width:100%; border-collapse:collapse; font-size:11px;">
+      <tr style="border-bottom:1px solid #555; color:#fdc674;">
+        <th style="text-align:left; padding:4px;">#</th>
+        <th style="text-align:left;">径</th>
+        <th style="text-align:right;">かぶり(mm)</th>
+        <th style="text-align:right;">必要定着(mm)</th>
+        <th style="text-align:right;">実長(mm)</th>
+        <th style="text-align:center;">判定</th>
+      </tr>`;
+    rebars.forEach((r, idx) => {
+      const e = rebarMainEndpoints(r);
+      const d = diaMm[r._dia] || 16;
+      // かぶり: 主線端点と中点で評価し最小値
+      let cover = Infinity;
+      if (polys.length) {
+        [e.a, e.b, {x:(e.a.x+e.b.x)/2, y:(e.a.y+e.b.y)/2}].forEach(pt => {
+          const dist = distPointToStructure(pt, polys) / sc;
+          if (dist < cover) cover = dist;
+        });
+      }
+      const coverStr = polys.length ? Math.round(cover) : '—';
+      const needAnchor = d * af;
+      const realLen = r._length || Math.round(e.len / sc);
+      const coverNG = polys.length && cover < minCover;
+      const anchorNG = realLen < needAnchor;
+      if (coverNG) nCover++;
+      if (anchorNG) nAnchor++;
+      const ng = coverNG || anchorNG;
+      if (ng) {
+        // ハイライト(赤い丸)を主線中点に
+        const mk = new fabric.Circle({
+          left:(e.a.x+e.b.x)/2, top:(e.a.y+e.b.y)/2, radius:10/canvas.getZoom(),
+          originX:'center', originY:'center', fill:'rgba(255,0,0,0.18)',
+          stroke:'#ff1744', strokeWidth:2/canvas.getZoom(),
+          selectable:false, evented:false, excludeFromExport:true, _isSnapMarker:true
+        });
+        valHighlights.push(mk); canvas.add(mk);
+      }
+      const badge = ng
+        ? '<span style="color:#ff5252;">⚠ NG</span>'
+        : '<span style="color:#69f0ae;">OK</span>';
+      const coverCell = coverNG ? `<span style="color:#ff5252;">${coverStr}</span>` : coverStr;
+      const anchorCell = anchorNG ? `<span style="color:#ff5252;">${realLen}</span>` : realLen;
+      html += `<tr style="border-bottom:1px solid #3a3a3a;">
+        <td style="padding:4px;">${idx+1}</td>
+        <td>${r._dia||'-'}</td>
+        <td style="text-align:right;">${coverCell}</td>
+        <td style="text-align:right;">${Math.round(needAnchor)}</td>
+        <td style="text-align:right;">${anchorCell}</td>
+        <td style="text-align:center;">${badge}</td>
+      </tr>`;
+    });
+    html += '</table>';
+    let summary = `<div style="margin-top:8px; padding:6px; border-radius:4px; `;
+    if (nCover === 0 && nAnchor === 0) {
+      summary += `background:#1b5e20;">✅ 全 ${rebars.length} 本 合格`;
+    } else {
+      summary += `background:#5a1a1a;">⚠ かぶり不足 ${nCover} 本 / 定着長不足 ${nAnchor} 本`;
+    }
+    summary += '</div>';
+    if (!polys.length) {
+      summary += `<p style="color:#ffab40; font-size:11px; margin-top:6px;">※ 構造体(レイヤー「構造体」のポリゴン/矩形)が無いため、かぶりは評価できません。テンプレート読込時は自動判定されます。</p>`;
+    }
+    html = summary + html;
+  }
+
+  document.getElementById('validation-result').innerHTML = html;
+  canvas.renderAll();
+  if (!keepOpen) document.getElementById('modal-validation').classList.add('show');
 }
 
 // ============================================================
@@ -1739,9 +2288,9 @@ setTool('select');
 
 // 初回ガイド
 setTimeout(() => {
-  if (!localStorage.getItem('yoheki-cad-visited')) {
+  if (!localStorage.getItem('yoheki-cad-visited-v03')) {
     showHelp();
-    localStorage.setItem('yoheki-cad-visited', '1');
+    localStorage.setItem('yoheki-cad-visited-v03', '1');
   }
 }, 500);
 
