@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.3 (スナップ・配筋ツール・検査)</title>
+<title>yoheki-cad v0.6 (ツールチップ・ガイド・3Dパース)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
   * { box-sizing: border-box; -webkit-user-select: none; user-select: none; }
   html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
@@ -188,6 +189,60 @@
   input[type="checkbox"] {
     width: auto; cursor: pointer;
   }
+  /* ===== 使い方ガイド (v0.6) ===== */
+  .guide-tabs { display:flex; gap:4px; border-bottom:1px solid #555; margin-bottom:12px; flex-wrap:wrap; }
+  .guide-tab { padding:6px 12px; cursor:pointer; border-radius:5px 5px 0 0; font-size:12px; color:#aaa; background:#333; }
+  .guide-tab.active { background:#f97316; color:#fff; }
+  .guide-panel { display:none; font-size:12px; line-height:1.8; max-height:50vh; overflow-y:auto; }
+  .guide-panel.active { display:block; }
+  .guide-step { display:flex; gap:10px; align-items:flex-start; margin:8px 0; padding:8px; background:#2b2b2b; border-radius:5px; }
+  .guide-step .num { flex:none; width:22px; height:22px; border-radius:50%; background:#f97316; color:#fff; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; }
+  .guide-area { display:flex; gap:10px; margin:8px 0; padding:8px; background:#2b2b2b; border-radius:5px; }
+  .guide-area .ico { flex:none; font-size:20px; width:30px; text-align:center; }
+  .guide-area b { color:#fdc674; }
+
+  /* ===== ツールチップ (v0.6) ===== */
+  .help-tip {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; margin-left: 4px;
+    border-radius: 50%; background: #555; color: #ddd;
+    font-size: 9px; cursor: help; position: relative; flex: none;
+  }
+  .help-tip:hover { background: #f97316; color: #fff; }
+  .help-tip[data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute; left: 18px; top: 50%; transform: translateY(-50%);
+    background: #1a1a1a; color: #eee; border: 1px solid #f97316;
+    padding: 6px 9px; border-radius: 5px; font-size: 11px; line-height: 1.5;
+    width: 200px; z-index: 9999; white-space: normal;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5); pointer-events: none;
+  }
+  /* ツールバーボタンのリッチツールチップ */
+  .tool-btn[data-help] { position: relative; }
+  .tool-btn[data-help]:hover::after {
+    content: attr(data-help);
+    position: absolute; left: 50%; top: 100%; transform: translateX(-50%);
+    margin-top: 6px; background: #1a1a1a; color: #eee; border: 1px solid #f97316;
+    padding: 6px 9px; border-radius: 5px; font-size: 11px; line-height: 1.5;
+    width: 180px; z-index: 9999; white-space: normal; text-align: left;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5); pointer-events: none;
+  }
+
+  /* ===== 印刷 (v0.4): 図面だけを出す ===== */
+  #print-area { display: none; }
+  @media print {
+    @page { size: landscape; margin: 10mm; }
+    body * { visibility: hidden !important; }
+    #print-area, #print-area * { visibility: visible !important; }
+    #print-area {
+      display: block !important;
+      position: absolute; left: 0; top: 0; width: 100%;
+      background: #fff;
+    }
+    #print-area img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+    #print-title { text-align: center; font-size: 14px; margin: 4px 0 10px; color:#000; }
+    .menubar, .toolbar, .main, .modal-bg { display: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -195,55 +250,73 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.3 (スナップ・配筋ツール・検査)</span>
+  <span class="ver">v0.6 (ガイド・3Dパース)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
   <span class="menu-item" onclick="saveJSON()">💾 保存</span>
   <span class="menu-item" onclick="loadTemplateMenu()">📋 テンプレート</span>
+  <span class="menu-item" onclick="openPartsLibrary()">🧩 部品</span>
+  <span class="menu-item" onclick="openCoordImport()">📍 座標取込</span>
+  <span class="menu-item" onclick="openPerspective()">🧊 パース</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="openRebarTools()">🔩 配筋ツール</span>
   <span class="menu-item" onclick="runValidation()">🔍 配筋検査</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="exportSVG()">SVG出力</span>
   <span class="menu-item" onclick="exportPNG()">PNG出力</span>
-  <span class="menu-item" onclick="window.print()">🖨️ 印刷</span>
+  <span class="menu-item" onclick="printDrawing()">🖨️ 印刷</span>
   <span class="menu-divider">|</span>
+  <span class="menu-item" onclick="openGuide()">📖 使い方ガイド</span>
   <span class="menu-item" onclick="showHelp()">❓ ヘルプ</span>
 </div>
 
 <!-- ツールバー -->
 <div class="toolbar">
-  <button class="tool-btn active" data-tool="select" title="選択 (S)" onclick="setTool('select')">
+  <button class="tool-btn active" data-tool="select" data-help="クリックで図形を選択・移動・拡縮・回転。複数選択はShift+クリック" title="選択 (S)" onclick="setTool('select')">
     <span class="icon">↖</span><span class="label">選択</span>
   </button>
   <div class="tool-divider"></div>
   
-  <button class="tool-btn" data-tool="line" title="直線 (L)" onclick="setTool('line')">
+  <button class="tool-btn" data-tool="line" data-help="直線を引く。始点→終点をドラッグ。Shiftで水平/垂直" title="直線 (L)" onclick="setTool('line')">
     <span class="icon">╱</span><span class="label">線</span>
   </button>
-  <button class="tool-btn" data-tool="rect" title="矩形 (R)" onclick="setTool('rect')">
+  <button class="tool-btn" data-tool="rect" data-help="矩形を描く。対角にドラッグ" title="矩形 (R)" onclick="setTool('rect')">
     <span class="icon">▭</span><span class="label">矩形</span>
   </button>
-  <button class="tool-btn" data-tool="circle" title="円 (C)" onclick="setTool('circle')">
+  <button class="tool-btn" data-tool="circle" data-help="円を描く。中心から半径をドラッグ" title="円 (C)" onclick="setTool('circle')">
     <span class="icon">○</span><span class="label">円</span>
   </button>
-  <button class="tool-btn" data-tool="polygon" title="多角形" onclick="setTool('polygon')">
+  <button class="tool-btn" data-tool="polygon" data-help="多角形。クリックで頂点追加→ダブルクリック/Enterで確定" title="多角形" onclick="setTool('polygon')">
     <span class="icon">⬡</span><span class="label">多角形</span>
   </button>
-  <button class="tool-btn" data-tool="freehand" title="フリーハンド (F)" onclick="setTool('freehand')">
+  <button class="tool-btn" data-tool="freehand" data-help="手書きの自由曲線" title="フリーハンド (F)" onclick="setTool('freehand')">
     <span class="icon">✎</span><span class="label">手書き</span>
   </button>
   <div class="tool-divider"></div>
   
-  <button class="tool-btn" data-tool="dim" title="寸法線 (D)" onclick="setTool('dim')">
+  <button class="tool-btn" data-tool="dim" data-help="寸法線。始点→終点で長さを自動表示" title="寸法線 (D)" onclick="setTool('dim')">
     <span class="icon">↔</span><span class="label">寸法</span>
   </button>
-  <button class="tool-btn" data-tool="rebar" title="鉄筋 (B)" onclick="setTool('rebar')">
+  <button class="tool-btn" data-tool="rebar" data-help="鉄筋(縦筋)。径・端部フックを左パネルで設定して描く" title="鉄筋 (B)" onclick="setTool('rebar')">
     <span class="icon">▬</span><span class="label">鉄筋</span>
   </button>
-  <button class="tool-btn" data-tool="text" title="テキスト (T)" onclick="setTool('text')">
+  <button class="tool-btn" data-tool="rebardot" data-help="横筋○。鉄筋を端面から見た丸。クリック=1個/ドラッグ=連続" title="横筋・断面 (O) — 鉄筋を端面から見た丸" onclick="setTool('rebardot')">
+    <span class="icon">⊙</span><span class="label">横筋○</span>
+  </button>
+  <button class="tool-btn" data-tool="hatch" data-help="土・砕石・コンクリート等の模様で領域を塗る" title="ハッチ (H) — 土/砕石/コンクリート等の模様で領域を塗る" onclick="openHatchTool()">
+    <span class="icon">▦</span><span class="label">ハッチ</span>
+  </button>
+  <button class="tool-btn" data-tool="text" data-help="注記テキストを入力" title="テキスト (T)" onclick="setTool('text')">
     <span class="icon">𝐀</span><span class="label">文字</span>
+  </button>
+  <div class="tool-divider"></div>
+
+  <button class="tool-btn" data-tool="eraser" data-help="消しゴム。クリック/ドラッグで図形を丸ごと削除" title="消しゴム (E) — クリック/ドラッグで削除" onclick="setTool('eraser')">
+    <span class="icon">🩹</span><span class="label">消しゴム</span>
+  </button>
+  <button class="tool-btn" data-tool="trim" data-help="節間消し。折れ線の1区間だけ削除" title="節間消し (X) — 折れ点間の1区間だけ削除" onclick="setTool('trim')">
+    <span class="icon">✂</span><span class="label">節間消し</span>
   </button>
   <div class="tool-divider"></div>
   
@@ -287,22 +360,32 @@
         <input type="number" id="grid-size" value="50" min="10" max="500" step="10" onchange="updateGrid()">
       </div>
       <div class="prop-row">
-        <label><input type="checkbox" id="grid-snap" checked> グリッドスナップ</label>
+        <label><input type="checkbox" id="grid-snap" checked> グリッドスナップ</label><span class="help-tip" data-tip="ONにすると方眼の交点(または下のスナップ分割の刻み)に吸着して描けます。">?</span>
         <span></span>
       </div>
       <div class="prop-row">
+        <label>スナップ分割 <span class="help-tip" data-tip="1マスを何分割した点に吸着するか。1/2マスなら方眼の中間にも点が打てます。細かい寸法に。">?</span></label>
+        <select id="snap-div" onchange="updateGrid()">
+          <option value="1">マス全体 (1/1)</option>
+          <option value="2" selected>1/2マス</option>
+          <option value="4">1/4マス</option>
+          <option value="5">1/5マス</option>
+          <option value="10">1/10マス</option>
+        </select>
+      </div>
+      <div class="prop-row">
         <label><input type="checkbox" id="osnap" checked> オブジェクトスナップ</label>
-        <span></span>
+        <span class="help-tip" data-tip="既に描いた図形の端点(□)・中点(△)・交点(✕)・垂線(◇)に吸着します。正確に図形をつなげたいときON。">?</span>
       </div>
       <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
         <span>□端点 △中点 ✕交点 ◇垂線</span>
       </div>
       <div class="prop-row">
         <label><input type="checkbox" id="ortho"> 直交モード <kbd>Shift</kbd></label>
-        <span></span>
+        <span class="help-tip" data-tip="ONにすると線が水平か垂直だけに固定されます。Shiftキーを押している間だけ一時的に効かせることも可能。">?</span>
       </div>
       <div class="prop-row">
-        <label>縮尺</label>
+        <label>表示倍率 <span class="help-tip" data-tip="画面上での図面の見かけの大きさ(px/mm)。図面の実寸は変わりません。拡大して描きやすくする設定です。">?</span></label>
         <select id="scale-select" onchange="updateScale()">
           <option value="0.3">大 (0.30px/mm)</option>
           <option value="0.15" selected>標準 (0.15px/mm)</option>
@@ -310,6 +393,37 @@
           <option value="0.0375">極小 (0.0375px/mm)</option>
         </select>
       </div>
+    </div>
+
+    <div class="panel-section">
+      <h4>図枠 (用紙・縮尺)</h4>
+      <div class="prop-row">
+        <label><input type="checkbox" id="frame-show" onchange="updatePaperFrame()"> 図枠を表示</label><span class="help-tip" data-tip="印刷する用紙の範囲を青枠で表示します。枠内に図面が収まるよう配置・縮尺を決めます。">?</span>
+        <span></span>
+      </div>
+      <div class="prop-row">
+        <label>用紙 <span class="help-tip" data-tip="出力する紙のサイズと向き(A4/A3・横/縦)。">?</span></label>
+        <select id="paper-size" onchange="updatePaperFrame()">
+          <option value="A4L">A4 横</option>
+          <option value="A4P">A4 縦</option>
+          <option value="A3L" selected>A3 横</option>
+          <option value="A3P">A3 縦</option>
+        </select>
+      </div>
+      <div class="prop-row">
+        <label>縮尺 1/ <span class="help-tip" data-tip="図面の縮尺。1/50なら実寸50mmが図面上1mm。用紙に収まる実寸範囲が下に表示されます。">?</span></label>
+        <select id="paper-scale" onchange="updatePaperFrame()">
+          <option value="20">20</option>
+          <option value="30">30</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+        </select>
+      </div>
+      <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
+        <span id="frame-info">枠内に収まる実寸が表示されます</span>
+      </div>
+      <button class="btn" style="width:100%; margin-top:4px;" onclick="fitToFrame()">図枠を画面にフィット</button>
     </div>
     
     <div class="panel-section">
@@ -376,6 +490,32 @@
       </div>
     </div>
     
+    <div class="panel-section" id="rebardot-settings" style="display:none">
+      <h4>横筋・断面 (○)</h4>
+      <div class="prop-row">
+        <label>径</label>
+        <select id="rebardot-dia">
+          <option>D10</option><option>D13</option>
+          <option selected>D16</option><option>D19</option><option>D22</option>
+        </select>
+      </div>
+      <div class="prop-row">
+        <label>表現</label>
+        <select id="rebardot-style">
+          <option value="filled" selected>● 黒丸(塗り)</option>
+          <option value="ring">○ 白丸(輪郭)</option>
+          <option value="cross">⊕ 十字入り</option>
+        </select>
+      </div>
+      <div class="prop-row">
+        <label>表示倍率</label>
+        <input type="number" id="rebardot-mag" value="2.5" min="0.5" max="10" step="0.5" title="径に対する丸の表示倍率(見やすさ調整)">
+      </div>
+      <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
+        <span>クリック=1個 / ドラッグ=ピッチ連続配置(スナップ刻み)</span>
+      </div>
+    </div>
+    
     <div class="panel-section" id="dim-settings" style="display:none">
       <h4>寸法線設定</h4>
       <div class="prop-row">
@@ -401,6 +541,9 @@
         <kbd>D</kbd> 寸法　
         <kbd>B</kbd> 鉄筋<br>
         <kbd>T</kbd> 文字　
+        <kbd>E</kbd> 消しゴム<br>
+        <kbd>X</kbd> 節間消し　
+        <kbd>O</kbd> 横筋○<br>
         <kbd>F</kbd> 全体表示<br>
         <kbd>Del</kbd> 削除　
         <kbd>Esc</kbd> 解除<br>
@@ -462,7 +605,7 @@
 <!-- ヘルプモーダル -->
 <div class="modal-bg" id="modal-help">
   <div class="modal">
-    <h3>yoheki-cad v0.3 使い方</h3>
+    <h3>yoheki-cad v0.6 使い方</h3>
     <div style="font-size:12px; line-height: 1.7;">
       <p><b>基本操作:</b></p>
       <ul>
@@ -505,7 +648,33 @@
         <li>不足する鉄筋は赤丸でハイライト表示</li>
         <li>最小かぶり・定着長係数はモーダル上部で変更可能</li>
       </ul>
+      <p><b>🆕 v0.3.1 消しゴム・節間消し:</b></p>
+      <ul>
+        <li><kbd>E</kbd> 消しゴム：クリックで最も近い図形を1つ削除。押したままドラッグで連続削除</li>
+        <li><kbd>X</kbd> 節間消し：折れ線・多角形・鉄筋の<b>クリックした区間(折れ点〜折れ点)だけ</b>を削除。残りは分割して保持</li>
+        <li>直線(L)を節間消しすると線ごと削除。多角形は1辺を抜くと開いた折れ線に再構成</li>
+        <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
       <p><b>編集:</b></p>
+      <ul>
+        <li><b>🆕 v0.4 図枠</b>：左パネル「図枠」で用紙(A4/A3)と縮尺(1/50等)を選ぶと、枠内に収まる実寸が表示。「図枠を画面にフィット」で全体表示</li>
+        <li><b>🆕 v0.4 印刷</b>：🖨️印刷は図枠内(枠が無ければ図形範囲)だけをページに出力。UIは印刷されません</li>
+        <li><b>🆕 v0.4 鉄筋の色・太さ</b>：鉄筋を選択 → 右パネルで線色・太さを個別変更。「径の自動色に戻す」で初期化</li>
+        <li><b>🆕 v0.4 部品ライブラリ</b>：🧩部品 → 選択図形を名前付きで登録(ブラウザ保存)。別図面で配置縮尺を指定して配置。ファイル(.json)で書出/読込も可</li>
+      </ul>
+      <p><b>🆕 v0.5 作図補助:</b></p>
+      <ul>
+        <li><b>スナップ分割</b>：左パネルで1/2〜1/10マスを選ぶと、方眼の中間点にスナップして描けます</li>
+        <li><kbd>O</kbd> <b>横筋○</b>：鉄筋を端面から見た丸(●/○/⊕)を配置。クリック=1個、ドラッグ=ピッチ連続。径・表現・表示倍率を左パネルで設定</li>
+        <li><kbd>H</kbd>相当 <b>ハッチ</b>：▦ボタン → 土/砕石/砂/コンクリート/割栗/ブロック等の模様を選び、領域を描くか選択図形に適用。密度調整可</li>
+        <li><b>📍座標取込</b>：CSV(点番,X,Y,Z)やSIMAを貼付/ファイル選択 → 点プロット+点番・標高ラベル+結線。縮尺指定し北を上に配置、取込後に自動フィット</li>
+      </ul>
+      <p><b>🆕 v0.6 補助・3D:</b></p>
+      <ul>
+        <li><b>ツールチップ</b>：ツールバーの各ボタン、左パネルの「?」にカーソルを乗せると説明が出ます</li>
+        <li><b>📖使い方ガイド</b>：画面の見方〜擁壁断面・配筋・印刷・パースまでの操作手順をタブで確認できます</li>
+        <li><b>🧊パース</b>：閉じた断面ポリゴンを選択 → 奥行きに押し出し or 平面立ち上げで3D化。ドラッグ回転・ホイールズーム・PNG保存</li>
+      </ul>
       <ul>
         <li>選択 → ドラッグで移動</li>
         <li>選択 → 四隅でリサイズ、上端で回転</li>
@@ -529,6 +698,65 @@
     </div>
     <div class="modal-actions">
       <button class="btn primary" onclick="closeModal('modal-help')">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 使い方ガイドモーダル (v0.6) -->
+<div class="modal-bg" id="modal-guide">
+  <div class="modal" style="max-width:640px;">
+    <h3>📖 yoheki-cad 使い方ガイド</h3>
+    <div class="guide-tabs">
+      <div class="guide-tab active" onclick="switchGuide(0)">画面の見方</div>
+      <div class="guide-tab" onclick="switchGuide(1)">擁壁断面を描く</div>
+      <div class="guide-tab" onclick="switchGuide(2)">配筋を入れる</div>
+      <div class="guide-tab" onclick="switchGuide(3)">仕上げ・印刷</div>
+      <div class="guide-tab" onclick="switchGuide(4)">座標・パース</div>
+    </div>
+
+    <div class="guide-panel active" id="guide-0">
+      <p>画面は3つのエリアに分かれています。</p>
+      <div class="guide-area"><span class="ico">🧰</span><div><b>上部ツールバー</b><br>描く道具を選ぶ場所。選択・直線・矩形・円・鉄筋・横筋○・ハッチ・消しゴムなど。各ボタンにカーソルを乗せると説明が出ます。</div></div>
+      <div class="guide-area"><span class="ico">⬅️</span><div><b>左パネル</b><br>表示設定(グリッド・スナップ・表示倍率)と図枠(用紙・縮尺)。各項目の「?」にカーソルを乗せると説明が出ます。</div></div>
+      <div class="guide-area"><span class="ico">➡️</span><div><b>右パネル</b><br>レイヤー管理と、選択した図形のプロパティ(色・太さ・径など)を編集。</div></div>
+      <div class="guide-area"><span class="ico">📋</span><div><b>上部メニュー</b><br>保存/開く・テンプレート・配筋ツール・検査・部品・座標取込・パース・印刷など。</div></div>
+    </div>
+
+    <div class="guide-panel" id="guide-1">
+      <p>L型擁壁の断面を一から描く例です。</p>
+      <div class="guide-step"><span class="num">1</span><div>左パネルで<b>図枠</b>をON、用紙A3横・縮尺1/50を選ぶ。青枠が表示されます。</div></div>
+      <div class="guide-step"><span class="num">2</span><div>ツールバーの<b>多角形</b>で擁壁の外形(竪壁＋底版のL字)をクリックして描く。Enterで確定。</div></div>
+      <div class="guide-step"><span class="num">3</span><div><b>寸法線</b>ツールで高さ・幅・厚みを記入。始点→終点をドラッグすると長さが自動表示。</div></div>
+      <div class="guide-step"><span class="num">4</span><div>テンプレートを使う場合は<b>📋テンプレート</b>から待ち受け式/L型/逆T型を選ぶと編集可能な状態で展開されます。</div></div>
+      <div class="guide-step"><span class="num">5</span><div>よく使う形は<b>🧩部品</b>で登録しておけば次回コピペできます。</div></div>
+    </div>
+
+    <div class="guide-panel" id="guide-2">
+      <p>配筋図の描き方です。</p>
+      <div class="guide-step"><span class="num">1</span><div><b>鉄筋</b>ツール(縦筋)で主筋を描く。左パネルで径(D13等)・端部フックを設定。</div></div>
+      <div class="guide-step"><span class="num">2</span><div><b>配筋ツール</b>メニューで、主筋2本を選んでU字キャップやボックス形成、1本を選んでピッチ連続配置。</div></div>
+      <div class="guide-step"><span class="num">3</span><div><b>横筋○</b>ツールで、配力筋を端面から見た丸を配置。クリックで1個、ドラッグでピッチ連続。これで配筋図のグリッド＋丸が作れます。</div></div>
+      <div class="guide-step"><span class="num">4</span><div>鉄筋を選択 → 右パネルで線色・太さを変更可能。</div></div>
+      <div class="guide-step"><span class="num">5</span><div><b>🔍配筋検査</b>でかぶり厚・定着長を一括チェック。不足は赤丸で表示。</div></div>
+    </div>
+
+    <div class="guide-panel" id="guide-3">
+      <p>仕上げと出力です。</p>
+      <div class="guide-step"><span class="num">1</span><div><b>ハッチ</b>ツールで埋戻しの土・砕石、基礎のコンクリートなどを模様で塗る。領域を描くか選択図形に適用。</div></div>
+      <div class="guide-step"><span class="num">2</span><div><b>テキスト</b>で注記、寸法を追記。</div></div>
+      <div class="guide-step"><span class="num">3</span><div>図枠をONにして、図面が枠内に収まるよう<b>「図枠を画面にフィット」</b>で確認。</div></div>
+      <div class="guide-step"><span class="num">4</span><div><b>🖨️印刷</b>で図枠内だけをページ出力(画面のUIは印刷されません)。PNG/SVG出力やJSON保存も可能。</div></div>
+    </div>
+
+    <div class="guide-panel" id="guide-4">
+      <p>測量座標の取り込みと3Dパースです。</p>
+      <div class="guide-step"><span class="num">1</span><div><b>📍座標取込</b>でCSV(点番,X,Y,Z)やSIMAを貼付/ファイル選択。北を上にして点・ラベル・結線を配置し、現場全体図の下敷きにできます。</div></div>
+      <div class="guide-step"><span class="num">2</span><div>その上に擁壁や構造物を配置して計画図を作成。</div></div>
+      <div class="guide-step"><span class="num">3</span><div><b>🧊パース</b>で、断面ポリゴンを奥行きに押し出す方式か、平面を立ち上げる方式で3Dパースを生成。マウスで回転・ズームできます。</div></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn primary" onclick="closeModal('modal-guide')">閉じる</button>
     </div>
   </div>
 </div>
@@ -623,6 +851,156 @@
   </div>
 </div>
 
+<!-- 部品ライブラリモーダル (v0.4) -->
+<div class="modal-bg" id="modal-parts">
+  <div class="modal" style="max-width:600px;">
+    <h3>🧩 部品ライブラリ</h3>
+    <p style="font-size:12px; color:#aaa;">配筋・擁壁などの図形を部品として登録し、別の図面で配置できます。ブラウザに保存され、ファイル(.json)での書き出し/読み込みも可能です。</p>
+
+    <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:8px;">
+      <h4 style="margin-top:0;">① 選択中の図形を部品登録</h4>
+      <div class="prop-row">
+        <label>部品名</label>
+        <input type="text" id="part-name" placeholder="例: 待ち受け式 配筋セット" style="flex:1;">
+      </div>
+      <div class="prop-row">
+        <label>分類</label>
+        <select id="part-category">
+          <option value="配筋">配筋</option>
+          <option value="擁壁">擁壁</option>
+          <option value="寸法">寸法</option>
+          <option value="その他">その他</option>
+        </select>
+      </div>
+      <button class="btn primary" style="width:100%; margin-top:6px;" onclick="registerPart()">選択図形を部品登録</button>
+    </div>
+
+    <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:8px;">
+      <h4 style="margin-top:0;">② 部品を配置</h4>
+      <div class="prop-row">
+        <label>配置縮尺</label>
+        <select id="part-place-scale">
+          <option value="1">そのまま (1.0倍)</option>
+          <option value="0.5">0.5倍</option>
+          <option value="2">2.0倍</option>
+          <option value="auto">現在の表示倍率に合わせる</option>
+        </select>
+      </div>
+      <div id="parts-list" style="max-height:240px; overflow-y:auto; margin-top:6px;"></div>
+    </div>
+
+    <div class="modal-actions" style="justify-content:space-between;">
+      <div>
+        <button class="btn" onclick="exportPartsLibrary()">📤 ファイルに書き出し</button>
+        <button class="btn" onclick="importPartsLibrary()">📥 ファイルから読み込み</button>
+      </div>
+      <button class="btn" onclick="closeModal('modal-parts')">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- ハッチ(模様)モーダル (v0.5) -->
+<div class="modal-bg" id="modal-hatch">
+  <div class="modal" style="max-width:520px;">
+    <h3>▦ ハッチ・模様で塗る</h3>
+    <p style="font-size:12px; color:#aaa;">模様を選び、「領域を描く」で矩形/多角形を描くか、選択中の閉じた図形に適用します。</p>
+    <div id="hatch-palette" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin-top:10px;"></div>
+    <div class="prop-row" style="margin-top:10px;">
+      <label>密度</label>
+      <input type="range" id="hatch-density" min="6" max="30" value="14" style="flex:1;" oninput="renderHatchPalette()">
+      <span id="hatch-density-val" style="min-width:30px; text-align:right;">14</span>
+    </div>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <div>
+        <button class="btn primary" onclick="startHatchDraw()">▭ 領域を描いて塗る</button>
+        <button class="btn" onclick="applyHatchToSelected()">選択図形に適用</button>
+      </div>
+      <button class="btn" onclick="closeModal('modal-hatch')">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 座標取込モーダル (v0.5) -->
+<div class="modal-bg" id="modal-coord">
+  <div class="modal" style="max-width:640px;">
+    <h3>📍 測量座標の取り込み</h3>
+    <p style="font-size:12px; color:#aaa;">CSV(点番,X,Y,Z) または SIMA(A01形式) のテキストを貼り付けるか、ファイルを選択してください。測量座標(X=北,Y=東)を図面に変換します。</p>
+
+    <div class="prop-row">
+      <label>形式</label>
+      <select id="coord-format" onchange="previewCoords()">
+        <option value="auto" selected>自動判定</option>
+        <option value="csv-nxyz">CSV: 点番,X,Y,Z</option>
+        <option value="csv-nyxz">CSV: 点番,Y,X,Z</option>
+        <option value="sima">SIMA (A01)</option>
+      </select>
+      <button class="btn" onclick="pickCoordFile()">📂 ファイル選択</button>
+    </div>
+
+    <textarea id="coord-text" oninput="previewCoords()" placeholder="例:&#10;1,12345.678,9876.543,21.50&#10;2,12350.120,9880.330,21.62&#10;..."
+      style="width:100%; height:140px; margin-top:8px; background:#2b2b2b; color:#ddd; border:1px solid #555; border-radius:4px; font-family:monospace; font-size:11px; padding:6px;"></textarea>
+
+    <div class="prop-row" style="margin-top:8px;">
+      <label><input type="checkbox" id="coord-connect"> 順番に結線する</label>
+      <label style="margin-left:10px;"><input type="checkbox" id="coord-close"> 閉合(始点に戻る)</label>
+    </div>
+    <div class="prop-row">
+      <label><input type="checkbox" id="coord-label-name" checked> 点番ラベル</label>
+      <label style="margin-left:10px;"><input type="checkbox" id="coord-label-z" checked> 標高ラベル</label>
+    </div>
+    <div class="prop-row">
+      <label>縮尺 1/</label>
+      <input type="number" id="coord-scale" value="500" min="1" max="5000" step="50">
+      <span style="font-size:10px; color:#999;">(実座標m → 図面)</span>
+    </div>
+    <div class="prop-row">
+      <label>点記号</label>
+      <select id="coord-mark">
+        <option value="cross">＋ 十字</option>
+        <option value="circle" selected>○ 丸</option>
+        <option value="dot">● 黒点</option>
+      </select>
+    </div>
+
+    <div id="coord-preview" style="font-size:11px; color:#888; margin-top:6px;"></div>
+
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn primary" onclick="importCoords()">取り込む</button>
+      <button class="btn" onclick="closeModal('modal-coord')">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 3Dパースモーダル (v0.6) -->
+<div class="modal-bg" id="modal-persp">
+  <div class="modal" style="max-width:760px;">
+    <h3>🧊 3Dパース生成</h3>
+    <div class="prop-row" style="gap:8px; flex-wrap:wrap;">
+      <label>方式</label>
+      <select id="persp-mode" onchange="rebuildPerspective()">
+        <option value="extrude" selected>断面を奥行きに押し出し(擁壁向き)</option>
+        <option value="standup">平面を立ち上げ(造成・壁向き)</option>
+      </select>
+      <label>奥行/高さ(mm)</label>
+      <input type="number" id="persp-depth" value="3000" min="100" max="50000" step="100" onchange="rebuildPerspective()" style="width:90px;">
+      <label><input type="checkbox" id="persp-ground" checked onchange="rebuildPerspective()"> 地面</label>
+    </div>
+    <div class="prop-row" style="font-size:11px; color:#888;">
+      <span id="persp-info">対象: 選択中の図形(無選択なら全図形)から立体化します。ドラッグで回転・ホイールでズーム。</span>
+    </div>
+    <div id="persp-canvas-wrap" style="width:100%; height:440px; background:#1a1a1a; border-radius:6px; position:relative; overflow:hidden;">
+      <canvas id="persp-canvas" style="width:100%; height:100%; display:block;"></canvas>
+    </div>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <div>
+        <button class="btn" onclick="perspResetView()">視点リセット</button>
+        <button class="btn" onclick="perspExportPNG()">PNG保存</button>
+      </div>
+      <button class="btn" onclick="closePerspective()">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ============================================================
 // 初期化
@@ -652,6 +1030,8 @@ let state = {
   orthoMode: false,
   spacePressed: false,
   isPanning: false,
+  isErasing: false,
+  eraseDirty: false,
   lastPan: null,
   layers: [
     {name: '構造体', color: '#000000', visible: true, locked: false},
@@ -680,6 +1060,80 @@ setTimeout(resizeCanvas, 100);
 // ============================================================
 
 let gridLines = [];
+
+// ============================================================
+// 図枠 (用紙 × 縮尺) — v0.4
+//   用紙寸法(mm) × 縮尺S = 枠が収める実寸(mm)。実寸×state.scaleでpx化。
+// ============================================================
+let paperFrame = null;  // {rect, labels:[...]}
+
+const PAPER_MM = {
+  'A4L': {w:297, h:210}, 'A4P': {w:210, h:297},
+  'A3L': {w:420, h:297}, 'A3P': {w:297, h:420}
+};
+
+// 図枠の実寸(mm)とpxサイズを計算
+function paperFrameDims() {
+  const size = document.getElementById('paper-size').value;
+  const S = parseFloat(document.getElementById('paper-scale').value);
+  const p = PAPER_MM[size];
+  const realW = p.w * S;   // 枠が収める実寸幅(mm)
+  const realH = p.h * S;
+  const sc = state.scale || 0.15;
+  return {paperW:p.w, paperH:p.h, S, realW, realH, pxW:realW*sc, pxH:realH*sc, sc, sizeKey:size};
+}
+
+function updatePaperFrame() {
+  // 既存枠を消す
+  if (paperFrame) {
+    canvas.remove(paperFrame.rect);
+    paperFrame.labels.forEach(l => canvas.remove(l));
+    paperFrame = null;
+  }
+  const show = document.getElementById('frame-show').checked;
+  const d = paperFrameDims();
+  document.getElementById('frame-info').textContent =
+    `枠内実寸: ${Math.round(d.realW)}×${Math.round(d.realH)}mm (1/${d.S})`;
+  if (!show) { canvas.renderAll(); return; }
+
+  // 枠は原点(0,0)を左上として配置
+  const ox = 40, oy = 40;
+  const rect = new fabric.Rect({
+    left: ox, top: oy, width: d.pxW, height: d.pxH,
+    fill: 'rgba(255,255,255,0.0)', stroke: '#2962ff', strokeWidth: 1.5,
+    strokeDashArray: [8,4], selectable:false, evented:false,
+    excludeFromExport:true, hoverCursor:'default', _isFrame:true
+  });
+  const labelTop = new fabric.Text(`${d.sizeKey.replace('L',' 横').replace('P',' 縦')}  1/${d.S}`, {
+    left: ox, top: oy - 22, fontSize: 14, fill: '#2962ff',
+    fontFamily:'Yu Gothic, sans-serif', selectable:false, evented:false,
+    excludeFromExport:true, _isFrame:true
+  });
+  const labelDim = new fabric.Text(`枠内 ${Math.round(d.realW)}×${Math.round(d.realH)}mm`, {
+    left: ox, top: oy + d.pxH + 6, fontSize: 12, fill: '#2962ff',
+    fontFamily:'Yu Gothic, sans-serif', selectable:false, evented:false,
+    excludeFromExport:true, _isFrame:true
+  });
+  paperFrame = {rect, labels:[labelTop, labelDim]};
+  canvas.add(rect); canvas.add(labelTop); canvas.add(labelDim);
+  canvas.renderAll();
+}
+
+// 図枠を画面にフィット
+function fitToFrame() {
+  if (!paperFrame) { alert('先に「図枠を表示」をONにしてください'); return; }
+  const d = paperFrameDims();
+  const ox = 40, oy = 40;
+  const margin = 60;
+  const availW = canvas.getWidth() - margin*2;
+  const availH = canvas.getHeight() - margin*2;
+  const z = Math.min(availW / d.pxW, availH / d.pxH);
+  canvas.setViewportTransform([z, 0, 0, z, margin - ox*z, margin - oy*z]);
+  document.getElementById('status-zoom').textContent = Math.round(z*100) + '%';
+  drawGrid();
+  canvas.renderAll();
+}
+
 function drawGrid() {
   // 既存のグリッドを削除
   gridLines.forEach(line => canvas.remove(line));
@@ -687,35 +1141,49 @@ function drawGrid() {
   
   if (!state.showGrid) return;
   
-  const w = canvas.getWidth();
-  const h = canvas.getHeight();
   const size = state.gridSize;
-  
-  for (let i = 0; i < w; i += size) {
-    const line = new fabric.Line([i, 0, i, h], {
-      stroke: i % (size * 5) === 0 ? '#c0c0c0' : '#e0e0e0',
-      strokeWidth: 1,
-      selectable: false, evented: false,
-      excludeFromExport: true,
-      hoverCursor: 'default',
-      _isGrid: true
+  const zoom = canvas.getZoom();
+  const vpt = canvas.viewportTransform;
+  // 画面四隅のワールド座標を求め、その範囲を必ず覆う
+  const wPx = canvas.getWidth(), hPx = canvas.getHeight();
+  const x0 = (0 - vpt[4]) / zoom;
+  const y0 = (0 - vpt[5]) / zoom;
+  const x1 = (wPx - vpt[4]) / zoom;
+  const y1 = (hPx - vpt[5]) / zoom;
+  // グリッド開始位置をsize刻みに丸める(少し外側まで)
+  const startX = Math.floor(x0 / size) * size - size;
+  const endX   = Math.ceil(x1 / size) * size + size;
+  const startY = Math.floor(y0 / size) * size - size;
+  const endY   = Math.ceil(y1 / size) * size + size;
+  // 線が増えすぎないよう上限(ズームアウトしすぎた場合は太線のみ)
+  const totalV = (endX - startX) / size;
+  const onlyMajor = totalV > 400;
+
+  const sw = 1 / zoom;  // 画面上で常に1px相当
+  for (let x = startX; x <= endX; x += size) {
+    const major = Math.round(x / size) % 5 === 0;
+    if (onlyMajor && !major) continue;
+    const line = new fabric.Line([x, startY, x, endY], {
+      stroke: major ? '#c0c0c0' : '#e8e8e8',
+      strokeWidth: sw, selectable:false, evented:false,
+      excludeFromExport:true, hoverCursor:'default', _isGrid:true
     });
-    gridLines.push(line);
-    canvas.add(line);
-    canvas.sendToBack(line);
+    gridLines.push(line); canvas.add(line); canvas.sendToBack(line);
   }
-  for (let i = 0; i < h; i += size) {
-    const line = new fabric.Line([0, i, w, i], {
-      stroke: i % (size * 5) === 0 ? '#c0c0c0' : '#e0e0e0',
-      strokeWidth: 1,
-      selectable: false, evented: false,
-      excludeFromExport: true,
-      hoverCursor: 'default',
-      _isGrid: true
+  for (let y = startY; y <= endY; y += size) {
+    const major = Math.round(y / size) % 5 === 0;
+    if (onlyMajor && !major) continue;
+    const line = new fabric.Line([startX, y, endX, y], {
+      stroke: major ? '#c0c0c0' : '#e8e8e8',
+      strokeWidth: sw, selectable:false, evented:false,
+      excludeFromExport:true, hoverCursor:'default', _isGrid:true
     });
-    gridLines.push(line);
-    canvas.add(line);
-    canvas.sendToBack(line);
+    gridLines.push(line); canvas.add(line); canvas.sendToBack(line);
+  }
+  // 図枠があれば最背面のグリッドより前に
+  if (paperFrame) {
+    canvas.bringToFront(paperFrame.rect);
+    paperFrame.labels.forEach(l => canvas.bringToFront(l));
   }
   canvas.renderAll();
 }
@@ -738,7 +1206,7 @@ let lastSnapInfo = null;     // 直近のスナップ情報 {x,y,type}
 // オブジェクトを線分(セグメント)の配列に分解
 function objToSegments(obj) {
   const segs = [];
-  if (obj._isGrid || obj._isSnapMarker) return segs;
+  if (obj._isGrid || obj._isSnapMarker || obj._isFrame) return segs;
   const t = obj.type;
   if (t === 'line') {
     segs.push([{x: obj.x1, y: obj.y1}, {x: obj.x2, y: obj.y2}]);
@@ -761,7 +1229,7 @@ function collectSnapCandidates() {
   const midpoints = [];   // 中点
   const allSegs = [];     // 交点・垂線計算用
   canvas.forEachObject(obj => {
-    if (obj._isGrid || obj._isSnapMarker || !obj.visible) return;
+    if (obj._isGrid || obj._isSnapMarker || obj._isFrame || !obj.visible) return;
     const segs = objToSegments(obj);
     segs.forEach(s => {
       allSegs.push(s);
@@ -881,10 +1349,192 @@ function snapPoint(pt) {
   }
   lastSnapInfo = null;
   if (!state.snapToGrid || !document.getElementById('grid-snap').checked) return pt;
+  const divEl = document.getElementById('snap-div');
+  const div = divEl ? parseFloat(divEl.value) : 1;
+  const step = state.gridSize / (div || 1);
   return {
-    x: Math.round(pt.x / state.gridSize) * state.gridSize,
-    y: Math.round(pt.y / state.gridSize) * state.gridSize
+    x: Math.round(pt.x / step) * step,
+    y: Math.round(pt.y / step) * step
   };
+}
+
+// ============================================================
+// 消しゴム / 節間消しエンジン (v0.3.1)
+// ============================================================
+
+// 点と線分の距離(px)。perpFootと違い端点も考慮し常に値を返す。
+function pointSegDist(pt, seg) {
+  const f = perpFoot(pt, seg);
+  if (f) return Math.hypot(f.x-pt.x, f.y-pt.y);
+  return Math.min(Math.hypot(seg[0].x-pt.x, seg[0].y-pt.y),
+                  Math.hypot(seg[1].x-pt.x, seg[1].y-pt.y));
+}
+
+// オブジェクトのワールド座標頂点列を取得 (polyline/polygon/rebar用)
+function objWorldPoints(obj) {
+  if (!obj.points) return null;
+  const m = obj.calcTransformMatrix();
+  return obj.points.map(p =>
+    fabric.util.transformPoint({x:p.x - obj.pathOffset.x, y:p.y - obj.pathOffset.y}, m));
+}
+
+// クリック点に最も近いオブジェクトとヒット情報を返す
+function pickObjectAt(pt) {
+  const tolBase = 10 / canvas.getZoom();
+  let bestObj = null, bestDist = Infinity, bestSegIdx = -1;
+  canvas.forEachObject(obj => {
+    if (obj._isGrid || obj._isSnapMarker || obj._isFrame || !obj.visible) return;
+    const lay = state.layers[obj._layer ?? 0];
+    if (lay && lay.locked) return;
+    const sw = (obj.strokeWidth || 2) * (obj.scaleX || 1);
+    const tol = Math.max(tolBase, sw/2 + 4/canvas.getZoom());
+
+    if (obj.type === 'circle') {
+      const cx = obj.left, cy = obj.top, r = obj.radius*(obj.scaleX||1);
+      const d = Math.abs(Math.hypot(pt.x-cx, pt.y-cy) - r);
+      if (d < tol && d < bestDist) { bestDist=d; bestObj=obj; bestSegIdx=-1; }
+      return;
+    }
+    if (obj.type === 'i-text' || obj.type === 'text' || obj.type === 'group') {
+      const b = obj.getBoundingRect(true, true);
+      const inside = pt.x>=b.left-tol && pt.x<=b.left+b.width+tol &&
+                     pt.y>=b.top-tol && pt.y<=b.top+b.height+tol;
+      if (inside) {
+        const cx=b.left+b.width/2, cy=b.top+b.height/2;
+        const d=Math.hypot(pt.x-cx,pt.y-cy);
+        if (d < bestDist) { bestDist=d; bestObj=obj; bestSegIdx=-1; }
+      }
+      return;
+    }
+    const segs = objToSegments(obj);
+    segs.forEach((s, i) => {
+      const d = pointSegDist(pt, s);
+      if (d < tol && d < bestDist) { bestDist=d; bestObj=obj; bestSegIdx=i; }
+    });
+  });
+  if (!bestObj) return null;
+  return {obj:bestObj, segIdx:bestSegIdx, dist:bestDist};
+}
+
+// --- 消しゴム: 最も近いオブジェクトを丸ごと削除 ---
+function eraseAt(pt, isDrag) {
+  const hit = pickObjectAt(pt);
+  if (!hit) return;
+  canvas.remove(hit.obj);
+  canvas.renderAll();
+  if (isDrag) {
+    state.eraseDirty = true;
+  } else {
+    saveHistory(); updateStats();
+  }
+}
+
+// --- 節間消し: 折れ点間の1区間だけ削除し、残りを再構成 ---
+function trimAt(pt) {
+  const hit = pickObjectAt(pt);
+  if (!hit) return;
+  const obj = hit.obj;
+
+  if (obj.type === 'line') {
+    canvas.remove(obj);
+    canvas.renderAll(); saveHistory(); updateStats();
+    return;
+  }
+
+  if (obj.type === 'polyline' || obj.type === 'polygon') {
+    let pts = objWorldPoints(obj);
+    if (!pts || pts.length < 2) {
+      canvas.remove(obj); canvas.renderAll(); saveHistory(); updateStats(); return;
+    }
+    let segs = [];
+    for (let i=0;i<pts.length-1;i++) segs.push([pts[i], pts[i+1]]);
+    if (obj.type === 'polygon') segs.push([pts[pts.length-1], pts[0]]);
+
+    let segIdx = hit.segIdx;
+    if (segIdx < 0) {
+      let bd = Infinity;
+      segs.forEach((s,i)=>{ const d=pointSegDist(pt,s); if(d<bd){bd=d; segIdx=i;} });
+    }
+    if (segIdx < 0) return;
+
+    const props = sharedRebarProps(obj);
+    canvas.remove(obj);
+
+    if (obj.type === 'polygon') {
+      const remain = [];
+      for (let i=0;i<segs.length;i++) { if (i===segIdx) continue; remain.push(segs[i]); }
+      const chain = chainSegments(remain);
+      chain.forEach(poly => { if (poly.length>=2) addTrimResult(poly, props, obj); });
+    } else {
+      const left = pts.slice(0, segIdx+1);
+      const right = pts.slice(segIdx+1);
+      if (left.length >= 2) addTrimResult(left, props, obj);
+      if (right.length >= 2) addTrimResult(right, props, obj);
+    }
+    canvas.renderAll(); saveHistory(); updateStats();
+    return;
+  }
+
+  document.getElementById('status-mode').textContent = 'モード: 節間消し (この図形は非対応 — 消しゴムを使用)';
+}
+
+function sharedRebarProps(obj) {
+  const p = {
+    stroke: obj.stroke, strokeWidth: obj.strokeWidth,
+    strokeDashArray: obj.strokeDashArray, fill: '',
+    _layer: obj._layer ?? 0
+  };
+  if (obj._type === 'rebar') {
+    Object.assign(p, {_type:'rebar', _dia:obj._dia, _grade:obj._grade,
+      _hookL:'none', _hookR:'none', _role:obj._role});
+  }
+  return p;
+}
+
+function addTrimResult(worldPts, props, srcObj) {
+  const sc = state.scale || 0.15;
+  let len = 0;
+  for (let i=0;i<worldPts.length-1;i++)
+    len += Math.hypot(worldPts[i+1].x-worldPts[i].x, worldPts[i+1].y-worldPts[i].y);
+  const poly = new fabric.Polyline(worldPts.map(p=>({x:p.x,y:p.y})), {
+    ...props,
+    _length: Math.round(len / sc),
+    selectable: (state.tool === 'select')
+  });
+  canvas.add(poly);
+}
+
+function chainSegments(segs) {
+  const used = new Array(segs.length).fill(false);
+  const eq = (a,b)=>Math.hypot(a.x-b.x,a.y-b.y) < 0.01;
+  const chains = [];
+  for (let i=0;i<segs.length;i++) {
+    if (used[i]) continue;
+    used[i] = true;
+    let chain = [segs[i][0], segs[i][1]];
+    let extended = true;
+    while (extended) {
+      extended = false;
+      for (let j=0;j<segs.length;j++) {
+        if (used[j]) continue;
+        const tail = chain[chain.length-1];
+        if (eq(segs[j][0], tail)) { chain.push(segs[j][1]); used[j]=true; extended=true; }
+        else if (eq(segs[j][1], tail)) { chain.push(segs[j][0]); used[j]=true; extended=true; }
+      }
+    }
+    extended = true;
+    while (extended) {
+      extended = false;
+      for (let j=0;j<segs.length;j++) {
+        if (used[j]) continue;
+        const head = chain[0];
+        if (eq(segs[j][1], head)) { chain.unshift(segs[j][0]); used[j]=true; extended=true; }
+        else if (eq(segs[j][0], head)) { chain.unshift(segs[j][1]); used[j]=true; extended=true; }
+      }
+    }
+    chains.push(chain);
+  }
+  return chains;
 }
 
 function orthoPoint(start, end) {
@@ -924,23 +1574,29 @@ function setTool(tool) {
   // 選択モード以外では選択不可
   canvas.selection = (tool === 'select');
   canvas.forEachObject(obj => {
-    if (obj._isGrid) return;
+    if (obj._isGrid || obj._isFrame) return;
     obj.selectable = (tool === 'select');
     obj.evented = (tool === 'select');
   });
   
   // カーソル
-  canvas.defaultCursor = (tool === 'select') ? 'default' : 'crosshair';
+  if (tool === 'eraser' || tool === 'trim') {
+    canvas.defaultCursor = 'cell';
+  } else {
+    canvas.defaultCursor = (tool === 'select') ? 'default' : 'crosshair';
+  }
   
   // ツール別パネル表示
   document.getElementById('rebar-settings').style.display = (tool === 'rebar') ? 'block' : 'none';
+  document.getElementById('rebardot-settings').style.display = (tool === 'rebardot') ? 'block' : 'none';
   document.getElementById('dim-settings').style.display = (tool === 'dim') ? 'block' : 'none';
   
   // ステータス
   const labels = {
     'select': '選択', 'line': '直線', 'rect': '矩形', 'circle': '円',
     'polygon': '多角形', 'freehand': 'フリーハンド', 'dim': '寸法線',
-    'rebar': '鉄筋', 'text': 'テキスト'
+    'rebar': '鉄筋', 'text': 'テキスト', 'eraser': '消しゴム', 'trim': '節間消し',
+    'rebardot': '横筋○', 'hatch': 'ハッチ'
   };
   document.getElementById('status-mode').textContent = 'モード: ' + (labels[tool] || tool);
   
@@ -963,7 +1619,18 @@ canvas.on('mouse:down', (opt) => {
   }
   
   if (state.tool === 'select') return;
-  
+
+  // 消しゴム / 節間消し (v0.3.1)
+  if (state.tool === 'eraser') {
+    state.isErasing = true;
+    eraseAt(canvas.getPointer(opt.e));
+    return;
+  }
+  if (state.tool === 'trim') {
+    trimAt(canvas.getPointer(opt.e));
+    return;
+  }
+
   let pt = canvas.getPointer(opt.e);
   pt = snapPoint(pt);
   state.startPoint = pt;
@@ -1011,6 +1678,19 @@ canvas.on('mouse:down', (opt) => {
   } else if (state.tool === 'rebar') {
     state.tempObject = createRebar(pt, pt);
     canvas.add(state.tempObject);
+  } else if (state.tool === 'rebardot') {
+    // クリック=1個、ドラッグ開始点を記録(mouse:upで列配置判定)
+    state.dotStart = pt;
+    state.tempObject = createRebarDot(pt);
+    canvas.add(state.tempObject);
+  } else if (state.tool === 'hatch') {
+    state.tempObject = new fabric.Rect({
+      left: pt.x, top: pt.y, width: 1, height: 1,
+      fill: makeHatchPattern(), stroke: '#666', strokeWidth: 0.5,
+      _hatch: state.pendingHatch || hatchSelected,
+      _layer: state.activeLayer, selectable:false
+    });
+    canvas.add(state.tempObject);
   } else if (state.tool === 'text') {
     const text = prompt('テキストを入力:', '注記');
     if (text) {
@@ -1036,6 +1716,17 @@ canvas.on('mouse:move', (opt) => {
   
   document.getElementById('status-coord').textContent = `X: ${Math.round(pt.x)}  Y: ${Math.round(pt.y)}`;
 
+  // 消しゴムドラッグ中は連続削除 (スナップマーカーは出さない)
+  if (state.tool === 'eraser') {
+    hideSnapMarker();
+    if (state.isErasing) eraseAt(canvas.getPointer(opt.e), true);
+    return;
+  }
+  if (state.tool === 'trim') {
+    hideSnapMarker();
+    return;
+  }
+
   // スナップマーカー表示 (描画系ツールのみ)
   if (state.tool !== 'select' && state.tool !== 'freehand' && !state.spacePressed) {
     showSnapMarker(lastSnapInfo);
@@ -1052,6 +1743,7 @@ canvas.on('mouse:move', (opt) => {
     vpt[5] += dy;
     canvas.setViewportTransform(vpt);
     state.lastPan = {x: e.clientX, y: e.clientY};
+    scheduleGridRedraw();
     return;
   }
   
@@ -1082,6 +1774,20 @@ canvas.on('mouse:move', (opt) => {
     canvas.remove(state.tempObject);
     state.tempObject = createRebar(state.startPoint, endPt);
     canvas.add(state.tempObject);
+  } else if (state.tool === 'rebardot') {
+    // ドラッグ中: 始点→現在点をスナップ刻みで等間隔の丸列プレビュー
+    if (state.dotPreview) state.dotPreview.forEach(d => canvas.remove(d));
+    state.dotPreview = [];
+    if (state.tempObject) { canvas.remove(state.tempObject); state.tempObject = null; }
+    const pts = dotRowPoints(state.dotStart, endPt);
+    pts.forEach(p => { const d = createRebarDot(p); canvas.add(d); state.dotPreview.push(d); });
+  } else if (state.tool === 'hatch' && state.tempObject) {
+    state.tempObject.set({
+      width: Math.abs(endPt.x - state.startPoint.x),
+      height: Math.abs(endPt.y - state.startPoint.y),
+      left: Math.min(state.startPoint.x, endPt.x),
+      top: Math.min(state.startPoint.y, endPt.y)
+    });
   }
   
   canvas.renderAll();
@@ -1093,11 +1799,40 @@ canvas.on('mouse:up', (opt) => {
     canvas.defaultCursor = state.spacePressed ? 'grab' : 'default';
     return;
   }
-  
+
+  // 消しゴムドラッグ終了
+  if (state.tool === 'eraser' && state.isErasing) {
+    state.isErasing = false;
+    if (state.eraseDirty) {
+      state.eraseDirty = false;
+      saveHistory();
+      updateStats();
+    }
+    return;
+  }
+
   if (!state.isDrawing) return;
   
   if (state.tool === 'polygon') {
     // 多角形は continue, Enter or 右クリックで完了
+    return;
+  }
+
+  // 横筋○: ドラッグで列、クリックで1個
+  if (state.tool === 'rebardot') {
+    if (state.dotPreview && state.dotPreview.length > 0) {
+      // プレビューをそのまま確定(選択可能化)
+      state.dotPreview.forEach(d => { d.selectable = (state.tool==='select'); d.evented = true; d.setCoords(); });
+      state.dotPreview = [];
+      if (state.tempObject) { canvas.remove(state.tempObject); state.tempObject = null; }
+    } else if (state.tempObject) {
+      state.tempObject.setCoords();
+      state.tempObject.evented = true;
+      state.tempObject = null;
+    }
+    hideSnapMarker();
+    saveHistory(); updateStats();
+    state.isDrawing = false;
     return;
   }
   
@@ -1151,6 +1886,7 @@ canvas.on('mouse:wheel', (opt) => {
   opt.e.preventDefault();
   opt.e.stopPropagation();
   document.getElementById('status-zoom').textContent = Math.round(z*100) + '%';
+  scheduleGridRedraw();
 });
 
 // オブジェクト選択
@@ -1235,7 +1971,8 @@ function createDimensionLine(start, end) {
 // 鉄筋オブジェクト（カスタム）
 // ============================================================
 
-function createRebar(start, end) {
+function createRebar(start, end, opts) {
+  opts = opts || {};
   const dia = document.getElementById('rebar-dia').value;
   const grade = document.getElementById('rebar-grade').value;
   const hookL = document.getElementById('rebar-hook-l').value;
@@ -1245,8 +1982,8 @@ function createRebar(start, end) {
   const widthMap = {'D10': 3, 'D13': 4, 'D16': 5, 'D19': 6, 'D22': 7};
   const colorMap = {'D10': '#888', 'D13': '#0066cc', 'D16': '#c00', 'D19': '#900', 'D22': '#600'};
   
-  const strokeColor = colorMap[dia] || '#c00';
-  const strokeWidth = widthMap[dia] || 4;
+  const strokeColor = opts.customColor || colorMap[dia] || '#c00';
+  const strokeWidth = opts.customWidth || widthMap[dia] || 4;
   
   const dx = end.x - start.x, dy = end.y - start.y;
   const len = Math.sqrt(dx*dx + dy*dy);
@@ -1318,21 +2055,67 @@ function createRebar(start, end) {
     _hookR: hookR,
     _length: Math.round(len),
     _layer: state.activeLayer,
+    _customColor: opts.customColor || null,
+    _customWidth: opts.customWidth || null,
     selectable: state.tool === 'select'
   });
   
   return polyline;
 }
 
-// ============================================================
-// 履歴管理
-// ============================================================
+// 横筋列: 始点→終点を等間隔(スナップ刻み)で点列に
+function dotRowPoints(start, end) {
+  const divEl = document.getElementById('snap-div');
+  const div = divEl ? parseFloat(divEl.value) : 1;
+  const step = state.gridSize / (div || 1);
+  const dx = end.x - start.x, dy = end.y - start.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < step * 0.5) return [start];  // ほぼ動いてない=1個
+  const n = Math.max(1, Math.round(dist / step));
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    pts.push({x: start.x + dx*i/n, y: start.y + dy*i/n});
+  }
+  return pts;
+}
+
+// 横筋・鉄筋断面の丸 (v0.5)
+function createRebarDot(center) {
+  const dia = document.getElementById('rebardot-dia').value;
+  const style = document.getElementById('rebardot-style').value;
+  const mag = parseFloat(document.getElementById('rebardot-mag').value) || 2.5;
+  const diaMap = {'D10':10,'D13':13,'D16':16,'D19':19,'D22':22};
+  const colorMap = {'D10':'#888','D13':'#0066cc','D16':'#c00','D19':'#900','D22':'#600'};
+  const sc = state.scale || 0.15;
+  const color = colorMap[dia] || '#c00';
+  // 実径(mm) × 表示倍率 × scale = px半径
+  const rPx = (diaMap[dia] * mag / 2) * sc;
+  const r = Math.max(2, rPx);
+
+  const common = {
+    left: center.x, top: center.y, originX:'center', originY:'center',
+    _type:'rebardot', _dia:dia, _layer: state.activeLayer,
+    selectable: state.tool === 'select'
+  };
+
+  if (style === 'filled') {
+    return new fabric.Circle({...common, radius:r, fill:color, stroke:color, strokeWidth:0.5});
+  } else if (style === 'ring') {
+    return new fabric.Circle({...common, radius:r, fill:'', stroke:color, strokeWidth: Math.max(1, r*0.35)});
+  } else { // cross
+    const circ = new fabric.Circle({radius:r, fill:'', stroke:color, strokeWidth:1, originX:'center', originY:'center', left:0, top:0});
+    const l1 = new fabric.Line([-r,0,r,0], {stroke:color, strokeWidth:1});
+    const l2 = new fabric.Line([0,-r,0,r], {stroke:color, strokeWidth:1});
+    return new fabric.Group([circ,l1,l2], {...common});
+  }
+}
+
 
 function saveHistory() {
   if (state.isLoadingHistory) return;
   // グリッドは除外
-  const objs = canvas.getObjects().filter(o => !o._isGrid);
-  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch']));
+  const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
+  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch']));
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex++;
@@ -1390,21 +2173,29 @@ function duplicateSelected() {
     canvas.renderAll();
     saveHistory();
     updateStats();
-  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch']);
+  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch']);
 }
 
 function selectAll() {
   canvas.discardActiveObject();
-  const objs = canvas.getObjects().filter(o => !o._isGrid);
+  const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
   const sel = new fabric.ActiveSelection(objs, {canvas});
   canvas.setActiveObject(sel);
   canvas.renderAll();
+}
+
+let gridRedrawScheduled = false;
+function scheduleGridRedraw() {
+  if (gridRedrawScheduled) return;
+  gridRedrawScheduled = true;
+  requestAnimationFrame(() => { gridRedrawScheduled = false; drawGrid(); });
 }
 
 function zoom(factor) {
   const z = canvas.getZoom() * factor;
   canvas.setZoom(z);
   document.getElementById('status-zoom').textContent = Math.round(z*100) + '%';
+  drawGrid();
   canvas.renderAll();
 }
 
@@ -1412,6 +2203,7 @@ function zoomFit() {
   canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
   canvas.setZoom(1);
   document.getElementById('status-zoom').textContent = '100%';
+  drawGrid();
   canvas.renderAll();
 }
 
@@ -1460,6 +2252,15 @@ function updateSelectedProps() {
           <option value="135" ${obj._hookR==='135'?'selected':''}>135°</option>
           <option value="180" ${obj._hookR==='180'?'selected':''}>180°</option>
         </select>
+      </div>
+      <div class="prop-row"><label>線色</label>
+        <input type="color" value="${obj.stroke || '#cc0000'}" onchange="setRebarStyle('color', this.value)">
+      </div>
+      <div class="prop-row"><label>太さ</label>
+        <input type="number" min="0.5" max="20" step="0.5" value="${obj.strokeWidth || 4}" onchange="setRebarStyle('width', this.value)">
+      </div>
+      <div class="prop-row" style="font-size:10px;color:#999;">
+        <button class="btn" style="width:100%;" onclick="setRebarStyle('reset')">径の自動色に戻す</button>
       </div>
     `;
   } else if (obj._type === 'dimension') {
@@ -1517,13 +2318,37 @@ function updateRebarProp(key, val) {
   const realStart = {x: start.x + offsetX, y: start.y + offsetY};
   const realEnd = {x: end.x + offsetX, y: end.y + offsetY};
   
-  const newRebar = createRebar(realStart, realEnd);
+  const newRebar = createRebar(realStart, realEnd, {
+    customColor: obj._customColor || null,
+    customWidth: obj._customWidth || null
+  });
   newRebar.selectable = true;
   newRebar.evented = true;
   
   canvas.remove(obj);
   canvas.add(newRebar);
   canvas.setActiveObject(newRebar);
+  canvas.renderAll();
+  saveHistory();
+  updateSelectedProps();
+}
+
+// 鉄筋の線色・太さを個別変更 (v0.4)
+function setRebarStyle(key, val) {
+  const obj = canvas.getActiveObject();
+  if (!obj || obj._type !== 'rebar') return;
+  const diaWidth = {'D10':3,'D13':4,'D16':5,'D19':6,'D22':7};
+  const diaColor = {'D10':'#888','D13':'#0066cc','D16':'#c00','D19':'#900','D22':'#600'};
+  if (key === 'color') {
+    obj.set('stroke', val); obj._customColor = val;
+  } else if (key === 'width') {
+    const w = parseFloat(val); obj.set('strokeWidth', w); obj._customWidth = w;
+  } else if (key === 'reset') {
+    obj.set('stroke', diaColor[obj._dia] || '#c00');
+    obj.set('strokeWidth', diaWidth[obj._dia] || 4);
+    obj._customColor = null; obj._customWidth = null;
+  }
+  obj.setCoords();
   canvas.renderAll();
   saveHistory();
   updateSelectedProps();
@@ -1602,7 +2427,7 @@ function renameLayer() {
 // ============================================================
 
 function updateStats() {
-  const objs = canvas.getObjects().filter(o => !o._isGrid);
+  const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
   let rebarCount = 0, lineCount = 0, shapeCount = 0;
   objs.forEach(o => {
     if (o._type === 'rebar') rebarCount++;
@@ -1661,6 +2486,9 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'd') setTool('dim');
   else if (e.key === 'b') setTool('rebar');
   else if (e.key === 't') setTool('text');
+  else if (e.key === 'e') setTool('eraser');
+  else if (e.key === 'x') setTool('trim');
+  else if (e.key === 'o') setTool('rebardot');
   else if (e.key === 'f') zoomFit();
 });
 
@@ -1690,13 +2518,13 @@ function newDrawing() {
 function saveJSON() {
   const data = {
     type: 'yoheki-cad',
-    version: '0.2',
+    version: '0.6',
     created: new Date().toISOString(),
     layers: state.layers,
-    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch'])
+    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch'])
   };
   // グリッドは除外
-  data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid);
+  data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame);
   
   const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
@@ -1742,7 +2570,7 @@ function exportSVG() {
     suppressPreamble: false
   }, function(o) {
     // グリッドはスキップ
-    if (o._isGrid) return false;
+    if (o._isGrid || o._isFrame) return false;
     return o;
   });
   const blob = new Blob([svg], {type: 'image/svg+xml'});
@@ -1754,19 +2582,74 @@ function exportSVG() {
   URL.revokeObjectURL(url);
 }
 
-function exportPNG() {
-  // 一時的にグリッドを非表示
+// 出力対象領域(px, ワールド座標)を決める: 図枠優先、なければ内容のbbox
+function outputRegion() {
+  if (paperFrame) {
+    const r = paperFrame.rect;
+    return {left:r.left, top:r.top, width:r.width, height:r.height};
+  }
+  // 内容のbbox
+  const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame && !o._isSnapMarker);
+  if (objs.length === 0) return {left:0, top:0, width:canvas.getWidth(), height:canvas.getHeight()};
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  objs.forEach(o => {
+    const b = o.getBoundingRect(true, true);
+    minX=Math.min(minX,b.left); minY=Math.min(minY,b.top);
+    maxX=Math.max(maxX,b.left+b.width); maxY=Math.max(maxY,b.top+b.height);
+  });
+  const pad = 30;
+  return {left:minX-pad, top:minY-pad, width:(maxX-minX)+pad*2, height:(maxY-minY)+pad*2};
+}
+
+// 領域を指定してPNG dataURLを生成 (viewport一時リセット)
+function renderRegionPNG(multiplier) {
+  const vpt = canvas.viewportTransform.slice();
+  const zoom = canvas.getZoom();
+  // ビューポートを等倍・原点に
+  canvas.setViewportTransform([1,0,0,1,0,0]);
   gridLines.forEach(l => l.visible = false);
+  let frameVis = [];
+  if (paperFrame) { frameVis = [paperFrame.rect, ...paperFrame.labels]; }
+  // 枠線は印刷では薄く残す(任意)→ ここでは消す
+  frameVis.forEach(o => o.visible = false);
   canvas.renderAll();
-  
-  const dataURL = canvas.toDataURL({format: 'png', quality: 1.0, multiplier: 2});
+
+  const reg = outputRegion();
+  const dataURL = canvas.toDataURL({
+    format:'png', quality:1.0, multiplier: multiplier || 2,
+    left:reg.left, top:reg.top, width:reg.width, height:reg.height
+  });
+
+  // 復元
+  gridLines.forEach(l => l.visible = true);
+  frameVis.forEach(o => o.visible = true);
+  canvas.setViewportTransform(vpt);
+  canvas.renderAll();
+  return dataURL;
+}
+
+function exportPNG() {
+  const dataURL = renderRegionPNG(3);
   const a = document.createElement('a');
   a.href = dataURL;
   a.download = `yoheki_${Date.now()}.png`;
   a.click();
-  
-  gridLines.forEach(l => l.visible = true);
-  canvas.renderAll();
+}
+
+// ③ 図面だけを印刷
+function printDrawing() {
+  const dataURL = renderRegionPNG(3);
+  const img = document.getElementById('print-img');
+  img.src = dataURL;
+  let title = '';
+  if (paperFrame) {
+    const d = paperFrameDims();
+    title = `${d.sizeKey.replace('L',' 横').replace('P',' 縦')}　縮尺 1/${d.S}`;
+  }
+  document.getElementById('print-title').textContent = title;
+  // 画像読み込み完了後に印刷
+  if (img.complete) { window.print(); }
+  else { img.onload = () => window.print(); }
 }
 
 // ============================================================
@@ -1778,7 +2661,7 @@ function loadTemplateMenu() {
 }
 
 function loadTemplate(name) {
-  if (canvas.getObjects().filter(o => !o._isGrid).length > 0) {
+  if (canvas.getObjects().filter(o => !o._isGrid && !o._isFrame).length > 0) {
     if (!confirm('現在の図面をクリアしてテンプレートを読み込みますか?')) return;
   }
   
@@ -1974,6 +2857,8 @@ function buildInvT() {
 function updateScale() {
   const v = parseFloat(document.getElementById('scale-select').value);
   if (!isNaN(v) && v > 0) state.scale = v;
+  updatePaperFrame();
+  drawGrid();
 }
 
 function openRebarTools() {
@@ -2143,7 +3028,7 @@ function clearValidationHighlight() {
 function getStructurePolys() {
   const polys = [];
   canvas.forEachObject(obj => {
-    if (obj._isGrid || obj._isSnapMarker) return;
+    if (obj._isGrid || obj._isSnapMarker || obj._isFrame) return;
     if (obj._type === 'rebar') return;
     if ((obj._layer ?? 0) !== 0) return;
     if (obj.type === 'polygon' || obj.type === 'rect') polys.push(obj);
@@ -2254,11 +3139,687 @@ function runValidation(keepOpen) {
 }
 
 // ============================================================
+// ハッチ・模様 (v0.5)
+//   小さなcanvasでパターンタイルを生成し fabric.Pattern で塗る
+// ============================================================
+
+const HATCH_TYPES = [
+  {key:'soil',   name:'土',        bg:'#f3ede2', fg:'#9b7d4e'},
+  {key:'gravel', name:'砕石',      bg:'#eeeeee', fg:'#555555'},
+  {key:'sand',   name:'砂',        bg:'#f7f1e0', fg:'#b89b5e'},
+  {key:'concrete',name:'コンクリート',bg:'#efefef', fg:'#888888'},
+  {key:'rubble', name:'割栗石',    bg:'#ececec', fg:'#444444'},
+  {key:'brick',  name:'ブロック',  bg:'#f2e6df', fg:'#9a5a3c'},
+  {key:'hatch45',name:'斜線',      bg:'rgba(0,0,0,0)', fg:'#666666'},
+  {key:'cross',  name:'格子',      bg:'rgba(0,0,0,0)', fg:'#666666'},
+  {key:'solid',  name:'無地(薄)',  bg:'#eeeeee', fg:'#eeeeee'},
+];
+let hatchSelected = 'soil';
+
+// パターンタイルを生成して返す(HTMLCanvasElement)
+function makeHatchTile(type, density) {
+  const def = HATCH_TYPES.find(t => t.key === type) || HATCH_TYPES[0];
+  const size = 64;
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  // 背景
+  if (def.bg && def.bg !== 'rgba(0,0,0,0)') { ctx.fillStyle = def.bg; ctx.fillRect(0,0,size,size); }
+  ctx.strokeStyle = def.fg; ctx.fillStyle = def.fg;
+  ctx.lineWidth = 1;
+  const d = density || 14;
+
+  const rnd = (seed => () => { seed = (seed*9301+49297)%233280; return seed/233280; })(type.length*99+ d);
+
+  if (type === 'soil' || type === 'sand') {
+    const n = type === 'sand' ? d*3 : d;
+    const r = type === 'sand' ? 0.8 : 1.4;
+    for (let i=0;i<n;i++){ const x=rnd()*size,y=rnd()*size; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); }
+  } else if (type === 'gravel' || type === 'rubble') {
+    const n = type === 'rubble' ? Math.max(4, d/3) : Math.max(6, d/2);
+    const sz = type === 'rubble' ? 14 : 8;
+    for (let i=0;i<n;i++){
+      const x=rnd()*size, y=rnd()*size, s=sz*(0.6+rnd()*0.6);
+      ctx.beginPath();
+      const k = 4 + Math.floor(rnd()*2);
+      for (let j=0;j<k;j++){ const a=j/k*6.28+rnd(); const rr=s*(0.5+rnd()*0.5)/2; const px=x+Math.cos(a)*rr, py=y+Math.sin(a)*rr; j?ctx.lineTo(px,py):ctx.moveTo(px,py); }
+      ctx.closePath(); ctx.stroke();
+    }
+  } else if (type === 'concrete') {
+    for (let i=0;i<d;i++){ const x=rnd()*size,y=rnd()*size; ctx.beginPath(); ctx.arc(x,y,0.8,0,7); ctx.fill(); }
+    // 短いハッチ
+    for (let i=0;i<3;i++){ const x=rnd()*size,y=rnd()*size; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+6,y+6); ctx.stroke(); }
+  } else if (type === 'brick') {
+    const bh = size/4;
+    for (let row=0; row<4; row++){
+      const y = row*bh;
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(size,y); ctx.stroke();
+      const off = (row%2)*(size/2);
+      ctx.beginPath(); ctx.moveTo(off,y); ctx.lineTo(off,y+bh); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(off+size/2,y); ctx.lineTo(off+size/2,y+bh); ctx.stroke();
+    }
+  } else if (type === 'hatch45') {
+    const gap = size/(d/3);
+    for (let x=-size; x<size*2; x+=gap){ ctx.beginPath(); ctx.moveTo(x,size); ctx.lineTo(x+size,0); ctx.stroke(); }
+  } else if (type === 'cross') {
+    const gap = size/(d/3);
+    for (let x=0;x<=size;x+=gap){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,size); ctx.stroke(); }
+    for (let y=0;y<=size;y+=gap){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(size,y); ctx.stroke(); }
+  } else if (type === 'solid') {
+    ctx.fillStyle = def.bg; ctx.fillRect(0,0,size,size);
+  }
+  return c;
+}
+
+function openHatchTool() {
+  renderHatchPalette();
+  document.getElementById('modal-hatch').classList.add('show');
+}
+
+function renderHatchPalette() {
+  const d = parseInt(document.getElementById('hatch-density').value);
+  document.getElementById('hatch-density-val').textContent = d;
+  const pal = document.getElementById('hatch-palette');
+  pal.innerHTML = '';
+  HATCH_TYPES.forEach(t => {
+    const tile = makeHatchTile(t.key, d);
+    const url = tile.toDataURL();
+    const sel = (t.key === hatchSelected);
+    const cell = document.createElement('div');
+    cell.style.cssText = `cursor:pointer; border:2px solid ${sel?'#f97316':'#555'}; border-radius:5px; overflow:hidden; text-align:center; background:#fff;`;
+    cell.innerHTML = `<div style="height:56px; background:url(${url}); background-size:48px;"></div>
+      <div style="font-size:10px; padding:2px; color:#333; background:#eee;">${t.name}</div>`;
+    cell.onclick = () => { hatchSelected = t.key; renderHatchPalette(); };
+    pal.appendChild(cell);
+  });
+}
+
+// fabric.Pattern を生成
+function makeHatchPattern() {
+  const d = parseInt(document.getElementById('hatch-density').value);
+  const tile = makeHatchTile(hatchSelected, d);
+  return new fabric.Pattern({ source: tile, repeat: 'repeat' });
+}
+
+// 選択中の閉じた図形にハッチ適用
+function applyHatchToSelected() {
+  const obj = canvas.getActiveObject();
+  if (!obj) { alert('塗る図形(矩形/多角形)を選択してください'); return; }
+  if (!(obj.type === 'rect' || obj.type === 'polygon')) {
+    alert('矩形か多角形を選択してください(線・折れ線は塗れません)'); return;
+  }
+  obj.set('fill', makeHatchPattern());
+  obj._hatch = hatchSelected;
+  canvas.renderAll();
+  saveHistory();
+  closeModal('modal-hatch');
+}
+
+// 領域を矩形で描いて塗るモード
+function startHatchDraw() {
+  state.pendingHatch = hatchSelected;
+  setTool('hatch');
+  closeModal('modal-hatch');
+  document.getElementById('status-mode').textContent = 'モード: ハッチ領域 (ドラッグで矩形を描く)';
+}
+
+// ============================================================
+// 測量座標の取り込み (v0.5)
+//   CSV / SIMA を解析 → 点プロット + 結線。X=北,Y=東。
+// ============================================================
+
+function openCoordImport() {
+  document.getElementById('coord-preview').textContent = '';
+  document.getElementById('modal-coord').classList.add('show');
+}
+
+function pickCoordFile() {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = '.csv,.sim,.txt,.dat';
+  input.onchange = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      document.getElementById('coord-text').value = ev.target.result;
+      previewCoords();
+    };
+    reader.readAsText(file, 'Shift_JIS');  // 測量データはSJISが多い
+  };
+  input.click();
+}
+
+// テキストを点配列に解析 [{name, x(北), y(東), z}]
+function parseCoords(text, fmt) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+  const pts = [];
+  // SIMA判定
+  const isSima = fmt === 'sima' || (fmt === 'auto' && /^[A-Z]\d{2},/.test(lines[0] || ''));
+  if (isSima) {
+    lines.forEach(l => {
+      const f = l.split(',');
+      // A01,点番,点名,Y(東),X(北),Z  (SIMA標準)
+      if (f[0] === 'A01' && f.length >= 6) {
+        const name = (f[2] || f[1] || '').trim();
+        const yE = parseFloat(f[3]), xN = parseFloat(f[4]), z = parseFloat(f[5]);
+        if (!isNaN(xN) && !isNaN(yE)) pts.push({name: name||f[1], x:xN, y:yE, z:isNaN(z)?null:z});
+      }
+    });
+  } else {
+    const swap = (fmt === 'csv-nyxz');
+    lines.forEach(l => {
+      if (/^[#;]/.test(l) || /点番|name/i.test(l)) return; // ヘッダ/コメント
+      const f = l.split(/[,\t\s]+/);
+      if (f.length < 3) return;
+      const name = f[0];
+      let a = parseFloat(f[1]), b = parseFloat(f[2]), z = parseFloat(f[3]);
+      if (isNaN(a) || isNaN(b)) return;
+      // 既定 点番,X(北),Y(東),Z。swapなら 点番,Y,X,Z
+      const xN = swap ? b : a;
+      const yE = swap ? a : b;
+      pts.push({name, x:xN, y:yE, z:isNaN(z)?null:z});
+    });
+  }
+  return pts;
+}
+
+function previewCoords() {
+  const text = document.getElementById('coord-text').value;
+  const fmt = document.getElementById('coord-format').value;
+  const pts = parseCoords(text, fmt);
+  const el = document.getElementById('coord-preview');
+  if (pts.length === 0) { el.textContent = '解析できる点がありません。形式を確認してください。'; el.style.color='#e57373'; return; }
+  const xs = pts.map(p=>p.x), ys = pts.map(p=>p.y);
+  const rangeX = Math.max(...xs)-Math.min(...xs), rangeY = Math.max(...ys)-Math.min(...ys);
+  el.style.color = '#69f0ae';
+  el.textContent = `${pts.length}点を認識。範囲 南北${rangeX.toFixed(1)}m × 東西${rangeY.toFixed(1)}m`;
+}
+
+function importCoords() {
+  const text = document.getElementById('coord-text').value;
+  const fmt = document.getElementById('coord-format').value;
+  const pts = parseCoords(text, fmt);
+  if (pts.length === 0) { alert('取り込める点がありません'); return; }
+
+  const S = parseFloat(document.getElementById('coord-scale').value) || 500;
+  const sc = state.scale || 0.15;
+  // 実座標(m) → mm(×1000) → 図面mm(÷S) → px(×sc)
+  // 画面px = m * 1000 / S * sc
+  const k = 1000 / S * sc;
+
+  // 原点: 全点の最小X(北),最小Y(東)を基準に。画面: x=東(Y), y=-北(X)で北を上に。
+  const minX = Math.min(...pts.map(p=>p.x));
+  const maxX = Math.max(...pts.map(p=>p.x));
+  const minY = Math.min(...pts.map(p=>p.y));
+  const ox = 80, oy = 80;
+  const toScreen = (p) => ({
+    x: ox + (p.y - minY) * k,
+    y: oy + (maxX - p.x) * k   // 北(大きいX)を上に
+  });
+
+  const connect = document.getElementById('coord-connect').checked;
+  const close = document.getElementById('coord-close').checked;
+  const showName = document.getElementById('coord-label-name').checked;
+  const showZ = document.getElementById('coord-label-z').checked;
+  const mark = document.getElementById('coord-mark').value;
+
+  const added = [];
+  // 結線(先に描いて点を前面に)
+  if (connect && pts.length >= 2) {
+    const linePts = pts.map(toScreen);
+    if (close) linePts.push(linePts[0]);
+    const poly = new fabric.Polyline(linePts, {
+      stroke:'#0066cc', strokeWidth:1.2, fill:'',
+      _layer: state.activeLayer, selectable:true, _type:'survey-line'
+    });
+    canvas.add(poly); added.push(poly);
+  }
+
+  pts.forEach(p => {
+    const s = toScreen(p);
+    let m;
+    if (mark === 'cross') {
+      const r=5;
+      m = new fabric.Group([
+        new fabric.Line([-r,0,r,0],{stroke:'#c00',strokeWidth:1}),
+        new fabric.Line([0,-r,0,r],{stroke:'#c00',strokeWidth:1})
+      ], {left:s.x, top:s.y, originX:'center', originY:'center'});
+    } else if (mark === 'dot') {
+      m = new fabric.Circle({left:s.x, top:s.y, radius:3, fill:'#c00', originX:'center', originY:'center'});
+    } else {
+      m = new fabric.Circle({left:s.x, top:s.y, radius:4, fill:'', stroke:'#c00', strokeWidth:1, originX:'center', originY:'center'});
+    }
+    m._layer = state.activeLayer; m._type = 'survey-pt'; m.selectable = true;
+    canvas.add(m); added.push(m);
+
+    let label = '';
+    if (showName) label += p.name;
+    if (showZ && p.z !== null) label += (label?' ':'') + 'H='+p.z.toFixed(2);
+    if (label) {
+      const t = new fabric.Text(label, {
+        left: s.x + 6, top: s.y - 6, fontSize: 11, fill:'#333',
+        fontFamily:'Yu Gothic, sans-serif', _layer: state.activeLayer, selectable:true, _type:'survey-label'
+      });
+      canvas.add(t); added.push(t);
+    }
+  });
+
+  canvas.renderAll();
+  saveHistory(); updateStats();
+  closeModal('modal-coord');
+  // 取り込んだ範囲にフィット
+  setTimeout(() => { try { zoomFitObjects(added); } catch(e){} }, 50);
+  alert(`${pts.length}点を取り込みました`);
+}
+
+// 指定オブジェクト群が画面に収まるようズーム
+function zoomFitObjects(objs) {
+  if (!objs || objs.length === 0) return;
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  objs.forEach(o => { const b=o.getBoundingRect(true,true);
+    minX=Math.min(minX,b.left); minY=Math.min(minY,b.top);
+    maxX=Math.max(maxX,b.left+b.width); maxY=Math.max(maxY,b.top+b.height); });
+  const w=maxX-minX, h=maxY-minY, margin=60;
+  const z = Math.min((canvas.getWidth()-margin*2)/w, (canvas.getHeight()-margin*2)/h, 4);
+  canvas.setViewportTransform([z,0,0,z, margin-minX*z, margin-minY*z]);
+  document.getElementById('status-zoom').textContent = Math.round(z*100)+'%';
+  drawGrid(); canvas.renderAll();
+}
+
+// ============================================================
+// 部品ライブラリ (v0.4)
+//   localStorage保存 + ファイル書出/読込。配置時に縮尺指定。
+// ============================================================
+const PARTS_KEY = 'yoheki-cad-parts';
+const PART_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_layer','_role','_pitch','_customColor','_customWidth','_hatch'];
+
+function loadPartsStore() {
+  try { return JSON.parse(localStorage.getItem(PARTS_KEY)) || []; }
+  catch { return []; }
+}
+function savePartsStore(parts) {
+  try { localStorage.setItem(PARTS_KEY, JSON.stringify(parts)); }
+  catch (e) { alert('保存に失敗しました(容量超過の可能性): ' + e.message); }
+}
+
+function openPartsLibrary() {
+  renderPartsList();
+  document.getElementById('modal-parts').classList.add('show');
+}
+
+// 選択図形を部品として登録
+function registerPart() {
+  const active = canvas.getActiveObject();
+  if (!active) { alert('登録する図形を選択してください'); return; }
+  const name = (document.getElementById('part-name').value || '').trim();
+  if (!name) { alert('部品名を入力してください'); return; }
+  const category = document.getElementById('part-category').value;
+
+  // 選択をまとめてシリアライズ。activeSelectionなら各オブジェクト、単体なら1個。
+  let objs = [];
+  if (active.type === 'activeSelection') {
+    objs = active.getObjects();
+  } else {
+    objs = [active];
+  }
+  // 各オブジェクトを「選択範囲の左上」基準の相対座標で保存
+  const br = active.getBoundingRect(true, true);
+  const serial = objs.map(o => {
+    const json = o.toObject(PART_PROPS);
+    // activeSelection内のleft/topはグループ中心基準なので絶対座標に直す
+    const abs = o.getBoundingRect(true, true);
+    json._relLeft = abs.left - br.left;
+    json._relTop = abs.top - br.top;
+    return json;
+  });
+
+  const parts = loadPartsStore();
+  parts.push({
+    id: 'p_' + Date.now(),
+    name, category,
+    scale: state.scale,       // 作成時のpx/mm
+    w: br.width, h: br.height,
+    objects: serial,
+    created: new Date().toISOString()
+  });
+  savePartsStore(parts);
+  document.getElementById('part-name').value = '';
+  renderPartsList();
+  alert(`部品「${name}」を登録しました (${objs.length}オブジェクト)`);
+}
+
+function renderPartsList() {
+  const parts = loadPartsStore();
+  const div = document.getElementById('parts-list');
+  if (parts.length === 0) {
+    div.innerHTML = '<p style="color:#888; font-size:11px;">登録された部品はありません。図形を選択して上のボタンで登録してください。</p>';
+    return;
+  }
+  let html = '';
+  parts.forEach(p => {
+    html += `<div style="display:flex; align-items:center; gap:6px; padding:6px; border-bottom:1px solid #3a3a3a;">
+      <span style="flex:1; font-size:12px;"><b>${escapeHtml(p.name)}</b>
+        <span style="color:#888; font-size:10px;"> [${p.category}] ${Math.round(p.w/(p.scale||0.15))}×${Math.round(p.h/(p.scale||0.15))}mm相当</span></span>
+      <button class="btn primary" style="padding:3px 8px;" onclick="placePart('${p.id}')">配置</button>
+      <button class="btn" style="padding:3px 8px;" onclick="deletePart('${p.id}')">🗑</button>
+    </div>`;
+  });
+  div.innerHTML = html;
+}
+
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+function deletePart(id) {
+  if (!confirm('この部品を削除しますか?')) return;
+  const parts = loadPartsStore().filter(p => p.id !== id);
+  savePartsStore(parts);
+  renderPartsList();
+}
+
+// 部品を配置
+function placePart(id) {
+  const part = loadPartsStore().find(p => p.id === id);
+  if (!part) return;
+
+  // 配置倍率
+  let mult = document.getElementById('part-place-scale').value;
+  if (mult === 'auto') {
+    // 部品作成時のscaleと現在scaleの比で実寸を保つ
+    mult = (state.scale || 0.15) / (part.scale || 0.15);
+  } else {
+    mult = parseFloat(mult);
+  }
+
+  // 配置基準: 現在のビュー中心(ワールド座標)
+  const z = canvas.getZoom(); const vpt = canvas.viewportTransform;
+  const cx = (canvas.getWidth()/2 - vpt[4]) / z;
+  const cy = (canvas.getHeight()/2 - vpt[5]) / z;
+  const baseX = cx - (part.w * mult)/2;
+  const baseY = cy - (part.h * mult)/2;
+
+  fabric.util.enlivenObjects(part.objects, (objs) => {
+    const placed = [];
+    objs.forEach((o, i) => {
+      const meta = part.objects[i];
+      // 相対位置 × 倍率 + 配置基準
+      const newLeft = baseX + (meta._relLeft || 0) * mult;
+      const newTop  = baseY + (meta._relTop  || 0) * mult;
+      o.set({ left: newLeft, top: newTop });
+      o.scaleX = (o.scaleX || 1) * mult;
+      o.scaleY = (o.scaleY || 1) * mult;
+      // ポリライン系のstrokeWidthはスケールで太くなりすぎないよう補正なし(意図通り拡縮)
+      o.setCoords();
+      o.selectable = true; o.evented = true;
+      canvas.add(o);
+      placed.push(o);
+    });
+    canvas.discardActiveObject();
+    if (placed.length > 1) {
+      const sel = new fabric.ActiveSelection(placed, {canvas});
+      canvas.setActiveObject(sel);
+    } else if (placed.length === 1) {
+      canvas.setActiveObject(placed[0]);
+    }
+    canvas.renderAll();
+    saveHistory(); updateStats();
+  }, 'fabric', PART_PROPS);
+
+  closeModal('modal-parts');
+  setTool('select');
+}
+
+// ライブラリをファイルに書き出し
+function exportPartsLibrary() {
+  const parts = loadPartsStore();
+  if (parts.length === 0) { alert('書き出す部品がありません'); return; }
+  const data = {type:'yoheki-cad-parts', version:'0.4', parts};
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `yoheki_parts_${Date.now()}.json`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ファイルから読み込み(既存に追加 or 置換)
+function importPartsLibrary() {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        const incoming = data.parts || (Array.isArray(data) ? data : null);
+        if (!incoming) { alert('部品ライブラリ形式ではありません'); return; }
+        const replace = confirm('OK=既存ライブラリに追加 / キャンセル=置き換え');
+        let parts = replace ? loadPartsStore() : [];
+        // IDの衝突を回避
+        incoming.forEach(p => { p.id = 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2,6); parts.push(p); });
+        savePartsStore(parts);
+        renderPartsList();
+        alert(`${incoming.length}個の部品を読み込みました`);
+      } catch (err) { alert('読み込みエラー: ' + err.message); }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+// ============================================================
 // モーダル
 // ============================================================
 
+// ============================================================
+// 3Dパース (v0.6) — Three.js
+// ============================================================
+let perspState = { scene:null, camera:null, renderer:null, group:null,
+  raf:null, rot:{x:-0.5, y:0.6}, dist:null, target:null, dragging:false, last:null };
+
+function openPerspective() {
+  if (typeof THREE === 'undefined') { alert('3Dライブラリの読込に失敗しました。オンライン環境で再度お試しください。'); return; }
+  document.getElementById('modal-persp').classList.add('show');
+  // モーダル表示後にサイズ確定してから初期化
+  setTimeout(() => { initPerspective(); rebuildPerspective(); }, 60);
+}
+
+function closePerspective() {
+  if (perspState.raf) cancelAnimationFrame(perspState.raf);
+  perspState.raf = null;
+  closeModal('modal-persp');
+}
+
+function initPerspective() {
+  const wrap = document.getElementById('persp-canvas-wrap');
+  const cv = document.getElementById('persp-canvas');
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+
+  if (!perspState.renderer) {
+    perspState.renderer = new THREE.WebGLRenderer({canvas:cv, antialias:true});
+    perspState.renderer.setPixelRatio(window.devicePixelRatio || 1);
+  }
+  perspState.renderer.setSize(w, h, false);
+
+  perspState.scene = new THREE.Scene();
+  perspState.scene.background = new THREE.Color(0x1a1a1a);
+
+  perspState.camera = new THREE.PerspectiveCamera(45, w/h, 1, 100000);
+
+  // ライト
+  const amb = new THREE.AmbientLight(0xffffff, 0.6); perspState.scene.add(amb);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8); dir.position.set(1,2,1.5); perspState.scene.add(dir);
+  const dir2 = new THREE.DirectionalLight(0xffffff, 0.3); dir2.position.set(-1,1,-1); perspState.scene.add(dir2);
+
+  // マウス操作(自前オービット)
+  if (!perspState._bound) {
+    cv.addEventListener('mousedown', e => { perspState.dragging=true; perspState.last={x:e.clientX,y:e.clientY}; });
+    window.addEventListener('mouseup', () => perspState.dragging=false);
+    window.addEventListener('mousemove', e => {
+      if (!perspState.dragging) return;
+      const dx=e.clientX-perspState.last.x, dy=e.clientY-perspState.last.y;
+      perspState.rot.y += dx*0.01; perspState.rot.x += dy*0.01;
+      perspState.rot.x = Math.max(-1.5, Math.min(1.5, perspState.rot.x));
+      perspState.last={x:e.clientX,y:e.clientY};
+    });
+    cv.addEventListener('wheel', e => {
+      e.preventDefault();
+      perspState.dist *= (1 + (e.deltaY>0?0.1:-0.1));
+    }, {passive:false});
+    perspState._bound = true;
+  }
+}
+
+// 対象fabricオブジェクトを取得(選択優先、なければ全図形)
+function perspSourceObjects() {
+  const active = canvas.getActiveObject();
+  let objs = [];
+  if (active) {
+    objs = (active.type === 'activeSelection') ? active.getObjects() : [active];
+  } else {
+    objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame && !o._isSnapMarker);
+  }
+  // 立体化に使えるのは閉じた形状(polygon/rect)中心。線・テキストは無視。
+  return objs.filter(o => o.type==='polygon' || o.type==='rect' || o.type==='polyline');
+}
+
+// fabricオブジェクト → ワールド頂点配列(mm単位)
+function fabricObjToMMPoints(obj) {
+  const sc = state.scale || 0.15;
+  let pts = [];
+  if (obj.type === 'rect') {
+    const x=obj.left, y=obj.top, w=obj.width*(obj.scaleX||1), h=obj.height*(obj.scaleY||1);
+    pts=[{x:x,y:y},{x:x+w,y:y},{x:x+w,y:y+h},{x:x,y:y+h}];
+  } else {
+    const m = obj.calcTransformMatrix();
+    pts = obj.points.map(p => fabric.util.transformPoint({x:p.x-obj.pathOffset.x, y:p.y-obj.pathOffset.y}, m));
+  }
+  // px → mm、Yは下が正なので3Dでは上下反転(画面の上を+Yに)
+  return pts.map(p => ({x: p.x/sc, y: -p.y/sc}));
+}
+
+function rebuildPerspective() {
+  if (!perspState.scene) return;
+  // 既存ジオメトリ削除
+  if (perspState.group) { perspState.scene.remove(perspState.group); }
+  const group = new THREE.Group();
+  perspState.group = group;
+
+  const mode = document.getElementById('persp-mode').value;
+  const depth = parseFloat(document.getElementById('persp-depth').value) || 3000;
+  const srcs = perspSourceObjects();
+
+  const concrete = new THREE.MeshLambertMaterial({color:0xcfcabd, side:THREE.DoubleSide});
+  const edgeMat = new THREE.LineBasicMaterial({color:0x333333});
+
+  let allPts = [];
+
+  srcs.forEach(obj => {
+    const mm = fabricObjToMMPoints(obj);
+    if (mm.length < 3) return;
+    allPts = allPts.concat(mm);
+
+    const shape = new THREE.Shape();
+    shape.moveTo(mm[0].x, mm[0].y);
+    for (let i=1;i<mm.length;i++) shape.lineTo(mm[i].x, mm[i].y);
+    shape.closePath();
+
+    if (mode === 'extrude') {
+      // 断面を奥行き(Z)方向に押し出し
+      const geo = new THREE.ExtrudeGeometry(shape, {depth: depth, bevelEnabled:false});
+      const mesh = new THREE.Mesh(geo, concrete);
+      group.add(mesh);
+      const eg = new THREE.EdgesGeometry(geo);
+      group.add(new THREE.LineSegments(eg, edgeMat));
+    } else {
+      // 平面立ち上げ: 図形を地面(XZ)に寝かせ、各辺を高さdepthの壁にする
+      // ここでは図形そのものを薄板で立てる簡易版: 図形を垂直(XY)に置き厚みを与える
+      const geo = new THREE.ExtrudeGeometry(shape, {depth: 100, bevelEnabled:false});
+      const mesh = new THREE.Mesh(geo, concrete);
+      // 寝かせる: XY平面の図形をXZ平面へ(X軸まわり-90°)
+      mesh.rotation.x = -Math.PI/2;
+      group.add(mesh);
+      const eg = new THREE.EdgesGeometry(geo);
+      const ls = new THREE.LineSegments(eg, edgeMat); ls.rotation.x = -Math.PI/2;
+      group.add(ls);
+    }
+  });
+
+  if (allPts.length === 0) {
+    document.getElementById('persp-info').textContent = '立体化できる図形(多角形/矩形)がありません。断面ポリゴンを選択してから開いてください。';
+  } else {
+    document.getElementById('persp-info').textContent =
+      `対象 ${srcs.length}個を${mode==='extrude'?'奥行き押し出し':'平面立ち上げ'}で立体化。ドラッグで回転・ホイールでズーム。`;
+  }
+
+  // 中心と大きさ
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  allPts.forEach(p=>{minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y);});
+  if (allPts.length===0){minX=0;maxX=1000;minY=0;maxY=1000;}
+  const cx=(minX+maxX)/2, cy=(minY+maxY)/2, cz= (mode==='extrude'? depth/2 : 50);
+  const sizeX=maxX-minX, sizeY=maxY-minY, span=Math.max(sizeX,sizeY,depth,1000);
+
+  // グループを原点中心へ
+  group.position.set(-cx, -cy, (mode==='extrude'? -depth/2 : 0));
+
+  // 地面グリッド
+  if (document.getElementById('persp-ground').checked) {
+    const grid = new THREE.GridHelper(span*3, 30, 0x444444, 0x2a2a2a);
+    grid.position.y = mode==='extrude' ? minY - cy - 10 : -5;
+    perspState.scene.add(grid);
+    // 既存gridの重複防止のためgroupとは別管理 → 毎回addだが下でscene再構築しないのでremove
+    if (perspState._grid) perspState.scene.remove(perspState._grid);
+    perspState._grid = grid;
+  } else if (perspState._grid) {
+    perspState.scene.remove(perspState._grid); perspState._grid=null;
+  }
+
+  perspState.scene.add(group);
+  perspState.target = new THREE.Vector3(0,0,0);
+  if (!perspState.dist) perspState.dist = span * 2.2;
+
+  if (!perspState.raf) animatePerspective();
+}
+
+function animatePerspective() {
+  perspState.raf = requestAnimationFrame(animatePerspective);
+  const s = perspState;
+  if (!s.camera || !s.renderer) return;
+  // 球面座標でカメラ配置
+  const d = s.dist || 8000;
+  const cosx = Math.cos(s.rot.x);
+  s.camera.position.set(
+    Math.sin(s.rot.y)*cosx*d,
+    Math.sin(s.rot.x)*d,
+    Math.cos(s.rot.y)*cosx*d
+  );
+  s.camera.lookAt(0,0,0);
+  s.renderer.render(s.scene, s.camera);
+}
+
+function perspResetView() {
+  perspState.rot = {x:-0.5, y:0.6};
+  perspState.dist = null;
+  rebuildPerspective();
+}
+
+function perspExportPNG() {
+  if (!perspState.renderer) return;
+  perspState.renderer.render(perspState.scene, perspState.camera);
+  const url = perspState.renderer.domElement.toDataURL('image/png');
+  const a=document.createElement('a'); a.href=url; a.download=`yoheki_perspective_${Date.now()}.png`; a.click();
+}
+
 function showHelp() {
   document.getElementById('modal-help').classList.add('show');
+}
+
+// 使い方ガイド (v0.6)
+function openGuide() {
+  switchGuide(0);
+  document.getElementById('modal-guide').classList.add('show');
+}
+function switchGuide(i) {
+  document.querySelectorAll('#modal-guide .guide-tab').forEach((t,idx)=>t.classList.toggle('active', idx===i));
+  document.querySelectorAll('#modal-guide .guide-panel').forEach((p,idx)=>p.classList.toggle('active', idx===i));
 }
 
 function closeModal(id) {
@@ -2282,19 +3843,25 @@ document.getElementById('ortho').addEventListener('change', (e) => {
 
 renderLayerList();
 drawGrid();
+updatePaperFrame();
 saveHistory();
 updateStats();
 setTool('select');
 
 // 初回ガイド
 setTimeout(() => {
-  if (!localStorage.getItem('yoheki-cad-visited-v03')) {
-    showHelp();
-    localStorage.setItem('yoheki-cad-visited-v03', '1');
+  if (!localStorage.getItem('yoheki-cad-visited-v031')) {
+    openGuide();
+    localStorage.setItem('yoheki-cad-visited-v031', '1');
   }
 }, 500);
 
 </script>
+
+<div id="print-area">
+  <div id="print-title"></div>
+  <img id="print-img" alt="図面">
+</div>
 
 </body>
 </html>
