@@ -1182,12 +1182,45 @@ function fitToFrame() {
   canvas.renderAll();
 }
 
+// グリッドをキャンバスのコンテキストへ直接描画(オブジェクト化しないので高速)
+function drawGridLayer() {
+  if (!state.showGrid) return;
+  const ctx = canvas.getContext && canvas.getContext();
+  const vpt = canvas.viewportTransform;
+  const size = state.gridSize;
+  if (!ctx || !vpt || !size) return;
+  const zoom = canvas.getZoom();
+  const wPx = canvas.getWidth(), hPx = canvas.getHeight();
+  const x0=(0-vpt[4])/zoom, y0=(0-vpt[5])/zoom, x1=(wPx-vpt[4])/zoom, y1=(hPx-vpt[5])/zoom;
+  const startX=Math.floor(x0/size)*size-size, endX=Math.ceil(x1/size)*size+size;
+  const startY=Math.floor(y0/size)*size-size, endY=Math.ceil(y1/size)*size+size;
+  const onlyMajor = (endX-startX)/size > 400;
+  ctx.save();
+  ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
+  ctx.lineWidth = 1/zoom;
+  for (let x=startX; x<=endX; x+=size) {
+    const major = Math.round(x/size)%5===0;
+    if (onlyMajor && !major) continue;
+    ctx.strokeStyle = major ? '#c0c0c0' : '#e8e8e8';
+    ctx.beginPath(); ctx.moveTo(x, startY); ctx.lineTo(x, endY); ctx.stroke();
+  }
+  for (let y=startY; y<=endY; y+=size) {
+    const major = Math.round(y/size)%5===0;
+    if (onlyMajor && !major) continue;
+    ctx.strokeStyle = major ? '#c0c0c0' : '#e8e8e8';
+    ctx.beginPath(); ctx.moveTo(startX, y); ctx.lineTo(endX, y); ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawGrid() {
   syncFrameStroke();
-  // 既存のグリッドを削除
-  gridLines.forEach(line => canvas.remove(line));
-  gridLines = [];
-  
+  // 旧方式で残ったグリッドオブジェクトがあれば掃除
+  if (gridLines && gridLines.length) { gridLines.forEach(line => canvas.remove(line)); gridLines = []; }
+  // グリッドは before:render フックで直接描画。ここでは再描画要求のみ。
+  canvas.requestRenderAll();
+  return;
+  // ↓ 旧実装(未使用)
   if (!state.showGrid) return;
   
   const size = state.gridSize;
@@ -2095,6 +2128,9 @@ canvas.on('mouse:wheel', (opt) => {
   document.getElementById('status-zoom').textContent = Math.round(z*100) + '%';
   scheduleGridRedraw();
 });
+
+// グリッドは描画フックで直接描く(オブジェクト化しないので軽量)
+canvas.on('before:render', drawGridLayer);
 
 // 中ボタン(ホイール押し込み)ドラッグでパン (v0.8 ④)
 (function setupMiddlePan(){
