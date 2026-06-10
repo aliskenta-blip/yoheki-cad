@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.9 (寸法線プロパティ・ハッチ透過率)</title>
+<title>yoheki-cad v0.9.1 (寸法の引き出し)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.9 (寸法線プロパティ・ハッチ透過率)</span>
+  <span class="ver">v0.9.1 (寸法の引き出し)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -2199,25 +2199,45 @@ function createDimensionLine(start, end, opts) {
   ], {fill: '#666', stroke: '#666'});
   
   const mid = {x: (start.x+end.x)/2, y: (start.y+end.y)/2};
-  // テキストは線に対して垂直方向の「上側」へオフセット(角度付きでも線の上に来る)
-  let nx = Math.cos(perpAngle), ny = Math.sin(perpAngle);
-  if (ny > 0) { nx = -nx; ny = -ny; }   // 画面上で常に上側
-  const toff = dimSize/2 + 6;
+  // 数字の位置 = 線中点からのオフセット。既定は線に垂直な「上側」。
+  const defOff = dimSize/2 + 6;
+  let off = opts.textOff;
+  if (!off) {
+    let nx = Math.cos(perpAngle), ny = Math.sin(perpAngle);
+    if (ny > 0) { nx = -nx; ny = -ny; }   // 画面上で常に上側
+    off = { x: nx*defOff, y: ny*defOff };
+  }
+  const textPos = { x: mid.x + off.x, y: mid.y + off.y };
+  const offMag = Math.hypot(off.x, off.y);
+
+  const dimParts = [line, ext1, ext2, arrow1, arrow2];
+  // 引き出し線(足): 数字を線から離したとき、中点→数字手前へ細線を引く
+  const pulledOut = offMag > defOff + 10;
+  if (pulledOut) {
+    const ux = off.x/offMag, uy = off.y/offMag;
+    const lead = new fabric.Line(
+      [mid.x, mid.y, mid.x + ux*(offMag - dimSize*0.6), mid.y + uy*(offMag - dimSize*0.6)],
+      {stroke: '#666', strokeWidth: lineW});
+    dimParts.push(lead);
+  }
+
   const unit = document.getElementById('dim-unit').value;
   const text = new fabric.Text(realLen + (unit ? ' ' + unit : ''), {
-    left: mid.x + nx*toff, top: mid.y + ny*toff,
+    left: textPos.x, top: textPos.y,
     fontSize: dimSize,
     fontFamily: 'Yu Gothic, sans-serif',
     fill: '#000',
     originX: 'center', originY: 'center',
-    angle: angle > 90 || angle < -90 ? angle + 180 : angle
+    angle: pulledOut ? 0 : (angle > 90 || angle < -90 ? angle + 180 : angle)
   });
+  dimParts.push(text);
 
-  const group = new fabric.Group([line, ext1, ext2, arrow1, arrow2, text], {
+  const group = new fabric.Group(dimParts, {
     _type: 'dimension',
     _length: realLen,
     _dimWidth: lineW,
     _dimSize: dimSize,
+    _textOff: off,
     _start: {x:start.x, y:start.y},
     _end: {x:end.x, y:end.y},
     _layer: state.activeLayer,
@@ -2402,7 +2422,7 @@ function saveHistory() {
   if (state.isLoadingHistory) return;
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
-  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']));
+  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']));
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex++;
@@ -2460,7 +2480,7 @@ function duplicateSelected() {
     canvas.renderAll();
     saveHistory();
     updateStats();
-  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']);
+  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']);
 }
 
 function selectAll() {
@@ -2584,6 +2604,10 @@ function updateSelectedProps() {
         <input type="number" min="0.5" max="10" step="0.5" value="${obj._dimWidth || 1}" onchange="updateDimWidth(this.value)"></div>
       <div class="prop-row"><label>文字サイズ</label>
         <input type="number" min="6" max="60" step="1" value="${obj._dimSize || 14}" onchange="updateDimSize(this.value)"></div>
+      <div class="prop-row"><label>引き出し長さ <span class="help-tip" data-tip="数字を寸法線から引き出す足の長さ。0で線の上に戻ります。">?</span></label>
+        <input type="number" min="0" max="3000" step="2" value="${Math.round(Math.hypot((obj._textOff||{x:0,y:0}).x,(obj._textOff||{x:0,y:0}).y))}" onchange="updateDimLeader('len', this.value)"></div>
+      <div class="prop-row"><label>引き出し角度 <span class="help-tip" data-tip="引き出す向き(度)。90=上、0=右、180=左、-90=下。斜めにも引けます。">?</span></label>
+        <input type="number" step="5" value="${Math.round(Math.atan2(-(obj._textOff||{x:0,y:0}).y,(obj._textOff||{x:0,y:0}).x)*180/Math.PI)}" onchange="updateDimLeader('ang', this.value)"></div>
       <div class="prop-row" style="font-size:10px;color:#999;">
         <span>※ 端点を動かすには寸法線を再描画してください</span>
       </div>
@@ -2716,7 +2740,7 @@ function updateDimLength(val) {
   const ang = Math.atan2((e.y - s.y), (e.x - s.x));
   const newEnd = { x: s2.x + Math.cos(ang) * newLen, y: s2.y + Math.sin(ang) * newLen };
   canvas.remove(obj);
-  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize});
+  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize, textOff: obj._textOff});
   dim.selectable = true; dim.evented = true;
   canvas.add(dim);
   canvas.setActiveObject(dim);
@@ -2737,7 +2761,8 @@ function rebuildDimension(ov) {
   const s2 = {x:s.x+dx, y:s.y+dy}, e2 = {x:e.x+dx, y:e.y+dy};
   const opts = {
     width: ov.width != null ? ov.width : obj._dimWidth,
-    size:  ov.size  != null ? ov.size  : obj._dimSize
+    size:  ov.size  != null ? ov.size  : obj._dimSize,
+    textOff: ov.textOff != null ? ov.textOff : obj._textOff
   };
   canvas.remove(obj);
   const dim = createDimensionLine(s2, e2, opts);
@@ -2747,6 +2772,17 @@ function rebuildDimension(ov) {
 }
 function updateDimWidth(val){ const w=parseFloat(val); if(!isNaN(w)) rebuildDimension({width: Math.max(0.5, w)}); }
 function updateDimSize(val){ const s=parseFloat(val); if(!isNaN(s)) rebuildDimension({size: Math.max(6, s)}); }
+// 数字の引き出し(足): 長さ/角度のどちらかを変更してオフセットを作り直す
+function updateDimLeader(which, val){
+  const obj = canvas.getActiveObject();
+  if(!obj || obj._type!=='dimension') return;
+  const off = obj._textOff || {x:0, y:0};
+  let len = Math.hypot(off.x, off.y);
+  let ang = Math.atan2(-off.y, off.x);   // rad, 上が正
+  if(which==='len'){ len = Math.max(0, parseFloat(val)||0); }
+  else { ang = ((parseFloat(val)||0)) * Math.PI/180; }
+  rebuildDimension({ textOff: {x: len*Math.cos(ang), y: -len*Math.sin(ang)} });
+}
 
 function setHatchOpacity(val) {
   const obj = canvas.getActiveObject();
@@ -2932,7 +2968,7 @@ function saveJSON() {
     version: '0.8',
     created: new Date().toISOString(),
     layers: state.layers,
-    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end'])
+    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end'])
   };
   // グリッドは除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame);
