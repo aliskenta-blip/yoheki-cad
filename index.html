@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.8 (寸法編集・引き出し線・中ボタンパン)</title>
+<title>yoheki-cad v0.8.1 (節間消しを接点間に対応)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -687,7 +687,7 @@
       <ul>
         <li><kbd>E</kbd> 消しゴム：クリックで最も近い図形を1つ削除。押したままドラッグで連続削除</li>
         <li><kbd>X</kbd> 節間消し：折れ線・多角形・鉄筋の<b>クリックした区間(折れ点〜折れ点)だけ</b>を削除。残りは分割して保持</li>
-        <li>直線(L)を節間消しすると線ごと削除。多角形は1辺を抜くと開いた折れ線に再構成</li>
+        <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。多角形は1辺を抜くと開いた折れ線に再構成</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
       <p><b>編集:</b></p>
@@ -1469,6 +1469,20 @@ function eraseAt(pt, isDrag) {
   }
 }
 
+// 節間消しで残った直線の一区間を fabric.Line として再生成
+function addTrimLineSeg(p0, p1, props) {
+  const sc = state.scale || 0.15;
+  const ln = new fabric.Line([p0.x, p0.y, p1.x, p1.y], {
+    stroke: props.stroke, strokeWidth: props.strokeWidth,
+    strokeDashArray: props.strokeDashArray, fill: '',
+    selectable: (state.tool === 'select'),
+    _layer: props._layer ?? 0,
+    _length: Math.round(Math.hypot(p1.x - p0.x, p1.y - p0.y) / sc)
+  });
+  canvas.add(ln);
+  return ln;
+}
+
 // --- 節間消し: 折れ点間の1区間だけ削除し、残りを再構成 ---
 function trimAt(pt) {
   const hit = pickObjectAt(pt);
@@ -1476,7 +1490,40 @@ function trimAt(pt) {
   const obj = hit.obj;
 
   if (obj.type === 'line') {
+    const segArr = objToSegments(obj);
+    if (!segArr.length) { canvas.remove(obj); canvas.renderAll(); saveHistory(); updateStats(); return; }
+    const A = segArr[0][0], B = segArr[0][1];
+    const dx = B.x - A.x, dy = B.y - A.y;
+    const L2 = dx*dx + dy*dy;
+    if (L2 < 1e-9) { canvas.remove(obj); canvas.renderAll(); saveHistory(); updateStats(); return; }
+    // 他オブジェクトとの交点を、線A→B上の媒介変数 t(0..1) で収集
+    const ts = [0, 1];
+    canvas.forEachObject(other => {
+      if (other === obj || other._isGrid || other._isSnapMarker || other._isFrame || !other.visible) return;
+      objToSegments(other).forEach(cs => {
+        const ip = segIntersect([A, B], cs);
+        if (ip) {
+          const t = ((ip.x - A.x)*dx + (ip.y - A.y)*dy) / L2;
+          if (t > 0.0008 && t < 0.9992) ts.push(t);
+        }
+      });
+    });
+    const uniq = [...new Set(ts.map(t => Math.round(t*1e6)/1e6))].sort((a,b)=>a-b);
+    // 交点が無ければ従来どおり線ごと削除
+    if (uniq.length <= 2) {
+      canvas.remove(obj); canvas.renderAll(); saveHistory(); updateStats(); return;
+    }
+    // クリック点を含む区間(接点〜接点)だけ削除し、残りを直線として再生成
+    let ct = ((pt.x - A.x)*dx + (pt.y - A.y)*dy) / L2;
+    ct = Math.max(0, Math.min(1, ct));
+    let k = 0;
+    for (let i=0;i<uniq.length-1;i++){ if (ct >= uniq[i] && ct <= uniq[i+1]) { k = i; break; } }
+    const tL = uniq[k], tR = uniq[k+1];
+    const props = sharedRebarProps(obj);
     canvas.remove(obj);
+    const at = t => ({x: A.x + t*dx, y: A.y + t*dy});
+    if (tL > 0.0008) addTrimLineSeg(at(0), at(tL), props);
+    if (tR < 0.9992) addTrimLineSeg(at(tR), at(1), props);
     canvas.renderAll(); saveHistory(); updateStats();
     return;
   }
