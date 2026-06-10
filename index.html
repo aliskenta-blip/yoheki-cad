@@ -1047,7 +1047,7 @@
 // ============================================================
 
 const canvas = new fabric.Canvas('canvas-container', {
-  backgroundColor: '#fafafa',
+  backgroundColor: '',
   selection: true,
   preserveObjectStacking: true,
   fireRightClick: true,
@@ -1182,33 +1182,39 @@ function fitToFrame() {
   canvas.renderAll();
 }
 
-// グリッドをキャンバスのコンテキストへ直接描画(オブジェクト化しないので高速)
+// 背景塗り＋グリッドをコンテキストへ直接描画(オブジェクト化しないので高速)。
+// before:render(clear直後・背景/オブジェクト描画の前)で呼ぶので、背景もここで塗る。
 function drawGridLayer() {
-  if (!state.showGrid) return;
   const ctx = canvas.getContext && canvas.getContext();
   const vpt = canvas.viewportTransform;
-  const size = state.gridSize;
-  if (!ctx || !vpt || !size) return;
+  if (!ctx || !vpt) return;
   const zoom = canvas.getZoom();
   const wPx = canvas.getWidth(), hPx = canvas.getHeight();
   const x0=(0-vpt[4])/zoom, y0=(0-vpt[5])/zoom, x1=(wPx-vpt[4])/zoom, y1=(hPx-vpt[5])/zoom;
-  const startX=Math.floor(x0/size)*size-size, endX=Math.ceil(x1/size)*size+size;
-  const startY=Math.floor(y0/size)*size-size, endY=Math.ceil(y1/size)*size+size;
-  const onlyMajor = (endX-startX)/size > 400;
   ctx.save();
   ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
-  ctx.lineWidth = 1/zoom;
-  for (let x=startX; x<=endX; x+=size) {
-    const major = Math.round(x/size)%5===0;
-    if (onlyMajor && !major) continue;
-    ctx.strokeStyle = major ? '#c0c0c0' : '#e8e8e8';
-    ctx.beginPath(); ctx.moveTo(x, startY); ctx.lineTo(x, endY); ctx.stroke();
-  }
-  for (let y=startY; y<=endY; y+=size) {
-    const major = Math.round(y/size)%5===0;
-    if (onlyMajor && !major) continue;
-    ctx.strokeStyle = major ? '#c0c0c0' : '#e8e8e8';
-    ctx.beginPath(); ctx.moveTo(startX, y); ctx.lineTo(endX, y); ctx.stroke();
+  // 背景(用紙の下地)
+  ctx.fillStyle = '#fafafa';
+  ctx.fillRect(x0-100, y0-100, (x1-x0)+200, (y1-y0)+200);
+  // グリッド
+  const size = state.gridSize;
+  if (state.showGrid && size && !state.exporting) {
+    const startX=Math.floor(x0/size)*size-size, endX=Math.ceil(x1/size)*size+size;
+    const startY=Math.floor(y0/size)*size-size, endY=Math.ceil(y1/size)*size+size;
+    const onlyMajor = (endX-startX)/size > 400;
+    ctx.lineWidth = 1/zoom;
+    for (let x=startX; x<=endX; x+=size) {
+      const major = Math.round(x/size)%5===0;
+      if (onlyMajor && !major) continue;
+      ctx.strokeStyle = major ? '#c0c0c0' : '#e8e8e8';
+      ctx.beginPath(); ctx.moveTo(x, startY); ctx.lineTo(x, endY); ctx.stroke();
+    }
+    for (let y=startY; y<=endY; y+=size) {
+      const major = Math.round(y/size)%5===0;
+      if (onlyMajor && !major) continue;
+      ctx.strokeStyle = major ? '#c0c0c0' : '#e8e8e8';
+      ctx.beginPath(); ctx.moveTo(startX, y); ctx.lineTo(endX, y); ctx.stroke();
+    }
   }
   ctx.restore();
 }
@@ -3166,6 +3172,7 @@ function renderRegionPNG(multiplier) {
   canvas.renderAll();
 
   let dataURL = null;
+  state.exporting = true;   // フックでグリッドを描かない(背景塗りは残す)
   try {
     dataURL = canvas.toDataURL({
       format: 'png',
@@ -3179,6 +3186,7 @@ function renderRegionPNG(multiplier) {
     console.error('PNG生成エラー', e);
     dataURL = null;
   }
+  state.exporting = false;
 
   // 復元
   gridLines.forEach(l => l.visible = true);
