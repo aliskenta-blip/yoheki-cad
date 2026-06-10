@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.10 (組み込み部品: U字溝/L形側溝/階段)</title>
+<title>yoheki-cad v0.10.2 (グリッド表示修正2)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.10 (組み込み部品: U字溝/L形側溝/階段)</span>
+  <span class="ver">v0.10.2 (グリッド表示修正2)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -2531,6 +2531,7 @@ function redo() {
 function loadFromHistory() {
   state.isLoadingHistory = true;
   canvas.loadFromJSON(state.history[state.historyIndex], () => {
+    canvas.backgroundColor = '';
     drawGrid();
     canvas.renderAll();
     state.isLoadingHistory = false;
@@ -3093,6 +3094,7 @@ function openJSON() {
         if (data.canvas) {
           if (data.layers) state.layers = data.layers;
           canvas.loadFromJSON(data.canvas, () => {
+            canvas.backgroundColor = '';   // 保存ファイルの背景色でグリッドが隠れないように
             drawGrid();
             renderLayerList();
             canvas.renderAll();
