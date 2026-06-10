@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.8.2 (図枠を見やすく)</title>
+<title>yoheki-cad v0.9 (寸法線プロパティ・ハッチ透過率)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.8 (寸法編集・引き出し線)</span>
+  <span class="ver">v0.9 (寸法線プロパティ・ハッチ透過率)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -2154,18 +2154,20 @@ function createLeaderLine(tip, textPos, opts) {
   return g;
 }
 
-function createDimensionLine(start, end) {
+function createDimensionLine(start, end, opts) {
+  opts = opts || {};
   const len = Math.sqrt(Math.pow(end.x-start.x, 2) + Math.pow(end.y-start.y, 2));
   const realLen = Math.round(len);  // mm
   const angle = Math.atan2(end.y-start.y, end.x-start.x) * 180 / Math.PI;
   const perpAngle = (angle + 90) * Math.PI / 180;
-  
-  const dimSize = parseFloat(document.getElementById('dim-size').value) || 14;
+
+  const dimSize = opts.size != null ? opts.size : (parseFloat(document.getElementById('dim-size').value) || 14);
+  const lineW = opts.width != null ? opts.width : 1;
   const ext = 10;
-  
+
   // 寸法線本体
   const line = new fabric.Line([start.x, start.y, end.x, end.y], {
-    stroke: '#666', strokeWidth: 1
+    stroke: '#666', strokeWidth: lineW
   });
   
   // 矢印（簡易表現）
@@ -2178,11 +2180,11 @@ function createDimensionLine(start, end) {
   const ext1 = new fabric.Line([
     start.x - ext * Math.cos(perpAngle), start.y - ext * Math.sin(perpAngle),
     start.x + ext * Math.cos(perpAngle), start.y + ext * Math.sin(perpAngle)
-  ], {stroke: '#666', strokeWidth: 1});
+  ], {stroke: '#666', strokeWidth: lineW});
   const ext2 = new fabric.Line([
     end.x - ext * Math.cos(perpAngle), end.y - ext * Math.sin(perpAngle),
     end.x + ext * Math.cos(perpAngle), end.y + ext * Math.sin(perpAngle)
-  ], {stroke: '#666', strokeWidth: 1});
+  ], {stroke: '#666', strokeWidth: lineW});
   
   const arrow1 = new fabric.Polygon([
     {x: start.x, y: start.y},
@@ -2197,19 +2199,25 @@ function createDimensionLine(start, end) {
   ], {fill: '#666', stroke: '#666'});
   
   const mid = {x: (start.x+end.x)/2, y: (start.y+end.y)/2};
+  // テキストは線に対して垂直方向の「上側」へオフセット(角度付きでも線の上に来る)
+  let nx = Math.cos(perpAngle), ny = Math.sin(perpAngle);
+  if (ny > 0) { nx = -nx; ny = -ny; }   // 画面上で常に上側
+  const toff = dimSize/2 + 6;
   const unit = document.getElementById('dim-unit').value;
   const text = new fabric.Text(realLen + (unit ? ' ' + unit : ''), {
-    left: mid.x, top: mid.y - dimSize - 4,
+    left: mid.x + nx*toff, top: mid.y + ny*toff,
     fontSize: dimSize,
     fontFamily: 'Yu Gothic, sans-serif',
     fill: '#000',
     originX: 'center', originY: 'center',
     angle: angle > 90 || angle < -90 ? angle + 180 : angle
   });
-  
+
   const group = new fabric.Group([line, ext1, ext2, arrow1, arrow2, text], {
     _type: 'dimension',
     _length: realLen,
+    _dimWidth: lineW,
+    _dimSize: dimSize,
     _start: {x:start.x, y:start.y},
     _end: {x:end.x, y:end.y},
     _layer: state.activeLayer,
@@ -2394,7 +2402,7 @@ function saveHistory() {
   if (state.isLoadingHistory) return;
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
-  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']));
+  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']));
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex++;
@@ -2452,7 +2460,7 @@ function duplicateSelected() {
     canvas.renderAll();
     saveHistory();
     updateStats();
-  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']);
+  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']);
 }
 
 function selectAll() {
@@ -2572,6 +2580,10 @@ function updateSelectedProps() {
       <div class="prop-row"><label>種別</label><span>寸法線</span></div>
       <div class="prop-row"><label>寸法値(mm) <span class="help-tip" data-tip="この値を変えると寸法線の長さ(線)も実際に伸縮します。角度は保持されます。">?</span></label>
         <input type="number" value="${obj._length}" onchange="updateDimLength(this.value)"></div>
+      <div class="prop-row"><label>線の太さ</label>
+        <input type="number" min="0.5" max="10" step="0.5" value="${obj._dimWidth || 1}" onchange="updateDimWidth(this.value)"></div>
+      <div class="prop-row"><label>文字サイズ</label>
+        <input type="number" min="6" max="60" step="1" value="${obj._dimSize || 14}" onchange="updateDimSize(this.value)"></div>
       <div class="prop-row" style="font-size:10px;color:#999;">
         <span>※ 端点を動かすには寸法線を再描画してください</span>
       </div>
@@ -2602,6 +2614,12 @@ function updateSelectedProps() {
     }
     html += `<div class="prop-row"><label>色</label><input type="color" value="${obj.stroke || '#000000'}" onchange="updateObjProp('stroke', this.value)"></div>`;
     html += `<div class="prop-row"><label>太さ</label><input type="number" value="${obj.strokeWidth || 1}" onchange="updateObjProp('strokeWidth', this.value)"></div>`;
+    if (obj._hatch) {
+      const op = Math.round((obj.opacity != null ? obj.opacity : 1) * 100);
+      html += `<div class="prop-row"><label>透過率</label>
+        <input type="range" min="10" max="100" value="${op}" oninput="setHatchOpacity(this.value); this.nextElementSibling.textContent=this.value+'%';">
+        <span style="min-width:40px;text-align:right;">${op}%</span></div>`;
+    }
   }
 
   // 3Dパース設定 (rebar/dimension以外。線・折れ線・図形すべて対象) v0.7
@@ -2698,13 +2716,46 @@ function updateDimLength(val) {
   const ang = Math.atan2((e.y - s.y), (e.x - s.x));
   const newEnd = { x: s2.x + Math.cos(ang) * newLen, y: s2.y + Math.sin(ang) * newLen };
   canvas.remove(obj);
-  const dim = createDimensionLine(s2, newEnd);
+  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize});
   dim.selectable = true; dim.evented = true;
   canvas.add(dim);
   canvas.setActiveObject(dim);
   canvas.renderAll();
   saveHistory(); updateStats();
   updateSelectedProps();
+}
+
+// 寸法線を線幅/文字サイズだけ変えて作り直す(長さ・角度は保持)
+function rebuildDimension(ov) {
+  const obj = canvas.getActiveObject();
+  if (!obj || obj._type !== 'dimension') return;
+  const s = obj._start, e = obj._end;
+  if (!s || !e) return;
+  const cur = obj.getCenterPoint();
+  const origCx = (s.x+e.x)/2, origCy = (s.y+e.y)/2;
+  const dx = cur.x-origCx, dy = cur.y-origCy;
+  const s2 = {x:s.x+dx, y:s.y+dy}, e2 = {x:e.x+dx, y:e.y+dy};
+  const opts = {
+    width: ov.width != null ? ov.width : obj._dimWidth,
+    size:  ov.size  != null ? ov.size  : obj._dimSize
+  };
+  canvas.remove(obj);
+  const dim = createDimensionLine(s2, e2, opts);
+  dim.selectable = true; dim.evented = true;
+  canvas.add(dim); canvas.setActiveObject(dim);
+  canvas.renderAll(); saveHistory(); updateStats(); updateSelectedProps();
+}
+function updateDimWidth(val){ const w=parseFloat(val); if(!isNaN(w)) rebuildDimension({width: Math.max(0.5, w)}); }
+function updateDimSize(val){ const s=parseFloat(val); if(!isNaN(s)) rebuildDimension({size: Math.max(6, s)}); }
+
+function setHatchOpacity(val) {
+  const obj = canvas.getActiveObject();
+  if (!obj) return;
+  const op = Math.max(0.05, Math.min(1, (parseFloat(val)||100) / 100));
+  obj.set('opacity', op);
+  obj._hatchOpacity = op;
+  canvas.renderAll();
+  saveHistory();
 }
 
 function updateObjProp(key, val) {
@@ -2881,7 +2932,7 @@ function saveJSON() {
     version: '0.8',
     created: new Date().toISOString(),
     layers: state.layers,
-    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end'])
+    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end'])
   };
   // グリッドは除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame);
