@@ -4164,6 +4164,7 @@ function renderPartsList() {
     + '</div>';
   BUILTIN_PARTS.filter(p => !hidden.includes(p.key)).forEach(p => {
     html += `<div style="display:flex; align-items:center; gap:6px; padding:6px; border-bottom:1px solid #3a3a3a;">
+      ${partThumbSVG(p)}
       <span style="flex:1; font-size:12px;"><b>${escapeHtml(p.name)}</b>
         <span style="color:#888; font-size:10px;"> [${p.category}]${p.lengthVar?' 長さ可変':''}</span></span>
       <button class="btn primary" style="padding:3px 8px;" onclick="placeBuiltinPart('${p.key}')">配置</button>
@@ -4332,6 +4333,29 @@ function partBBox(shapes){
     else sh.pts.forEach(([x,y])=>{minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);});
   });
   return {cx:(minX+maxX)/2, cy:(minY+maxY)/2};
+}
+
+// 部品のサムネイル(SVG文字列)。一覧で形状を確認するため。
+function partThumbSVG(def){
+  let shapes;
+  try { shapes = def.build(def.lengthVar ? (def.defLen||600) : undefined); } catch(e){ return ''; }
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  shapes.forEach(sh=>{
+    if(sh.circle){const[cx,cy,r]=sh.circle;minX=Math.min(minX,cx-r);maxX=Math.max(maxX,cx+r);minY=Math.min(minY,cy-r);maxY=Math.max(maxY,cy+r);}
+    else sh.pts.forEach(([x,y])=>{minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);});
+  });
+  if(!isFinite(minX)) return '';
+  const W=56,H=44,pad=4;
+  const bw=Math.max(1,maxX-minX), bh=Math.max(1,maxY-minY);
+  const s=Math.min((W-pad*2)/bw,(H-pad*2)/bh);
+  const ox=(W-bw*s)/2 - minX*s, oy=(H-bh*s)/2 - minY*s;
+  const tx=x=>(x*s+ox).toFixed(1), ty=y=>(y*s+oy).toFixed(1);
+  let el='';
+  shapes.forEach(sh=>{
+    if(sh.circle){const[cx,cy,r]=sh.circle;el+=`<circle cx="${tx(cx)}" cy="${ty(cy)}" r="${(r*s).toFixed(1)}" fill="none" stroke="#222" stroke-width="0.8"/>`;}
+    else{const pts=sh.pts.map(([x,y])=>`${tx(x)},${ty(y)}`).join(' ');el+= sh.closed?`<polygon points="${pts}" fill="none" stroke="#222" stroke-width="0.8"/>`:`<polyline points="${pts}" fill="none" stroke="#222" stroke-width="0.8"/>`;}
+  });
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="background:#fff;border:1px solid #ccc;border-radius:3px;flex:none;">${el}</svg>`;
 }
 
 // 部品を指定位置・角度・縮尺で配置(中心基準で回転)。配置したオブジェクト配列を返す。
