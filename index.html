@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.13 (CP型枠ブロック擁壁断面・集水桝記号)</title>
+<title>yoheki-cad v0.14 (閉図形修正・部品削除・保安部品追加)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.13 (CP型枠ブロック擁壁断面・集水桝記号)</span>
+  <span class="ver">v0.14 (閉図形修正・部品削除・保安部品追加)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -4158,12 +4158,16 @@ function registerPart() {
 function renderPartsList() {
   const parts = loadPartsStore();
   const div = document.getElementById('parts-list');
-  let html = '<div style="margin:2px 0 4px; font-size:11px; color:#7fbfff; font-weight:bold;">組み込み部品（標準図形）</div>';
-  BUILTIN_PARTS.forEach(p => {
+  const hidden = loadHiddenBuiltins();
+  let html = '<div style="margin:2px 0 4px; font-size:11px; color:#7fbfff; font-weight:bold;">組み込み部品（標準図形）'
+    + (hidden.length ? ` <a href="#" onclick="restoreBuiltinParts();return false;" style="font-size:10px;color:#9cf;">[隠した${hidden.length}件を戻す]</a>` : '')
+    + '</div>';
+  BUILTIN_PARTS.filter(p => !hidden.includes(p.key)).forEach(p => {
     html += `<div style="display:flex; align-items:center; gap:6px; padding:6px; border-bottom:1px solid #3a3a3a;">
       <span style="flex:1; font-size:12px;"><b>${escapeHtml(p.name)}</b>
         <span style="color:#888; font-size:10px;"> [${p.category}]${p.lengthVar?' 長さ可変':''}</span></span>
       <button class="btn primary" style="padding:3px 8px;" onclick="placeBuiltinPart('${p.key}')">配置</button>
+      <button class="btn" style="padding:3px 8px;" onclick="hideBuiltinPart('${p.key}')">🗑</button>
     </div>`;
   });
   html += '<div style="margin:10px 0 4px; font-size:11px; color:#7fbfff; font-weight:bold;">登録部品（自分で登録）</div>';
@@ -4306,7 +4310,19 @@ const BUILTIN_PARTS = [
   { key:'person', name:'人物(スケール1.7m)', category:'記号',
     build:()=>[{circle:[0,150,150]},{pts:[[0,300],[0,1100]]},{pts:[[-300,600],[0,500],[300,600]]},{pts:[[-250,1700],[0,1100],[250,1700]]}]},
   { key:'tree', name:'樹木 記号', category:'記号',
-    build:()=>[{circle:[0,-600,600]},{pts:[[0,0],[0,-600]]}]}
+    build:()=>[{circle:[0,-600,600]},{pts:[[0,0],[0,-600]]}]},
+  { key:'cone', name:'カラーコーン', category:'保安',
+    build:()=>[{closed:true,pts:[[155,140],[195,140],[255,680],[95,680]]},{closed:true,pts:[[40,680],[310,680],[310,720],[40,720]]}]},
+  { key:'a_barricade', name:'A型バリケード', category:'保安',
+    build:()=>[{pts:[[0,800],[400,0]]},{pts:[[800,800],[400,0]]},{pts:[[120,300],[680,300]]},{pts:[[120,420],[680,420]]}]},
+  { key:'pipe_barricade', name:'単管バリケード', category:'保安',
+    build:()=>[{pts:[[100,200],[100,820]]},{pts:[[1900,200],[1900,820]]},{pts:[[0,250],[2000,250]]},{pts:[[0,520],[2000,520]]},{pts:[[40,820],[160,820]]},{pts:[[1840,820],[1960,820]]}]},
+  { key:'sign_board', name:'工事看板(枠)', category:'保安',
+    build:()=>[{closed:true,pts:[[0,0],[900,0],[900,600],[0,600]]},{pts:[[150,600],[120,1500]]},{pts:[[750,600],[780,1500]]}]},
+  { key:'first_aid', name:'救急箱(+)', category:'保安',
+    build:()=>[{closed:true,pts:[[0,0],[400,0],[400,300],[0,300]]},{closed:true,pts:[[180,50],[220,50],[220,250],[180,250]]},{closed:true,pts:[[70,130],[330,130],[330,170],[70,170]]}]},
+  { key:'road_sign', name:'規制標識(丸＋ポール)', category:'保安',
+    build:()=>[{circle:[200,200,200]},{pts:[[200,400],[200,1300]]},{pts:[[140,1300],[260,1300]]}]}
 ];
 
 function partBBox(shapes){
@@ -4331,7 +4347,10 @@ function placePartAt(def, pos, len, angleDeg, mult){
       const [ccx,ccy,r]=sh.circle; const c=toW(ccx,ccy);
       placed.push(new fabric.Circle({left:c.x,top:c.y,radius:r*sc,originX:'center',originY:'center',stroke:'#222',strokeWidth:1.5,fill:'',_layer:state.activeLayer,selectable:true,evented:true}));
     } else {
-      placed.push(new fabric.Polyline(sh.pts.map(([x,y])=>toW(x,y)),{stroke:'#222',strokeWidth:1.5,fill:'',_layer:state.activeLayer,selectable:true,evented:true}));
+      const wpts = sh.pts.map(([x,y])=>toW(x,y));
+      const opt = {stroke:'#222',strokeWidth:1.5,fill:'',_layer:state.activeLayer,selectable:true,evented:true};
+      // closed:true は最終辺も閉じる(Polygon)、それ以外は開いた折れ線(Polyline)
+      placed.push(sh.closed ? new fabric.Polygon(wpts, opt) : new fabric.Polyline(wpts, opt));
     }
   });
   placed.forEach(o=>canvas.add(o));
@@ -4352,6 +4371,13 @@ function placeBuiltinPart(key) {
   setTool('stamp');
   const sm=document.getElementById('status-mode'); if(sm) sm.textContent=`モード: 部品配置「${def.name}」 — クリックで配置${continuous?'(連続)':''} / Escで終了`;
 }
+
+// 組み込み部品の非表示(削除)管理
+const HIDDEN_BUILTIN_KEY = 'yoheki-cad-hidden-builtins';
+function loadHiddenBuiltins(){ try{ return JSON.parse(localStorage.getItem(HIDDEN_BUILTIN_KEY)) || []; }catch(e){ return []; } }
+function saveHiddenBuiltins(a){ try{ localStorage.setItem(HIDDEN_BUILTIN_KEY, JSON.stringify(a)); }catch(e){} }
+function hideBuiltinPart(key){ const h=loadHiddenBuiltins(); if(!h.includes(key)){ h.push(key); saveHiddenBuiltins(h); } renderPartsList(); }
+function restoreBuiltinParts(){ saveHiddenBuiltins([]); renderPartsList(); }
 
 // ライブラリをファイルに書き出し
 function exportPartsLibrary() {
