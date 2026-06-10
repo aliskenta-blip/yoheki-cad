@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.11.1 (補助線を下側のみ・線で全体移動)</title>
+<title>yoheki-cad v0.12 (部品大幅追加・長さ可変・角度/連続配置)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.11.1 (補助線を下側のみ・線で全体移動)</span>
+  <span class="ver">v0.12 (部品大幅追加・長さ可変・角度/連続配置)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -921,6 +921,13 @@
           <option value="auto">現在の表示倍率に合わせる</option>
         </select>
       </div>
+      <div class="prop-row"><label>配置角度(°)</label>
+        <input type="number" id="part-angle" value="0" step="5" style="flex:1;"></div>
+      <div class="prop-row"><label>長さ(mm) <span style="color:#888;font-size:10px;">※可変部品のみ</span></label>
+        <input type="number" id="part-len" value="600" step="50" style="flex:1;"></div>
+      <div class="prop-row"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+        <input type="checkbox" id="part-continuous"> 連続配置（クリックで続けて置く）</label></div>
+      <div style="font-size:10px;color:#9cf;margin:2px 0 4px;">「配置」→ 図面上をクリックで配置（吸着あり）。Escで終了。</div>
       <div id="parts-list" style="max-height:240px; overflow-y:auto; margin-top:6px;"></div>
     </div>
 
@@ -1713,6 +1720,7 @@ function orthoPoint(start, end) {
 // ============================================================
 
 function setTool(tool) {
+  if (tool !== 'stamp') state.stamp = null;   // 部品配置モードを解除
   state.tool = tool;
   state.polygonPoints = [];
   hideSnapMarker();
@@ -1807,6 +1815,19 @@ canvas.on('mouse:down', (opt) => {
       state.dimDragOrig = { start:{x:tgt._start.x,y:tgt._start.y}, end:{x:tgt._end.x,y:tgt._end.y}, grab:{x:p.x,y:p.y} };
       state.dimDragMoved = false;
     }
+    return;
+  }
+
+  // 部品スタンプ配置(クリックで配置・吸着あり)
+  if (state.tool === 'stamp') {
+    if (!state.stamp) { setTool('select'); return; }
+    const p = snapPoint(canvas.getPointer(opt.e));
+    const placed = placePartAt(state.stamp.def, p, state.stamp.len, state.stamp.angle, state.stamp.mult);
+    canvas.discardActiveObject();
+    if (placed.length > 1) canvas.setActiveObject(new fabric.ActiveSelection(placed, {canvas}));
+    else if (placed.length === 1) canvas.setActiveObject(placed[0]);
+    canvas.renderAll(); saveHistory(); updateStats();
+    if (!state.stamp.continuous) { state.stamp = null; setTool('select'); }
     return;
   }
 
@@ -4141,7 +4162,7 @@ function renderPartsList() {
   BUILTIN_PARTS.forEach(p => {
     html += `<div style="display:flex; align-items:center; gap:6px; padding:6px; border-bottom:1px solid #3a3a3a;">
       <span style="flex:1; font-size:12px;"><b>${escapeHtml(p.name)}</b>
-        <span style="color:#888; font-size:10px;"> [${p.category}] ${p.w}×${p.h}mm</span></span>
+        <span style="color:#888; font-size:10px;"> [${p.category}]${p.lengthVar?' 長さ可変':''}</span></span>
       <button class="btn primary" style="padding:3px 8px;" onclick="placeBuiltinPart('${p.key}')">配置</button>
     </div>`;
   });
@@ -4223,47 +4244,92 @@ function placePart(id) {
 }
 
 // ===== 組み込み部品セット(標準図形) =====
-// 形状は実寸(mm)のポリライン。配置時に現在の縮尺(state.scale)でpx化。
+// build(len) は形状配列を返す。形状: {pts:[[x,y]..], closed?} か {circle:[cx,cy,r]}。座標は実寸mm。
+// lengthVar:true は「長さ(mm)」で平面長さを可変にできる部品。配置はクリック(スタンプ)・角度・連続対応。
 const BUILTIN_PARTS = [
-  { key:'u240_sec', name:'U字溝 240 断面', category:'側溝', w:300, h:270, shapes:[
-      { pts:[[0,0],[0,270],[300,270],[300,0],[270,0],[270,240],[30,240],[30,0],[0,0]] }
-    ] },
-  { key:'u240_plan', name:'U字溝 240 平面(L=600)', category:'側溝', w:300, h:600, shapes:[
-      { pts:[[0,0],[300,0],[300,600],[0,600],[0,0]] },
-      { pts:[[30,0],[30,600]] },
-      { pts:[[270,0],[270,600]] }
-    ] },
-  { key:'lgutter_sec', name:'L形側溝 断面', category:'側溝', w:450, h:300, shapes:[
-      { pts:[[0,0],[150,0],[150,150],[450,150],[450,300],[0,300],[0,0]] }
-    ] },
-  { key:'stairs_sec', name:'階段 断面(蹴上150×踏面300×4段)', category:'階段', w:1200, h:600, shapes:[
-      { pts:[[0,0],[300,0],[300,150],[600,150],[600,300],[900,300],[900,450],[1200,450],[1200,600],[0,600],[0,0]] }
-    ] }
+  { key:'u240_sec', name:'U字溝240 断面(落ちふた/切り返し)', category:'側溝',
+    build:()=>[{closed:true,pts:[[0,0],[0,270],[300,270],[300,0],[275,0],[275,25],[270,25],[270,240],[30,240],[30,25],[25,25],[25,0]]}]},
+  { key:'u240_plan', name:'U字溝240 平面(長さ可変)', category:'側溝', lengthVar:true, defLen:600,
+    build:(L)=>[{closed:true,pts:[[0,0],[300,0],[300,L],[0,L]]},{pts:[[25,0],[25,L]]},{pts:[[275,0],[275,L]]},{pts:[[30,0],[30,L]]},{pts:[[270,0],[270,L]]}]},
+  { key:'u300_sec', name:'U字溝300 断面', category:'側溝',
+    build:()=>[{closed:true,pts:[[0,0],[0,335],[370,335],[370,0],[335,0],[335,300],[35,300],[35,0]]}]},
+  { key:'lgutter_sec', name:'L形側溝 断面(コーピン丸み)', category:'側溝',
+    build:()=>[{closed:true,pts:[[0,0],[80,0],[100,5],[114,20],[120,40],[120,200],[500,200],[500,300],[0,300]]}]},
+  { key:'lgutter_plan', name:'L形側溝 平面(長さ可変)', category:'側溝', lengthVar:true, defLen:1000,
+    build:(L)=>[{closed:true,pts:[[0,0],[500,0],[500,L],[0,L]]},{pts:[[120,0],[120,L]]},{pts:[[80,0],[80,L]]}]},
+  { key:'curb_sec', name:'地先境界ブロック 断面', category:'縁石',
+    build:()=>[{closed:true,pts:[[15,0],[135,0],[150,250],[0,250]]}]},
+  { key:'catchbasin_plan', name:'集水桝 平面(500角)', category:'桝',
+    build:()=>[{closed:true,pts:[[0,0],[500,0],[500,500],[0,500]]},{closed:true,pts:[[60,60],[440,60],[440,440],[60,440]]}]},
+  { key:'gravity_wall', name:'重力式擁壁 断面', category:'擁壁',
+    build:()=>[{closed:true,pts:[[0,0],[400,0],[1500,2000],[0,2000]]}]},
+  { key:'l_wall', name:'L型擁壁 断面', category:'擁壁',
+    build:()=>[{closed:true,pts:[[0,0],[250,0],[250,1500],[1300,1500],[1300,1800],[0,1800]]}]},
+  { key:'stairs_sec', name:'階段 断面(蹴上150×踏面300×4段)', category:'階段',
+    build:()=>[{pts:[[0,0],[300,0],[300,150],[600,150],[600,300],[900,300],[900,450],[1200,450],[1200,600],[0,600],[0,0]]}]},
+  { key:'backhoe', name:'バックホウ 側面(目安)', category:'重機',
+    build:()=>[
+      {closed:true,pts:[[150,2300],[2850,2300],[3000,2500],[2850,2700],[150,2700],[0,2500]]},
+      {closed:true,pts:[[450,1350],[2450,1350],[2450,2300],[450,2300]]},
+      {closed:true,pts:[[700,1450],[1400,1450],[1400,2000],[700,2000]]},
+      {pts:[[2300,1700],[3500,800],[4400,1500]]},
+      {closed:true,pts:[[4400,1500],[4650,1850],[4300,2050],[4150,1700]]}
+    ]},
+  { key:'dump', name:'ダンプトラック 側面(目安)', category:'重機',
+    build:()=>[
+      {closed:true,pts:[[2900,300],[7000,300],[7000,1800],[2900,1800]]},
+      {closed:true,pts:[[700,800],[2700,800],[2700,1800],[700,1800]]},
+      {closed:true,pts:[[700,1800],[7000,1800],[7000,2100],[700,2100]]},
+      {circle:[1500,2300,330]},{circle:[5200,2300,330]},{circle:[6100,2300,330]}
+    ]},
+  { key:'person', name:'人物(スケール1.7m)', category:'記号',
+    build:()=>[{circle:[0,150,150]},{pts:[[0,300],[0,1100]]},{pts:[[-300,600],[0,500],[300,600]]},{pts:[[-250,1700],[0,1100],[250,1700]]}]},
+  { key:'tree', name:'樹木 記号', category:'記号',
+    build:()=>[{circle:[0,-600,600]},{pts:[[0,0],[0,-600]]}]}
 ];
 
+function partBBox(shapes){
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  shapes.forEach(sh=>{
+    if(sh.circle){const[cx,cy,r]=sh.circle;minX=Math.min(minX,cx-r);maxX=Math.max(maxX,cx+r);minY=Math.min(minY,cy-r);maxY=Math.max(maxY,cy+r);}
+    else sh.pts.forEach(([x,y])=>{minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);});
+  });
+  return {cx:(minX+maxX)/2, cy:(minY+maxY)/2};
+}
+
+// 部品を指定位置・角度・縮尺で配置(中心基準で回転)。配置したオブジェクト配列を返す。
+function placePartAt(def, pos, len, angleDeg, mult){
+  const shapes = def.build(def.lengthVar ? (len||def.defLen||600) : undefined);
+  const bb = partBBox(shapes);
+  const sc = (state.scale||0.15) * (mult||1);
+  const a = (angleDeg||0)*Math.PI/180, cos=Math.cos(a), sin=Math.sin(a);
+  const toW = (x,y)=>{ const lx=(x-bb.cx)*sc, ly=(y-bb.cy)*sc; return {x: pos.x + lx*cos - ly*sin, y: pos.y + lx*sin + ly*cos}; };
+  const placed=[];
+  shapes.forEach(sh=>{
+    if(sh.circle){
+      const [ccx,ccy,r]=sh.circle; const c=toW(ccx,ccy);
+      placed.push(new fabric.Circle({left:c.x,top:c.y,radius:r*sc,originX:'center',originY:'center',stroke:'#222',strokeWidth:1.5,fill:'',_layer:state.activeLayer,selectable:true,evented:true}));
+    } else {
+      placed.push(new fabric.Polyline(sh.pts.map(([x,y])=>toW(x,y)),{stroke:'#222',strokeWidth:1.5,fill:'',_layer:state.activeLayer,selectable:true,evented:true}));
+    }
+  });
+  placed.forEach(o=>canvas.add(o));
+  return placed;
+}
+
+// 配置ボタン → スタンプ(クリック配置)モードへ
 function placeBuiltinPart(key) {
   const def = BUILTIN_PARTS.find(p => p.key === key);
   if (!def) return;
-  const sc = state.scale || 0.15;
-  const z = canvas.getZoom(); const vpt = canvas.viewportTransform;
-  const cx = (canvas.getWidth()/2 - vpt[4]) / z;
-  const cy = (canvas.getHeight()/2 - vpt[5]) / z;
-  const ox = cx - (def.w*sc)/2, oy = cy - (def.h*sc)/2;
-  const placed = def.shapes.map(shape => {
-    const pts = shape.pts.map(p => ({x: ox + p[0]*sc, y: oy + p[1]*sc}));
-    const o = new fabric.Polyline(pts, {
-      stroke:'#222', strokeWidth:1.5, fill:'',
-      _layer: state.activeLayer, selectable:true, evented:true
-    });
-    canvas.add(o);
-    return o;
-  });
-  canvas.discardActiveObject();
-  if (placed.length > 1) { canvas.setActiveObject(new fabric.ActiveSelection(placed, {canvas})); }
-  else if (placed.length === 1) { canvas.setActiveObject(placed[0]); }
-  canvas.renderAll(); saveHistory(); updateStats();
+  const angle = parseFloat((document.getElementById('part-angle')||{}).value)||0;
+  const len = parseFloat((document.getElementById('part-len')||{}).value)||def.defLen||600;
+  let mult = (document.getElementById('part-place-scale')||{}).value;
+  mult = (mult==='auto'||mult==null||isNaN(parseFloat(mult))) ? 1 : parseFloat(mult);
+  const continuous = !!(document.getElementById('part-continuous')||{}).checked;
+  state.stamp = { def, len, angle, mult, continuous };
   closeModal('modal-parts');
-  setTool('select');
+  setTool('stamp');
+  const sm=document.getElementById('status-mode'); if(sm) sm.textContent=`モード: 部品配置「${def.name}」 — クリックで配置${continuous?'(連続)':''} / Escで終了`;
 }
 
 // ライブラリをファイルに書き出し
