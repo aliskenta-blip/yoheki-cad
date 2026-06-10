@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.6.1 (印刷・PNG修正)</title>
+<title>yoheki-cad v0.8 (寸法編集・引き出し線・中ボタンパン)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.6.1 (ガイド・3Dパース)</span>
+  <span class="ver">v0.8 (寸法編集・引き出し線)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -309,6 +309,9 @@
   </button>
   <button class="tool-btn" data-tool="text" data-help="注記テキストを入力" title="テキスト (T)" onclick="setTool('text')">
     <span class="icon">𝐀</span><span class="label">文字</span>
+  </button>
+  <button class="tool-btn" data-tool="leader" data-help="引き出し線。指したい点→文字位置へドラッグ。矢印付きで注記を引き出します" title="引き出し線 (G)" onclick="setTool('leader')">
+    <span class="icon">↗</span><span class="label">引出線</span>
   </button>
   <div class="tool-divider"></div>
 
@@ -490,6 +493,21 @@
       </div>
     </div>
     
+    <div class="panel-section" id="eraser-settings" style="display:none">
+      <h4>消しゴム</h4>
+      <div class="prop-row">
+        <label>方式 <span class="help-tip" data-tip="なぞって消す=クリック/ドラッグで触れた図形を削除。範囲で消す=矩形でドラッグして囲んだ図形をまとめて削除。">?</span></label>
+        <select id="eraser-mode">
+          <option value="touch" selected>なぞって消す</option>
+          <option value="region">範囲で消す(矩形)</option>
+        </select>
+      </div>
+      <div class="prop-row">
+        <label><input type="checkbox" id="eraser-contain" checked> 完全に含むものだけ</label>
+        <span class="help-tip" data-tip="範囲モード時。ONなら矩形に完全に入った図形だけ削除、OFFなら少しでも触れた図形も削除。">?</span>
+      </div>
+    </div>
+
     <div class="panel-section" id="rebardot-settings" style="display:none">
       <h4>横筋・断面 (○)</h4>
       <div class="prop-row">
@@ -510,6 +528,22 @@
       <div class="prop-row">
         <label>表示倍率</label>
         <input type="number" id="rebardot-mag" value="2.5" min="0.5" max="10" step="0.5" title="径に対する丸の表示倍率(見やすさ調整)">
+      </div>
+      <div class="prop-row">
+        <label>配置位置 <span class="help-tip" data-tip="ドラッグした線に対して丸を置く位置。中央=線上、上/下/左/右=線からオフセット距離だけずらして配置。配力筋を主筋の脇に置くときに。">?</span></label>
+        <select id="rebardot-offset-dir">
+          <option value="center" selected>線上(中央)</option>
+          <option value="up">上へ</option>
+          <option value="down">下へ</option>
+          <option value="left">左へ</option>
+          <option value="right">右へ</option>
+          <option value="perp+">線に直交(＋)</option>
+          <option value="perp-">線に直交(−)</option>
+        </select>
+      </div>
+      <div class="prop-row">
+        <label>オフセット(mm)</label>
+        <input type="number" id="rebardot-offset" value="0" min="0" max="5000" step="10">
       </div>
       <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
         <span>クリック=1個 / ドラッグ=ピッチ連続配置(スナップ刻み)</span>
@@ -544,6 +578,7 @@
         <kbd>E</kbd> 消しゴム<br>
         <kbd>X</kbd> 節間消し　
         <kbd>O</kbd> 横筋○<br>
+        <kbd>G</kbd> 引出線　
         <kbd>F</kbd> 全体表示<br>
         <kbd>Del</kbd> 削除　
         <kbd>Esc</kbd> 解除<br>
@@ -605,7 +640,7 @@
 <!-- ヘルプモーダル -->
 <div class="modal-bg" id="modal-help">
   <div class="modal">
-    <h3>yoheki-cad v0.6 使い方</h3>
+    <h3>yoheki-cad v0.8 使い方</h3>
     <div style="font-size:12px; line-height: 1.7;">
       <p><b>基本操作:</b></p>
       <ul>
@@ -910,6 +945,11 @@
       <input type="range" id="hatch-density" min="6" max="30" value="14" style="flex:1;" oninput="renderHatchPalette()">
       <span id="hatch-density-val" style="min-width:30px; text-align:right;">14</span>
     </div>
+    <div class="prop-row">
+      <label>透過率</label>
+      <input type="range" id="hatch-opacity" min="10" max="100" value="100" style="flex:1;" oninput="document.getElementById('hatch-opacity-val').textContent=this.value+'%'">
+      <span id="hatch-opacity-val" style="min-width:40px; text-align:right;">100%</span>
+    </div>
     <div class="modal-actions" style="justify-content:space-between;">
       <div>
         <button class="btn primary" onclick="startHatchDraw()">▭ 領域を描いて塗る</button>
@@ -986,7 +1026,7 @@
       <label><input type="checkbox" id="persp-ground" checked onchange="rebuildPerspective()"> 地面</label>
     </div>
     <div class="prop-row" style="font-size:11px; color:#888;">
-      <span id="persp-info">対象: 選択中の図形(無選択なら全図形)から立体化します。ドラッグで回転・ホイールでズーム。</span>
+      <span id="persp-info">対象: 選択中の図形(無選択なら全図形)から立体化。図形ごとに右パネルで種別(擁壁/U字溝/階段/家/地盤)と個別奥行を設定できます。線・折れ線(コの字等)も立体化されます。</span>
     </div>
     <div id="persp-canvas-wrap" style="width:100%; height:440px; background:#1a1a1a; border-radius:6px; position:relative; overflow:hidden;">
       <canvas id="persp-canvas" style="width:100%; height:100%; display:block;"></canvas>
@@ -1589,6 +1629,7 @@ function setTool(tool) {
   // ツール別パネル表示
   document.getElementById('rebar-settings').style.display = (tool === 'rebar') ? 'block' : 'none';
   document.getElementById('rebardot-settings').style.display = (tool === 'rebardot') ? 'block' : 'none';
+  document.getElementById('eraser-settings').style.display = (tool === 'eraser') ? 'block' : 'none';
   document.getElementById('dim-settings').style.display = (tool === 'dim') ? 'block' : 'none';
   
   // ステータス
@@ -1596,7 +1637,7 @@ function setTool(tool) {
     'select': '選択', 'line': '直線', 'rect': '矩形', 'circle': '円',
     'polygon': '多角形', 'freehand': 'フリーハンド', 'dim': '寸法線',
     'rebar': '鉄筋', 'text': 'テキスト', 'eraser': '消しゴム', 'trim': '節間消し',
-    'rebardot': '横筋○', 'hatch': 'ハッチ'
+    'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線'
   };
   document.getElementById('status-mode').textContent = 'モード: ' + (labels[tool] || tool);
   
@@ -1620,10 +1661,25 @@ canvas.on('mouse:down', (opt) => {
   
   if (state.tool === 'select') return;
 
-  // 消しゴム / 節間消し (v0.3.1)
+  // 消しゴム / 節間消し (v0.3.1 / 範囲消去 v0.7)
   if (state.tool === 'eraser') {
-    state.isErasing = true;
-    eraseAt(canvas.getPointer(opt.e));
+    const mode = document.getElementById('eraser-mode').value;
+    if (mode === 'region') {
+      // 範囲選択開始: ラバーバンド矩形
+      const pt0 = canvas.getPointer(opt.e);
+      state.eraseRegionStart = pt0;
+      state.eraseRect = new fabric.Rect({
+        left: pt0.x, top: pt0.y, width: 1, height: 1,
+        fill: 'rgba(255,50,50,0.12)', stroke: '#ff1744', strokeWidth: 1,
+        strokeDashArray: [5,3], selectable:false, evented:false,
+        excludeFromExport:true, _isSnapMarker:true
+      });
+      canvas.add(state.eraseRect);
+      state.isErasingRegion = true;
+    } else {
+      state.isErasing = true;
+      eraseAt(canvas.getPointer(opt.e));
+    }
     return;
   }
   if (state.tool === 'trim') {
@@ -1675,19 +1731,27 @@ canvas.on('mouse:down', (opt) => {
   } else if (state.tool === 'dim') {
     state.tempObject = createDimensionLine(pt, pt);
     canvas.add(state.tempObject);
+  } else if (state.tool === 'leader') {
+    // 始点=指す点(snap適用)。ドラッグ先が文字位置。
+    state.leaderTip = pt;
+    state.tempObject = createLeaderLine(pt, {x:pt.x+1, y:pt.y-1}, {preview:true});
+    canvas.add(state.tempObject);
   } else if (state.tool === 'rebar') {
     state.tempObject = createRebar(pt, pt);
     canvas.add(state.tempObject);
   } else if (state.tool === 'rebardot') {
     // クリック=1個、ドラッグ開始点を記録(mouse:upで列配置判定)
     state.dotStart = pt;
-    state.tempObject = createRebarDot(pt);
+    const op = applyDotOffset([pt], pt, pt)[0];
+    state.tempObject = createRebarDot(op);
     canvas.add(state.tempObject);
   } else if (state.tool === 'hatch') {
+    const hop = (parseFloat(document.getElementById('hatch-opacity').value)||100)/100;
     state.tempObject = new fabric.Rect({
       left: pt.x, top: pt.y, width: 1, height: 1,
       fill: makeHatchPattern(), stroke: '#666', strokeWidth: 0.5,
-      _hatch: state.pendingHatch || hatchSelected,
+      _hatch: state.pendingHatch || hatchSelected, _hatchOpacity: hop,
+      opacity: hop,
       _layer: state.activeLayer, selectable:false
     });
     canvas.add(state.tempObject);
@@ -1719,7 +1783,18 @@ canvas.on('mouse:move', (opt) => {
   // 消しゴムドラッグ中は連続削除 (スナップマーカーは出さない)
   if (state.tool === 'eraser') {
     hideSnapMarker();
-    if (state.isErasing) eraseAt(canvas.getPointer(opt.e), true);
+    if (state.isErasingRegion && state.eraseRect) {
+      const p = canvas.getPointer(opt.e);
+      const s = state.eraseRegionStart;
+      state.eraseRect.set({
+        left: Math.min(s.x, p.x), top: Math.min(s.y, p.y),
+        width: Math.abs(p.x - s.x), height: Math.abs(p.y - s.y)
+      });
+      canvas.bringToFront(state.eraseRect);
+      canvas.renderAll();
+    } else if (state.isErasing) {
+      eraseAt(canvas.getPointer(opt.e), true);
+    }
     return;
   }
   if (state.tool === 'trim') {
@@ -1770,6 +1845,10 @@ canvas.on('mouse:move', (opt) => {
     canvas.remove(state.tempObject);
     state.tempObject = createDimensionLine(state.startPoint, endPt);
     canvas.add(state.tempObject);
+  } else if (state.tool === 'leader') {
+    if (state.tempObject) canvas.remove(state.tempObject);
+    state.tempObject = createLeaderLine(state.leaderTip, endPt, {preview:true});
+    canvas.add(state.tempObject);
   } else if (state.tool === 'rebar') {
     canvas.remove(state.tempObject);
     state.tempObject = createRebar(state.startPoint, endPt);
@@ -1779,7 +1858,7 @@ canvas.on('mouse:move', (opt) => {
     if (state.dotPreview) state.dotPreview.forEach(d => canvas.remove(d));
     state.dotPreview = [];
     if (state.tempObject) { canvas.remove(state.tempObject); state.tempObject = null; }
-    const pts = dotRowPoints(state.dotStart, endPt);
+    const pts = applyDotOffset(dotRowPoints(state.dotStart, endPt), state.dotStart, endPt);
     pts.forEach(p => { const d = createRebarDot(p); canvas.add(d); state.dotPreview.push(d); });
   } else if (state.tool === 'hatch' && state.tempObject) {
     state.tempObject.set({
@@ -1797,6 +1876,37 @@ canvas.on('mouse:up', (opt) => {
   if (state.isPanning) {
     state.isPanning = false;
     canvas.defaultCursor = state.spacePressed ? 'grab' : 'default';
+    return;
+  }
+
+  // 消しゴム範囲消去 確定
+  if (state.tool === 'eraser' && state.isErasingRegion) {
+    state.isErasingRegion = false;
+    const rect = state.eraseRect;
+    if (rect) {
+      const rx1 = rect.left, ry1 = rect.top, rx2 = rect.left+rect.width, ry2 = rect.top+rect.height;
+      canvas.remove(rect); state.eraseRect = null;
+      // ほぼ動いてない=単発クリック扱いで1個消す
+      if (Math.abs(rect.width) < 3 && Math.abs(rect.height) < 3) {
+        eraseAt({x:rx1, y:ry1});
+        return;
+      }
+      const contain = document.getElementById('eraser-contain').checked;
+      const targets = [];
+      canvas.forEachObject(o => {
+        if (o._isGrid || o._isFrame || o._isSnapMarker) return;
+        const lay = state.layers[o._layer ?? 0];
+        if (lay && lay.locked) return;
+        const b = o.getBoundingRect(true, true);
+        const fullyIn = b.left>=rx1 && b.top>=ry1 && b.left+b.width<=rx2 && b.top+b.height<=ry2;
+        const overlaps = !(b.left>rx2 || b.left+b.width<rx1 || b.top>ry2 || b.top+b.height<ry1);
+        if (contain ? fullyIn : overlaps) targets.push(o);
+      });
+      targets.forEach(o => canvas.remove(o));
+      canvas.renderAll();
+      if (targets.length > 0) { saveHistory(); updateStats(); }
+      document.getElementById('status-mode').textContent = `モード: 消しゴム (${targets.length}個削除)`;
+    }
     return;
   }
 
@@ -1836,9 +1946,37 @@ canvas.on('mouse:up', (opt) => {
     return;
   }
   
+  // 引き出し線: プレビューを消し、文字入力 → 矢印+文字を確定
+  if (state.tool === 'leader') {
+    if (state.tempObject) { canvas.remove(state.tempObject); state.tempObject = null; }
+    const tip = state.leaderTip;
+    let textPos = canvas.getPointer(opt.e);
+    // ほぼ動いてなければ少しずらす
+    if (Math.hypot(textPos.x-tip.x, textPos.y-tip.y) < 20) { textPos = {x:tip.x+80, y:tip.y-50}; }
+    const txt = prompt('引き出し文字を入力:', '注記');
+    if (txt) {
+      const color = document.getElementById('stroke-color').value || '#000';
+      const leader = createLeaderLine(tip, textPos, {color});
+      canvas.add(leader);
+      // 文字位置側に文字を配置(線の向きで左右寄せを調整)
+      const alignRight = textPos.x < tip.x;
+      const t = new fabric.IText(txt, {
+        left: textPos.x + (alignRight ? -4 : 4),
+        top: textPos.y - 18,
+        originX: alignRight ? 'right' : 'left',
+        fontSize: 16, fill: color, fontFamily:'Yu Gothic, sans-serif',
+        _layer: state.activeLayer
+      });
+      canvas.add(t);
+      saveHistory(); updateStats();
+    }
+    hideSnapMarker();
+    state.isDrawing = false;
+    setTool('select');
+    return;
+  }
+  
   if (state.tempObject) {
-    state.tempObject.setCoords();
-    // 完成後は選択可能に
     state.tempObject.selectable = (state.tool === 'select');
     state.tempObject.evented = true;
     state.tempObject = null;
@@ -1889,6 +2027,39 @@ canvas.on('mouse:wheel', (opt) => {
   scheduleGridRedraw();
 });
 
+// 中ボタン(ホイール押し込み)ドラッグでパン (v0.8 ④)
+(function setupMiddlePan(){
+  const el = canvas.upperCanvasEl;
+  let panning = false, last = null;
+  el.addEventListener('mousedown', (e) => {
+    if (e.button === 1) {       // 中ボタン
+      panning = true;
+      last = {x: e.clientX, y: e.clientY};
+      canvas.defaultCursor = 'grabbing';
+      canvas.setCursor('grabbing');
+      e.preventDefault();
+    }
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!panning) return;
+    const dx = e.clientX - last.x, dy = e.clientY - last.y;
+    const vpt = canvas.viewportTransform;
+    vpt[4] += dx; vpt[5] += dy;
+    canvas.setViewportTransform(vpt);
+    last = {x: e.clientX, y: e.clientY};
+    scheduleGridRedraw();
+    e.preventDefault();
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 1 && panning) {
+      panning = false;
+      canvas.defaultCursor = state.spacePressed ? 'grab' : (state.tool==='select'?'default':'crosshair');
+    }
+  });
+  // 中ボタンの「自動スクロール」既定動作を抑止
+  el.addEventListener('auxclick', e => { if (e.button===1) e.preventDefault(); });
+})();
+
 // オブジェクト選択
 canvas.on('selection:created', updateSelectedProps);
 canvas.on('selection:updated', updateSelectedProps);
@@ -1903,6 +2074,29 @@ canvas.on('object:modified', () => {
 // ============================================================
 // 寸法線オブジェクト（カスタム）
 // ============================================================
+
+// 引き出し線(リーダー): 矢印付き。tip=指す点, textPos=文字位置 (v0.8 ②)
+function createLeaderLine(tip, textPos, opts) {
+  opts = opts || {};
+  const color = opts.color || document.getElementById('stroke-color').value || '#000';
+  const sw = opts.preview ? 1 : 1.2;
+  // 矢じり
+  const ang = Math.atan2(textPos.y - tip.y, textPos.x - tip.x);
+  const ah = 12;  // 矢じり長(px)
+  const a1 = ang + Math.PI - 0.4, a2 = ang + Math.PI + 0.4;
+  const parts = [
+    new fabric.Line([tip.x, tip.y, textPos.x, textPos.y], {stroke:color, strokeWidth:sw}),
+    new fabric.Line([tip.x, tip.y, tip.x+Math.cos(a1)*ah, tip.y+Math.sin(a1)*ah], {stroke:color, strokeWidth:sw}),
+    new fabric.Line([tip.x, tip.y, tip.x+Math.cos(a2)*ah, tip.y+Math.sin(a2)*ah], {stroke:color, strokeWidth:sw})
+  ];
+  const g = new fabric.Group(parts, {
+    _type: opts.preview ? 'leader-preview' : 'leader',
+    _layer: state.activeLayer,
+    selectable: !opts.preview, evented: !opts.preview,
+    excludeFromExport: !!opts.preview
+  });
+  return g;
+}
 
 function createDimensionLine(start, end) {
   const len = Math.sqrt(Math.pow(end.x-start.x, 2) + Math.pow(end.y-start.y, 2));
@@ -1960,6 +2154,8 @@ function createDimensionLine(start, end) {
   const group = new fabric.Group([line, ext1, ext2, arrow1, arrow2, text], {
     _type: 'dimension',
     _length: realLen,
+    _start: {x:start.x, y:start.y},
+    _end: {x:end.x, y:end.y},
     _layer: state.activeLayer,
     selectable: state.tool === 'select'
   });
@@ -2079,6 +2275,33 @@ function dotRowPoints(start, end) {
   return pts;
 }
 
+// 横筋オフセット: 配置方向に応じて点列をずらす (v0.7)
+function applyDotOffset(pts, lineStart, lineEnd) {
+  const dirEl = document.getElementById('rebardot-offset-dir');
+  if (!dirEl) return pts;
+  const dir = dirEl.value;
+  if (dir === 'center') return pts;
+  const offMm = parseFloat(document.getElementById('rebardot-offset').value) || 0;
+  if (offMm === 0) return pts;
+  const sc = state.scale || 0.15;
+  const offPx = offMm * sc;
+  let vx = 0, vy = 0;
+  if (dir === 'up') vy = -offPx;
+  else if (dir === 'down') vy = offPx;
+  else if (dir === 'left') vx = -offPx;
+  else if (dir === 'right') vx = offPx;
+  else if (dir === 'perp+' || dir === 'perp-') {
+    // 線の法線方向
+    const dx = (lineEnd?.x ?? 0) - (lineStart?.x ?? 0);
+    const dy = (lineEnd?.y ?? 0) - (lineStart?.y ?? 0);
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy/len, ny = dx/len;
+    const sign = dir === 'perp+' ? 1 : -1;
+    vx = nx * offPx * sign; vy = ny * offPx * sign;
+  }
+  return pts.map(p => ({x: p.x + vx, y: p.y + vy}));
+}
+
 // 横筋・鉄筋断面の丸 (v0.5)
 function createRebarDot(center) {
   const dia = document.getElementById('rebardot-dia').value;
@@ -2115,7 +2338,7 @@ function saveHistory() {
   if (state.isLoadingHistory) return;
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
-  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch']));
+  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']));
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex++;
@@ -2173,7 +2396,7 @@ function duplicateSelected() {
     canvas.renderAll();
     saveHistory();
     updateStats();
-  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch']);
+  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']);
 }
 
 function selectAll() {
@@ -2200,6 +2423,31 @@ function zoom(factor) {
 }
 
 function zoomFit() {
+  // 図枠があれば図枠を画面中央にフィット、なければ内容にフィット、無ければ等倍
+  if (paperFrame && paperFrame.rect) {
+    const r = paperFrame.rect;
+    const margin = 50;
+    const z = Math.min((canvas.getWidth()-margin*2)/r.width, (canvas.getHeight()-margin*2)/r.height);
+    const cx = r.left + r.width/2, cy = r.top + r.height/2;
+    canvas.setViewportTransform([z,0,0,z, canvas.getWidth()/2 - cx*z, canvas.getHeight()/2 - cy*z]);
+    document.getElementById('status-zoom').textContent = Math.round(z*100)+'%';
+    drawGrid(); canvas.renderAll();
+    return;
+  }
+  const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame && !o._isSnapMarker);
+  if (objs.length > 0) {
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    objs.forEach(o=>{const b=o.getBoundingRect(true,true);
+      minX=Math.min(minX,b.left);minY=Math.min(minY,b.top);
+      maxX=Math.max(maxX,b.left+b.width);maxY=Math.max(maxY,b.top+b.height);});
+    const w=maxX-minX, h=maxY-minY, margin=60;
+    const z = Math.min((canvas.getWidth()-margin*2)/w, (canvas.getHeight()-margin*2)/h, 5);
+    const cx=(minX+maxX)/2, cy=(minY+maxY)/2;
+    canvas.setViewportTransform([z,0,0,z, canvas.getWidth()/2 - cx*z, canvas.getHeight()/2 - cy*z]);
+    document.getElementById('status-zoom').textContent = Math.round(z*100)+'%';
+    drawGrid(); canvas.renderAll();
+    return;
+  }
   canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
   canvas.setZoom(1);
   document.getElementById('status-zoom').textContent = '100%';
@@ -2266,7 +2514,11 @@ function updateSelectedProps() {
   } else if (obj._type === 'dimension') {
     html = `
       <div class="prop-row"><label>種別</label><span>寸法線</span></div>
-      <div class="prop-row"><label>長さ</label><span>${obj._length} mm</span></div>
+      <div class="prop-row"><label>寸法値(mm) <span class="help-tip" data-tip="この値を変えると寸法線の長さ(線)も実際に伸縮します。角度は保持されます。">?</span></label>
+        <input type="number" value="${obj._length}" onchange="updateDimLength(this.value)"></div>
+      <div class="prop-row" style="font-size:10px;color:#999;">
+        <span>※ 端点を動かすには寸法線を再描画してください</span>
+      </div>
     `;
   } else {
     const type = obj.type || 'object';
@@ -2295,7 +2547,25 @@ function updateSelectedProps() {
     html += `<div class="prop-row"><label>色</label><input type="color" value="${obj.stroke || '#000000'}" onchange="updateObjProp('stroke', this.value)"></div>`;
     html += `<div class="prop-row"><label>太さ</label><input type="number" value="${obj.strokeWidth || 1}" onchange="updateObjProp('strokeWidth', this.value)"></div>`;
   }
-  
+
+  // 3Dパース設定 (rebar/dimension以外。線・折れ線・図形すべて対象) v0.7
+  if (obj._type !== 'rebar' && obj._type !== 'dimension' && obj.type !== 'activeSelection') {
+    const kind = obj._kind || 'auto';
+    const depthVal = obj._depth || '';
+    html += `<div class="prop-row" style="margin-top:6px; border-top:1px solid #444; padding-top:6px;"><label style="color:#fdc674;">3D種別 <span class="help-tip" data-tip="この図形がパースで何になるか。擁壁/U字溝/階段/家/地盤など。種別ごとに色分け・形状で立体化されます。">?</span></label>
+      <select onchange="updateObjProp('_kind', this.value)">
+        <option value="auto" ${kind==='auto'?'selected':''}>自動(汎用)</option>
+        <option value="wall" ${kind==='wall'?'selected':''}>擁壁</option>
+        <option value="uditch" ${kind==='uditch'?'selected':''}>U字溝</option>
+        <option value="stairs" ${kind==='stairs'?'selected':''}>階段</option>
+        <option value="house" ${kind==='house'?'selected':''}>家・建物</option>
+        <option value="ground" ${kind==='ground'?'selected':''}>地盤・地面</option>
+        <option value="rebar3d" ${kind==='rebar3d'?'selected':''}>鉄筋</option>
+      </select></div>`;
+    html += `<div class="prop-row"><label>個別奥行(mm) <span class="help-tip" data-tip="この図形だけの押し出し奥行き。空欄ならパース画面の共通値を使います。">?</span></label>
+      <input type="number" placeholder="共通値" value="${depthVal}" onchange="updateObjProp('_depth', this.value)"></div>`;
+  }
+
   propDiv.innerHTML = html;
 }
 
@@ -2354,10 +2624,43 @@ function setRebarStyle(key, val) {
   updateSelectedProps();
 }
 
+// 寸法線の寸法値を変更 → 線も実際に伸縮 (v0.8 ①)
+function updateDimLength(val) {
+  const obj = canvas.getActiveObject();
+  if (!obj || obj._type !== 'dimension') return;
+  const newLen = parseFloat(val);
+  if (isNaN(newLen) || newLen <= 0) return;
+  let s = obj._start, e = obj._end;
+  if (!s || !e) return;
+  // グループが移動/拡縮されている場合、現在のbbox中心と元の中心の差を反映
+  const origCx = (s.x + e.x)/2, origCy = (s.y + e.y)/2;
+  const cur = obj.getCenterPoint();
+  const dx = cur.x - origCx, dy = cur.y - origCy;
+  const scaleX = obj.scaleX || 1, scaleY = obj.scaleY || 1;
+  // 現在の始点(移動分を加算)
+  const s2 = { x: s.x + dx, y: s.y + dy };
+  const ang = Math.atan2((e.y - s.y), (e.x - s.x));
+  const newEnd = { x: s2.x + Math.cos(ang) * newLen, y: s2.y + Math.sin(ang) * newLen };
+  canvas.remove(obj);
+  const dim = createDimensionLine(s2, newEnd);
+  dim.selectable = true; dim.evented = true;
+  canvas.add(dim);
+  canvas.setActiveObject(dim);
+  canvas.renderAll();
+  saveHistory(); updateStats();
+  updateSelectedProps();
+}
+
 function updateObjProp(key, val) {
   const obj = canvas.getActiveObject();
   if (!obj) return;
-  obj.set(key, isNaN(val) ? val : parseFloat(val));
+  if (key === '_kind') {
+    obj._kind = val;
+  } else if (key === '_depth') {
+    obj._depth = (val === '' || val == null) ? null : parseFloat(val);
+  } else {
+    obj.set(key, isNaN(val) ? val : parseFloat(val));
+  }
   obj.setCoords();
   canvas.renderAll();
   saveHistory();
@@ -2489,6 +2792,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'e') setTool('eraser');
   else if (e.key === 'x') setTool('trim');
   else if (e.key === 'o') setTool('rebardot');
+  else if (e.key === 'g') setTool('leader');
   else if (e.key === 'f') zoomFit();
 });
 
@@ -2518,10 +2822,10 @@ function newDrawing() {
 function saveJSON() {
   const data = {
     type: 'yoheki-cad',
-    version: '0.6',
+    version: '0.8',
     created: new Date().toISOString(),
     layers: state.layers,
-    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch'])
+    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end'])
   };
   // グリッドは除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame);
@@ -3288,8 +3592,11 @@ function applyHatchToSelected() {
   if (!(obj.type === 'rect' || obj.type === 'polygon')) {
     alert('矩形か多角形を選択してください(線・折れ線は塗れません)'); return;
   }
+  const hop = (parseFloat(document.getElementById('hatch-opacity').value)||100)/100;
   obj.set('fill', makeHatchPattern());
+  obj.set('opacity', hop);
   obj._hatch = hatchSelected;
+  obj._hatchOpacity = hop;
   canvas.renderAll();
   saveHistory();
   closeModal('modal-hatch');
@@ -3470,7 +3777,7 @@ function zoomFitObjects(objs) {
 //   localStorage保存 + ファイル書出/読込。配置時に縮尺指定。
 // ============================================================
 const PARTS_KEY = 'yoheki-cad-parts';
-const PART_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_layer','_role','_pitch','_customColor','_customWidth','_hatch'];
+const PART_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end'];
 
 function loadPartsStore() {
   try { return JSON.parse(localStorage.getItem(PARTS_KEY)) || []; }
@@ -3717,97 +4024,157 @@ function perspSourceObjects() {
   } else {
     objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame && !o._isSnapMarker);
   }
-  // 立体化に使えるのは閉じた形状(polygon/rect)中心。線・テキストは無視。
-  return objs.filter(o => o.type==='polygon' || o.type==='rect' || o.type==='polyline');
+  // 閉形状(polygon/rect)に加え、線・折れ線(line/polyline)も立体化対象に (v0.7 ⑤)
+  return objs.filter(o =>
+    o.type==='polygon' || o.type==='rect' || o.type==='polyline' || o.type==='line');
 }
 
-// fabricオブジェクト → ワールド頂点配列(mm単位)
+// fabricオブジェクト → ワールド頂点配列(mm単位) + 閉じているか
 function fabricObjToMMPoints(obj) {
   const sc = state.scale || 0.15;
   let pts = [];
+  let closed = false;
   if (obj.type === 'rect') {
     const x=obj.left, y=obj.top, w=obj.width*(obj.scaleX||1), h=obj.height*(obj.scaleY||1);
     pts=[{x:x,y:y},{x:x+w,y:y},{x:x+w,y:y+h},{x:x,y:y+h}];
+    closed = true;
+  } else if (obj.type === 'line') {
+    pts = [{x:obj.x1, y:obj.y1}, {x:obj.x2, y:obj.y2}];
+    // lineはtransform適用
+    const m = obj.calcTransformMatrix();
+    const c = obj.getCenterPoint();
+    // fabric.Lineはx1..y2がローカル。calcで変換するため頂点を再構成
+    pts = [
+      fabric.util.transformPoint({x:obj.x1-(obj.x1+obj.x2)/2, y:obj.y1-(obj.y1+obj.y2)/2}, m),
+      fabric.util.transformPoint({x:obj.x2-(obj.x1+obj.x2)/2, y:obj.y2-(obj.y1+obj.y2)/2}, m)
+    ];
   } else {
     const m = obj.calcTransformMatrix();
     pts = obj.points.map(p => fabric.util.transformPoint({x:p.x-obj.pathOffset.x, y:p.y-obj.pathOffset.y}, m));
+    closed = (obj.type === 'polygon');
+    // 始点と終点がほぼ一致なら閉じているとみなす
+    if (!closed && pts.length>2) {
+      const a=pts[0], b=pts[pts.length-1];
+      if (Math.hypot(a.x-b.x, a.y-b.y) < 2) closed = true;
+    }
   }
-  // px → mm、Yは下が正なので3Dでは上下反転(画面の上を+Yに)
-  return pts.map(p => ({x: p.x/sc, y: -p.y/sc}));
+  // px → mm、Yは下が正なので3Dでは上下反転
+  return {pts: pts.map(p => ({x: p.x/sc, y: -p.y/sc})), closed};
 }
+
+// 開いた折れ線を「厚みのある帯(リボン)」の閉ポリゴンに変換 (コの字等を立体化) v0.7
+function openPathToRibbon(mmPts, thicknessMm) {
+  const t = (thicknessMm || 150) / 2;
+  // 各点の法線方向に±tずらした2本の縁を作り、片側→逆側で閉じる
+  const left = [], right = [];
+  for (let i=0;i<mmPts.length;i++){
+    const prev = mmPts[i-1] || mmPts[i];
+    const next = mmPts[i+1] || mmPts[i];
+    let dx = next.x - prev.x, dy = next.y - prev.y;
+    const len = Math.hypot(dx,dy) || 1; dx/=len; dy/=len;
+    const nx = -dy, ny = dx;  // 法線
+    left.push({x: mmPts[i].x + nx*t, y: mmPts[i].y + ny*t});
+    right.push({x: mmPts[i].x - nx*t, y: mmPts[i].y - ny*t});
+  }
+  return left.concat(right.reverse());
+}
+
+// 種別ごとの色
+const KIND_COLOR = {
+  auto: 0xcfcabd, wall: 0xcfcabd, uditch: 0xb8c4cc,
+  stairs: 0xd8c8a8, house: 0xe0d3b8, ground: 0x9caf88, rebar3d: 0xcc3333
+};
+const KIND_LABEL = {auto:'汎用', wall:'擁壁', uditch:'U字溝', stairs:'階段', house:'家', ground:'地盤', rebar3d:'鉄筋'};
 
 function rebuildPerspective() {
   if (!perspState.scene) return;
-  // 既存ジオメトリ削除
   if (perspState.group) { perspState.scene.remove(perspState.group); }
   const group = new THREE.Group();
   perspState.group = group;
 
   const mode = document.getElementById('persp-mode').value;
-  const depth = parseFloat(document.getElementById('persp-depth').value) || 3000;
+  const globalDepth = parseFloat(document.getElementById('persp-depth').value) || 3000;
   const srcs = perspSourceObjects();
-
-  const concrete = new THREE.MeshLambertMaterial({color:0xcfcabd, side:THREE.DoubleSide});
-  const edgeMat = new THREE.LineBasicMaterial({color:0x333333});
+  const edgeMat = new THREE.LineBasicMaterial({color:0x222222});
 
   let allPts = [];
+  let minZ = 0, maxZ = 0;
+  const kindCount = {};
 
   srcs.forEach(obj => {
-    const mm = fabricObjToMMPoints(obj);
-    if (mm.length < 3) return;
-    allPts = allPts.concat(mm);
+    const {pts:mm, closed} = fabricObjToMMPoints(obj);
+    if (mm.length < 2) return;
+    const kind = obj._kind || 'auto';
+    kindCount[kind] = (kindCount[kind]||0)+1;
+    const depth = (obj._depth && obj._depth>0) ? obj._depth : globalDepth;
+    const color = KIND_COLOR[kind] || 0xcfcabd;
+    const mat = new THREE.MeshLambertMaterial({color, side:THREE.DoubleSide});
+
+    // 形状(Shape)を作る: 閉じていればそのまま、開いていれば帯(リボン)化
+    let shapePts;
+    if (closed && mm.length >= 3) {
+      shapePts = mm;
+    } else {
+      // 開いた線/折れ線 → 厚み150mmの帯にして立体化(コの字などに対応) ⑤
+      const thick = (kind==='wall'?200 : kind==='uditch'?150 : 150);
+      shapePts = openPathToRibbon(mm, thick);
+    }
+    allPts = allPts.concat(shapePts);
 
     const shape = new THREE.Shape();
-    shape.moveTo(mm[0].x, mm[0].y);
-    for (let i=1;i<mm.length;i++) shape.lineTo(mm[i].x, mm[i].y);
+    shape.moveTo(shapePts[0].x, shapePts[0].y);
+    for (let i=1;i<shapePts.length;i++) shape.lineTo(shapePts[i].x, shapePts[i].y);
     shape.closePath();
 
+    let geo, mesh;
     if (mode === 'extrude') {
-      // 断面を奥行き(Z)方向に押し出し
-      const geo = new THREE.ExtrudeGeometry(shape, {depth: depth, bevelEnabled:false});
-      const mesh = new THREE.Mesh(geo, concrete);
+      // 断面を奥行きZへ押し出し。階段は段差を付ける簡易処理
+      if (kind === 'stairs') {
+        mesh = buildStairs(shapePts, depth, mat); 
+      } else {
+        geo = new THREE.ExtrudeGeometry(shape, {depth, bevelEnabled:false});
+        mesh = new THREE.Mesh(geo, mat);
+      }
       group.add(mesh);
-      const eg = new THREE.EdgesGeometry(geo);
-      group.add(new THREE.LineSegments(eg, edgeMat));
+      if (geo) group.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
+      minZ = Math.min(minZ, 0); maxZ = Math.max(maxZ, depth);
     } else {
-      // 平面立ち上げ: 図形を地面(XZ)に寝かせ、各辺を高さdepthの壁にする
-      // ここでは図形そのものを薄板で立てる簡易版: 図形を垂直(XY)に置き厚みを与える
-      const geo = new THREE.ExtrudeGeometry(shape, {depth: 100, bevelEnabled:false});
-      const mesh = new THREE.Mesh(geo, concrete);
-      // 寝かせる: XY平面の図形をXZ平面へ(X軸まわり-90°)
+      // 平面立ち上げ: 図形を地面(XZ)へ寝かせ厚みを与える(家・地盤向き)
+      const th = (kind==='house'? depth : 100);
+      geo = new THREE.ExtrudeGeometry(shape, {depth: th, bevelEnabled:false});
+      mesh = new THREE.Mesh(geo, mat);
       mesh.rotation.x = -Math.PI/2;
       group.add(mesh);
-      const eg = new THREE.EdgesGeometry(geo);
-      const ls = new THREE.LineSegments(eg, edgeMat); ls.rotation.x = -Math.PI/2;
-      group.add(ls);
+      const ls = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
+      ls.rotation.x = -Math.PI/2; group.add(ls);
     }
   });
 
+  // 情報表示(種別の内訳)
   if (allPts.length === 0) {
-    document.getElementById('persp-info').textContent = '立体化できる図形(多角形/矩形)がありません。断面ポリゴンを選択してから開いてください。';
-  } else {
     document.getElementById('persp-info').textContent =
-      `対象 ${srcs.length}個を${mode==='extrude'?'奥行き押し出し':'平面立ち上げ'}で立体化。ドラッグで回転・ホイールでズーム。`;
+      '立体化できる図形がありません。断面の多角形・矩形・折れ線・直線を描いてから開いてください。';
+  } else {
+    const breakdown = Object.keys(kindCount).map(k => `${KIND_LABEL[k]||k}×${kindCount[k]}`).join(' / ');
+    document.getElementById('persp-info').textContent =
+      `対象 ${srcs.length}個 (${breakdown}) を${mode==='extrude'?'奥行き押し出し':'平面立ち上げ'}。各図形の種別・個別奥行は右パネルで設定。ドラッグ回転・ホイールズーム。`;
   }
 
   // 中心と大きさ
   let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
   allPts.forEach(p=>{minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y);});
   if (allPts.length===0){minX=0;maxX=1000;minY=0;maxY=1000;}
-  const cx=(minX+maxX)/2, cy=(minY+maxY)/2, cz= (mode==='extrude'? depth/2 : 50);
-  const sizeX=maxX-minX, sizeY=maxY-minY, span=Math.max(sizeX,sizeY,depth,1000);
+  const cx=(minX+maxX)/2, cy=(minY+maxY)/2, cz=(minZ+maxZ)/2;
+  const span=Math.max(maxX-minX, maxY-minY, maxZ-minZ, 1000);
 
-  // グループを原点中心へ
-  group.position.set(-cx, -cy, (mode==='extrude'? -depth/2 : 0));
+  group.position.set(-cx, -cy, (mode==='extrude'? -cz : 0));
 
   // 地面グリッド
   if (document.getElementById('persp-ground').checked) {
     const grid = new THREE.GridHelper(span*3, 30, 0x444444, 0x2a2a2a);
-    grid.position.y = mode==='extrude' ? minY - cy - 10 : -5;
-    perspState.scene.add(grid);
-    // 既存gridの重複防止のためgroupとは別管理 → 毎回addだが下でscene再構築しないのでremove
+    grid.position.y = minY - cy - 10;
     if (perspState._grid) perspState.scene.remove(perspState._grid);
-    perspState._grid = grid;
+    perspState.scene.add(grid); perspState._grid = grid;
   } else if (perspState._grid) {
     perspState.scene.remove(perspState._grid); perspState._grid=null;
   }
@@ -3815,9 +4182,22 @@ function rebuildPerspective() {
   perspState.scene.add(group);
   perspState.target = new THREE.Vector3(0,0,0);
   if (!perspState.dist) perspState.dist = span * 2.2;
-
   if (!perspState.raf) animatePerspective();
 }
+
+// 階段: プロファイルを押し出した上に段板を重ねる簡易表現
+function buildStairs(shapePts, depth, mat) {
+  const g = new THREE.Group();
+  const shape = new THREE.Shape();
+  shape.moveTo(shapePts[0].x, shapePts[0].y);
+  for (let i=1;i<shapePts.length;i++) shape.lineTo(shapePts[i].x, shapePts[i].y);
+  shape.closePath();
+  const geo = new THREE.ExtrudeGeometry(shape, {depth, bevelEnabled:false});
+  g.add(new THREE.Mesh(geo, mat));
+  g.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:0x222222})));
+  return g;
+}
+
 
 function animatePerspective() {
   perspState.raf = requestAnimationFrame(animatePerspective);
