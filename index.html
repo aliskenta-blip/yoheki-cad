@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.9.1 (寸法の引き出し)</title>
+<title>yoheki-cad v0.9.4 (寸法ドラッグ引き出し・描画高速化)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.9.1 (寸法の引き出し)</span>
+  <span class="ver">v0.9.4 (寸法ドラッグ引き出し・描画高速化)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -1761,7 +1761,17 @@ canvas.on('mouse:down', (opt) => {
     return;
   }
   
-  if (state.tool === 'select') return;
+  if (state.tool === 'select') {
+    // 寸法線の上でドラッグ → 数字(引き出し)をドラッグ
+    const tgt = canvas.findTarget(opt.e);
+    if (tgt && tgt._type === 'dimension') {
+      tgt.lockMovementX = true; tgt.lockMovementY = true;
+      canvas.setActiveObject(tgt);
+      state.dimDrag = tgt;
+      state.dimDragMoved = false;
+    }
+    return;
+  }
 
   // 消しゴム / 節間消し (v0.3.1 / 範囲消去 v0.7)
   if (state.tool === 'eraser') {
@@ -1877,6 +1887,15 @@ canvas.on('mouse:down', (opt) => {
 
 canvas.on('mouse:move', (opt) => {
   const e = opt.e;
+  // 寸法の数字(引き出し)ドラッグ中
+  if (state.dimDrag) {
+    const dim = state.dimDrag;
+    const p = canvas.getPointer(opt.e);
+    const mid = { x:(dim._start.x+dim._end.x)/2, y:(dim._start.y+dim._end.y)/2 };
+    state.dimDragMoved = true;
+    liveUpdateDimLeader(dim, { x: p.x - mid.x, y: p.y - mid.y });
+    return;
+  }
   let pt = canvas.getPointer(opt.e);
   pt = snapPoint(pt);
   
@@ -1975,6 +1994,13 @@ canvas.on('mouse:move', (opt) => {
 });
 
 canvas.on('mouse:up', (opt) => {
+  // 寸法の数字ドラッグ終了
+  if (state.dimDrag) {
+    const moved = state.dimDragMoved;
+    state.dimDrag = null; state.dimDragMoved = false;
+    if (moved) { saveHistory(); updateStats(); }
+    return;
+  }
   if (state.isPanning) {
     state.isPanning = false;
     canvas.defaultCursor = state.spacePressed ? 'grab' : 'default';
@@ -2290,7 +2316,10 @@ function createDimensionLine(start, end, opts) {
     _start: {x:start.x, y:start.y},
     _end: {x:end.x, y:end.y},
     _layer: state.activeLayer,
-    selectable: state.tool === 'select'
+    selectable: state.tool === 'select',
+    lockMovementX: true, lockMovementY: true,
+    lockScalingX: true, lockScalingY: true, lockRotation: true,
+    hasControls: false
   });
   
   return group;
@@ -2818,6 +2847,19 @@ function rebuildDimension(ov) {
   dim.selectable = true; dim.evented = true;
   canvas.add(dim); canvas.setActiveObject(dim);
   canvas.renderAll(); saveHistory(); updateStats(); updateSelectedProps();
+}
+// ドラッグ中の数字位置ライブ更新(履歴は残さず、mouse:upでまとめて保存)
+function liveUpdateDimLeader(dim, off) {
+  const s = dim._start, e = dim._end;
+  if (!s || !e) return;
+  canvas.remove(dim);
+  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off});
+  nd.selectable = true; nd.evented = true;
+  nd.lockMovementX = true; nd.lockMovementY = true;
+  canvas.add(nd);
+  canvas.setActiveObject(nd);
+  canvas.requestRenderAll();
+  state.dimDrag = nd;
 }
 function updateDimWidth(val){ const w=parseFloat(val); if(!isNaN(w)) rebuildDimension({width: Math.max(0.5, w)}); }
 function updateDimSize(val){ const s=parseFloat(val); if(!isNaN(s)) rebuildDimension({size: Math.max(6, s)}); }
