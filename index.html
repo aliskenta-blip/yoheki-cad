@@ -2244,7 +2244,7 @@ function createDimensionLine(start, end, opts) {
 
   const dimSize = opts.size != null ? opts.size : (parseFloat(document.getElementById('dim-size').value) || 14);
   const lineW = opts.width != null ? opts.width : 1;
-  const ext = 10;
+  const ext = opts.extLen != null ? opts.extLen : 10;   // 補助線(返し=足)の長さ
 
   // 寸法線本体
   const line = new fabric.Line([start.x, start.y, end.x, end.y], {
@@ -2318,6 +2318,7 @@ function createDimensionLine(start, end, opts) {
     _length: realLen,
     _dimWidth: lineW,
     _dimSize: dimSize,
+    _extLen: ext,
     _textOff: off,
     _start: {x:start.x, y:start.y},
     _end: {x:end.x, y:end.y},
@@ -2506,7 +2507,7 @@ function saveHistory() {
   if (state.isLoadingHistory) return;
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
-  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']));
+  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']));
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex++;
@@ -2565,7 +2566,7 @@ function duplicateSelected() {
     canvas.renderAll();
     saveHistory();
     updateStats();
-  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']);
+  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']);
 }
 
 function selectAll() {
@@ -2689,9 +2690,11 @@ function updateSelectedProps() {
         <input type="number" min="0.5" max="10" step="0.5" value="${obj._dimWidth || 1}" onchange="updateDimWidth(this.value)"></div>
       <div class="prop-row"><label>文字サイズ</label>
         <input type="number" min="6" max="60" step="1" value="${obj._dimSize || 14}" onchange="updateDimSize(this.value)"></div>
-      <div class="prop-row"><label>引き出し長さ <span class="help-tip" data-tip="数字を寸法線から引き出す足の長さ。0で線の上に戻ります。">?</span></label>
+      <div class="prop-row"><label>補助線の長さ <span class="help-tip" data-tip="端の返し線(足)の長さ。寸法線の両端から上下に伸びる補助線です。">?</span></label>
+        <input type="number" min="0" max="200" step="1" value="${Math.round(obj._extLen != null ? obj._extLen : 10)}" onchange="updateDimExt(this.value)"></div>
+      <div class="prop-row"><label>数字の引き出し長さ <span class="help-tip" data-tip="数字を寸法線から引き出す長さ。0で線の上に戻ります。ドラッグでも動かせます。">?</span></label>
         <input type="number" min="0" max="3000" step="2" value="${Math.round(Math.hypot((obj._textOff||{x:0,y:0}).x,(obj._textOff||{x:0,y:0}).y))}" onchange="updateDimLeader('len', this.value)"></div>
-      <div class="prop-row"><label>引き出し角度 <span class="help-tip" data-tip="引き出す向き(度)。90=上、0=右、180=左、-90=下。斜めにも引けます。">?</span></label>
+      <div class="prop-row"><label>数字の引き出し角度 <span class="help-tip" data-tip="数字を引き出す向き(度)。90=上、0=右、180=左、-90=下。斜めにも引けます。">?</span></label>
         <input type="number" step="5" value="${Math.round(Math.atan2(-(obj._textOff||{x:0,y:0}).y,(obj._textOff||{x:0,y:0}).x)*180/Math.PI)}" onchange="updateDimLeader('ang', this.value)"></div>
       <div class="prop-row" style="font-size:10px;color:#999;">
         <span>※ 端点を動かすには寸法線を再描画してください</span>
@@ -2815,17 +2818,12 @@ function updateDimLength(val) {
   if (isNaN(newLen) || newLen <= 0) return;
   let s = obj._start, e = obj._end;
   if (!s || !e) return;
-  // グループが移動/拡縮されている場合、現在のbbox中心と元の中心の差を反映
-  const origCx = (s.x + e.x)/2, origCy = (s.y + e.y)/2;
-  const cur = obj.getCenterPoint();
-  const dx = cur.x - origCx, dy = cur.y - origCy;
-  const scaleX = obj.scaleX || 1, scaleY = obj.scaleY || 1;
-  // 現在の始点(移動分を加算)
-  const s2 = { x: s.x + dx, y: s.y + dy };
+  // 寸法はロック済みなので _start をそのまま起点にする
+  const s2 = { x: s.x, y: s.y };
   const ang = Math.atan2((e.y - s.y), (e.x - s.x));
   const newEnd = { x: s2.x + Math.cos(ang) * newLen, y: s2.y + Math.sin(ang) * newLen };
   canvas.remove(obj);
-  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize, textOff: obj._textOff});
+  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize, textOff: obj._textOff, extLen: obj._extLen});
   dim.selectable = true; dim.evented = true;
   canvas.add(dim);
   canvas.setActiveObject(dim);
@@ -2840,14 +2838,13 @@ function rebuildDimension(ov) {
   if (!obj || obj._type !== 'dimension') return;
   const s = obj._start, e = obj._end;
   if (!s || !e) return;
-  const cur = obj.getCenterPoint();
-  const origCx = (s.x+e.x)/2, origCy = (s.y+e.y)/2;
-  const dx = cur.x-origCx, dy = cur.y-origCy;
-  const s2 = {x:s.x+dx, y:s.y+dy}, e2 = {x:e.x+dx, y:e.y+dy};
+  // 寸法はロック済み(全体移動しない)なので、_start/_end をそのまま使う(中心ずれ補正は不要)
+  const s2 = {x:s.x, y:s.y}, e2 = {x:e.x, y:e.y};
   const opts = {
     width: ov.width != null ? ov.width : obj._dimWidth,
     size:  ov.size  != null ? ov.size  : obj._dimSize,
-    textOff: ov.textOff != null ? ov.textOff : obj._textOff
+    textOff: ov.textOff != null ? ov.textOff : obj._textOff,
+    extLen: ov.extLen != null ? ov.extLen : obj._extLen
   };
   canvas.remove(obj);
   const dim = createDimensionLine(s2, e2, opts);
@@ -2860,7 +2857,7 @@ function liveUpdateDimLeader(dim, off) {
   const s = dim._start, e = dim._end;
   if (!s || !e) return;
   canvas.remove(dim);
-  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off});
+  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off, extLen: dim._extLen});
   nd.selectable = true; nd.evented = true;
   nd.lockMovementX = true; nd.lockMovementY = true;
   canvas.add(nd);
@@ -2870,6 +2867,7 @@ function liveUpdateDimLeader(dim, off) {
 }
 function updateDimWidth(val){ const w=parseFloat(val); if(!isNaN(w)) rebuildDimension({width: Math.max(0.5, w)}); }
 function updateDimSize(val){ const s=parseFloat(val); if(!isNaN(s)) rebuildDimension({size: Math.max(6, s)}); }
+function updateDimExt(val){ const x=parseFloat(val); if(!isNaN(x)) rebuildDimension({extLen: Math.max(0, x)}); }
 // 数字の引き出し(足): 長さ/角度のどちらかを変更してオフセットを作り直す
 function updateDimLeader(which, val){
   const obj = canvas.getActiveObject();
@@ -3066,7 +3064,7 @@ function saveJSON() {
     version: '0.8',
     created: new Date().toISOString(),
     layers: state.layers,
-    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end'])
+    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end'])
   };
   // グリッドは除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame);
