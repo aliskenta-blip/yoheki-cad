@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.10.2 (グリッド表示修正2)</title>
+<title>yoheki-cad v0.11 (寸法の端点ドラッグ・吸着)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.10.2 (グリッド表示修正2)</span>
+  <span class="ver">v0.11 (寸法の端点ドラッグ・吸着)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -1365,10 +1365,10 @@ function snapTolWorld() {
 }
 
 // メインのオブジェクトスナップ判定
-function objectSnap(pt) {
+function objectSnap(pt, force) {
   if (!document.getElementById('osnap').checked) return null;
-  // 描画系ツール時のみ有効 (選択・移動中は無効)
-  if (state.tool === 'select' || state.tool === 'freehand') return null;
+  // 描画系ツール時のみ有効 (選択・移動中は無効)。force時は選択モードでも有効。
+  if (!force && (state.tool === 'select' || state.tool === 'freehand')) return null;
   const tol = snapTolWorld();
   const {endpoints, midpoints, allSegs} = collectSnapCandidates();
   let best = null, bestD = tol, bestType = null, bestPrio = 99;
@@ -1429,6 +1429,21 @@ function hideSnapMarker() {
 }
 
 // スナップ統合: オブジェクトスナップ優先、なければグリッド
+// 寸法端点ドラッグ用: 選択モードでも図形へ吸着(force)。
+function snapForHandle(pt) {
+  const os = objectSnap(pt, true);
+  if (os) { lastSnapInfo = os; return {x: os.x, y: os.y}; }
+  lastSnapInfo = null;
+  const gs = document.getElementById('grid-snap');
+  if (state.snapToGrid && gs && gs.checked) {
+    const divEl = document.getElementById('snap-div');
+    const div = divEl ? parseFloat(divEl.value) : 1;
+    const step = state.gridSize / (div || 1);
+    return { x: Math.round(pt.x/step)*step, y: Math.round(pt.y/step)*step };
+  }
+  return pt;
+}
+
 function snapPoint(pt) {
   const osnap = objectSnap(pt);
   if (osnap) {
@@ -1768,12 +1783,20 @@ canvas.on('mouse:down', (opt) => {
   }
   
   if (state.tool === 'select') {
-    // 寸法線の上でドラッグ → 数字(引き出し)をドラッグ
+    // 寸法線の上でドラッグ → 端点に近ければ端点を、それ以外は数字(引き出し)を動かす
     const tgt = canvas.findTarget(opt.e);
     if (tgt && tgt._type === 'dimension') {
       tgt.lockMovementX = true; tgt.lockMovementY = true;
       canvas.setActiveObject(tgt);
+      const p = canvas.getPointer(opt.e);
+      const tol = 12 / canvas.getZoom();
+      const dS = Math.hypot(p.x - tgt._start.x, p.y - tgt._start.y);
+      const dE = Math.hypot(p.x - tgt._end.x,   p.y - tgt._end.y);
+      let mode = 'text';
+      if (dS <= tol && dS <= dE) mode = 'start';
+      else if (dE <= tol) mode = 'end';
       state.dimDrag = tgt;
+      state.dimDragMode = mode;
       state.dimDragMoved = false;
     }
     return;
@@ -1893,13 +1916,21 @@ canvas.on('mouse:down', (opt) => {
 
 canvas.on('mouse:move', (opt) => {
   const e = opt.e;
-  // 寸法の数字(引き出し)ドラッグ中
+  // 寸法のドラッグ中(端点 or 数字)
   if (state.dimDrag) {
     const dim = state.dimDrag;
     const p = canvas.getPointer(opt.e);
-    const mid = { x:(dim._start.x+dim._end.x)/2, y:(dim._start.y+dim._end.y)/2 };
     state.dimDragMoved = true;
-    liveUpdateDimLeader(dim, { x: p.x - mid.x, y: p.y - mid.y });
+    if (state.dimDragMode === 'start' || state.dimDragMode === 'end') {
+      const sp = snapForHandle(p);
+      if (lastSnapInfo) showSnapMarker(lastSnapInfo); else hideSnapMarker();
+      const s = (state.dimDragMode === 'start') ? sp : dim._start;
+      const e = (state.dimDragMode === 'end')   ? sp : dim._end;
+      liveUpdateDimEndpoints(dim, s, e);
+    } else {
+      const mid = { x:(dim._start.x+dim._end.x)/2, y:(dim._start.y+dim._end.y)/2 };
+      liveUpdateDimLeader(dim, { x: p.x - mid.x, y: p.y - mid.y });
+    }
     return;
   }
   let pt = canvas.getPointer(opt.e);
@@ -2000,10 +2031,11 @@ canvas.on('mouse:move', (opt) => {
 });
 
 canvas.on('mouse:up', (opt) => {
-  // 寸法の数字ドラッグ終了
+  // 寸法のドラッグ終了
   if (state.dimDrag) {
     const moved = state.dimDragMoved;
-    state.dimDrag = null; state.dimDragMoved = false;
+    state.dimDrag = null; state.dimDragMode = null; state.dimDragMoved = false;
+    hideSnapMarker();
     if (moved) { saveHistory(); updateStats(); }
     return;
   }
@@ -2697,7 +2729,7 @@ function updateSelectedProps() {
       <div class="prop-row"><label>数字の引き出し角度 <span class="help-tip" data-tip="数字を引き出す向き(度)。90=上、0=右、180=左、-90=下。斜めにも引けます。">?</span></label>
         <input type="number" step="5" value="${Math.round(Math.atan2(-(obj._textOff||{x:0,y:0}).y,(obj._textOff||{x:0,y:0}).x)*180/Math.PI)}" onchange="updateDimLeader('ang', this.value)"></div>
       <div class="prop-row" style="font-size:10px;color:#999;">
-        <span>※ 端点を動かすには寸法線を再描画してください</span>
+        <span>※ 寸法線をドラッグ：端点付近で端点移動(他図形に吸着)／それ以外で数字を引き出し</span>
       </div>
     `;
   } else {
@@ -2858,6 +2890,18 @@ function liveUpdateDimLeader(dim, off) {
   if (!s || !e) return;
   canvas.remove(dim);
   const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off, extLen: dim._extLen});
+  nd.selectable = true; nd.evented = true;
+  nd.lockMovementX = true; nd.lockMovementY = true;
+  canvas.add(nd);
+  canvas.setActiveObject(nd);
+  canvas.requestRenderAll();
+  state.dimDrag = nd;
+}
+// 端点ドラッグ中のライブ更新(履歴はmouse:upでまとめて保存)
+function liveUpdateDimEndpoints(dim, s, e) {
+  if (!s || !e) return;
+  canvas.remove(dim);
+  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: dim._textOff, extLen: dim._extLen});
   nd.selectable = true; nd.evented = true;
   nd.lockMovementX = true; nd.lockMovementY = true;
   canvas.add(nd);
