@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.14 (閉図形修正・部品削除・保安部品追加)</title>
+<title>yoheki-cad v0.16 (DXF読込・部品サムネイル)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,13 +250,14 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.14 (閉図形修正・部品削除・保安部品追加)</span>
+  <span class="ver">v0.16 (DXF読込・部品サムネイル)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
   <span class="menu-item" onclick="saveJSON()">💾 保存</span>
   <span class="menu-item" onclick="loadTemplateMenu()">📋 テンプレート</span>
   <span class="menu-item" onclick="openPartsLibrary()">🧩 部品</span>
+  <span class="menu-item" onclick="openDXFImport()">📐 DXF読込</span>
   <span class="menu-item" onclick="openCoordImport()">📍 座標取込</span>
   <span class="menu-item" onclick="openPerspective()">🧊 パース</span>
   <span class="menu-divider">|</span>
@@ -4402,6 +4403,102 @@ function loadHiddenBuiltins(){ try{ return JSON.parse(localStorage.getItem(HIDDE
 function saveHiddenBuiltins(a){ try{ localStorage.setItem(HIDDEN_BUILTIN_KEY, JSON.stringify(a)); }catch(e){} }
 function hideBuiltinPart(key){ const h=loadHiddenBuiltins(); if(!h.includes(key)){ h.push(key); saveHiddenBuiltins(h); } renderPartsList(); }
 function restoreBuiltinParts(){ saveHiddenBuiltins([]); renderPartsList(); }
+
+// ===== DXF読込 (R12/AC1009 中心: LINE/POLYLINE/CIRCLE/ARC/TEXT/INSERT+BLOCKS) =====
+function openDXFImport(){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.dxf,.DXF';
+  inp.onchange=e=>{ const f=e.target.files[0]; if(!f)return;
+    const r=new FileReader();
+    r.onload=ev=>{
+      let text;
+      try{
+        const buf=new Uint8Array(ev.target.result);
+        try{ text=new TextDecoder('shift_jis',{fatal:false}).decode(buf); }catch(_){ text=null; }
+        if(!text || text.indexOf('SECTION')<0){ text=new TextDecoder('utf-8',{fatal:false}).decode(buf); }
+      }catch(err){ alert('DXF読込エラー: '+err.message); return; }
+      try{ importDXFText(text); }catch(err){ alert('DXF解析エラー: '+(err.message||err)); }
+    };
+    r.readAsArrayBuffer(f);
+  };
+  inp.click();
+}
+function dxfTokenize(text){
+  const ls=text.split(/\r\n|\r|\n/); const t=[];
+  for(let i=0;i+1<ls.length;i+=2){ const c=parseInt(ls[i],10); if(isNaN(c))continue; t.push([c, ls[i+1]]); }
+  return t;
+}
+function parseDXF(text){
+  const toks=dxfTokenize(text); const n=toks.length; let i=0;
+  const blocks={}, entities=[]; let section=null;
+  function readEnt(type){ // i は type の次。次の 0 まで読む。POLYLINEはVERTEX/SEQEND対応
+    if(type==='POLYLINE'){ const e={type,flag:0,verts:[]};
+      while(i<n && toks[i][0]!==0){ if(toks[i][0]===70)e.flag=parseInt(toks[i][1],10)||0; i++; }
+      while(i<n && toks[i][0]===0 && toks[i][1]==='VERTEX'){ i++; let x=0,y=0;
+        while(i<n && toks[i][0]!==0){ const c=toks[i][0]; if(c===10)x=parseFloat(toks[i][1]); else if(c===20)y=parseFloat(toks[i][1]); i++; }
+        e.verts.push([x,y]); }
+      if(i<n && toks[i][0]===0 && toks[i][1]==='SEQEND'){ i++; while(i<n && toks[i][0]!==0)i++; }
+      return e; }
+    const e={type,codes:{}};
+    while(i<n && toks[i][0]!==0){ e.codes[toks[i][0]]=toks[i][1]; i++; }
+    return e;
+  }
+  while(i<n){ const c=toks[i][0], v=toks[i][1];
+    if(c===0 && v==='SECTION'){ i++; let nm=null; while(i<n && toks[i][0]!==0){ if(toks[i][0]===2)nm=toks[i][1]; i++; } section=nm; continue; }
+    if(c===0 && v==='ENDSEC'){ section=null; i++; continue; }
+    if(section==='BLOCKS'){
+      if(c===0 && v==='BLOCK'){ i++; const blk={name:null,base:[0,0],ents:[]};
+        while(i<n && toks[i][0]!==0){ const cc=toks[i][0]; if(cc===2)blk.name=toks[i][1]; else if(cc===10)blk.base[0]=parseFloat(toks[i][1]); else if(cc===20)blk.base[1]=parseFloat(toks[i][1]); i++; }
+        while(i<n && !(toks[i][0]===0 && toks[i][1]==='ENDBLK')){ if(toks[i][0]===0){ const tp=toks[i][1]; i++; blk.ents.push(readEnt(tp)); } else i++; }
+        if(blk.name)blocks[blk.name]=blk; continue;
+      } else { i++; continue; }
+    }
+    if(section==='ENTITIES'){ if(c===0){ i++; entities.push(readEnt(v)); continue; } else { i++; continue; } }
+    i++;
+  }
+  return {blocks, entities};
+}
+function dxfToPrimitives(parsed){
+  const prims=[];
+  function mk(sx,sy,rot,tx,ty){ const a=(rot||0)*Math.PI/180, cos=Math.cos(a), sin=Math.sin(a); sx=sx||1; sy=sy||1;
+    const f=(x,y)=>{ const X=x*sx,Y=y*sy; return {x:tx+X*cos-Y*sin, y:ty+X*sin+Y*cos}; }; f.scale=Math.abs(sx); f.rot=rot||0; return f; }
+  function emit(ents,tf,depth){ if(depth>8||!ents)return;
+    ents.forEach(e=>{ const cd=e.codes||{};
+      if(e.type==='LINE'){ prims.push({kind:'line', pts:[tf(+cd[10],+cd[20]),tf(+cd[11],+cd[21])]}); }
+      else if(e.type==='CIRCLE'){ const c=tf(+cd[10],+cd[20]); prims.push({kind:'circle', c, r:(+cd[40])*tf.scale}); }
+      else if(e.type==='ARC'){ const c=tf(+cd[10],+cd[20]); prims.push({kind:'arc', cx:c.x, cy:c.y, r:(+cd[40])*tf.scale, a0:(+cd[50])+(tf.rot||0), a1:(+cd[51])+(tf.rot||0)}); }
+      else if(e.type==='POLYLINE'){ const pts=(e.verts||[]).map(([x,y])=>tf(x,y)); if(pts.length>=2)prims.push({kind:'poly', pts, closed:!!((e.flag||0)&1)}); }
+      else if(e.type==='TEXT'||e.type==='MTEXT'){ const p=tf(+cd[10]||0,+cd[20]||0); if(cd[1])prims.push({kind:'text', x:p.x, y:p.y, s:cd[1], h:(+cd[40]||200)*tf.scale, rot:(+cd[50]||0)+(tf.rot||0)}); }
+      else if(e.type==='INSERT'){ const blk=parsed.blocks[cd[2]]; if(blk){ const ix=+cd[10]||0, iy=+cd[20]||0, sxv=cd[41]!=null?+cd[41]:1, syv=cd[42]!=null?+cd[42]:1, rt=+cd[50]||0;
+        const loc=mk(sxv,syv,rt,ix,iy); const comp=(x,y)=>{ const l=loc(x-blk.base[0], y-blk.base[1]); return tf(l.x,l.y); }; comp.scale=tf.scale*Math.abs(sxv); comp.rot=(tf.rot||0)+rt;
+        emit(blk.ents, comp, depth+1); } }
+    });
+  }
+  const id=(x,y)=>({x,y}); id.scale=1; id.rot=0;
+  emit(parsed.entities, id, 0);
+  return prims;
+}
+function importDXFText(text){
+  const parsed=parseDXF(text);
+  const prims=dxfToPrimitives(parsed);
+  if(!prims.length){ alert('DXFから図形を取得できませんでした（対応外要素のみの可能性）'); return; }
+  const sc=state.scale||0.15, fy=y=>-y;
+  const arcPts=(cx,cy,r,a0,a1)=>{ let s=a0*Math.PI/180,e=a1*Math.PI/180; if(e<=s)e+=2*Math.PI; const seg=Math.max(8,Math.ceil((e-s)/(Math.PI/16))); const p=[]; for(let k=0;k<=seg;k++){const a=s+(e-s)*k/seg; p.push({x:cx+r*Math.cos(a), y:cy+r*Math.sin(a)});} return p; };
+  const O={stroke:'#222',strokeWidth:1,fill:'',selectable:true,evented:true};
+  const objs=[];
+  prims.forEach(p=>{ const lay={_layer:state.activeLayer};
+    if(p.kind==='line') objs.push(new fabric.Line([p.pts[0].x*sc,fy(p.pts[0].y)*sc,p.pts[1].x*sc,fy(p.pts[1].y)*sc],{...O,...lay}));
+    else if(p.kind==='poly'){ const fp=p.pts.map(q=>({x:q.x*sc,y:fy(q.y)*sc})); objs.push(p.closed?new fabric.Polygon(fp,{...O,...lay}):new fabric.Polyline(fp,{...O,...lay})); }
+    else if(p.kind==='circle') objs.push(new fabric.Circle({left:p.c.x*sc,top:fy(p.c.y)*sc,radius:p.r*sc,originX:'center',originY:'center',...O,...lay}));
+    else if(p.kind==='arc'){ const ap=arcPts(p.cx,p.cy,p.r,p.a0,p.a1).map(q=>({x:q.x*sc,y:fy(q.y)*sc})); objs.push(new fabric.Polyline(ap,{...O,...lay})); }
+    else if(p.kind==='text'&&p.s) objs.push(new fabric.Text(String(p.s),{left:p.x*sc,top:fy(p.y)*sc,fontSize:Math.max(6,(p.h||200)*sc),fill:'#222',fontFamily:'Yu Gothic, sans-serif',angle:-(p.rot||0),originX:'left',originY:'bottom',...lay,selectable:true,evented:true}));
+  });
+  objs.forEach(o=>canvas.add(o));
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  objs.forEach(o=>{const b=o.getBoundingRect(true,true);minX=Math.min(minX,b.left);minY=Math.min(minY,b.top);maxX=Math.max(maxX,b.left+b.width);maxY=Math.max(maxY,b.top+b.height);});
+  if(isFinite(minX)){ const cw=canvas.getWidth(),ch=canvas.getHeight(),m=50; const z=Math.max(0.005,Math.min((cw-m*2)/((maxX-minX)||1),(ch-m*2)/((maxY-minY)||1))); const cx=(minX+maxX)/2,cy=(minY+maxY)/2; canvas.setViewportTransform([z,0,0,z,cw/2-cx*z,ch/2-cy*z]); const zs=document.getElementById('status-zoom'); if(zs)zs.textContent=Math.round(z*100)+'%'; }
+  canvas.discardActiveObject(); drawGrid(); canvas.renderAll(); saveHistory(); updateStats();
+  alert(`DXFを読み込みました（${objs.length}図形）。\n必要部分を選択 →「🧩部品」で部品登録できます。\n※サイズが合わない場合は選択して拡大縮小してください。`);
+}
 
 // ライブラリをファイルに書き出し
 function exportPartsLibrary() {
