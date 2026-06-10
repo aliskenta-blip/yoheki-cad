@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.9.4 (寸法ドラッグ引き出し・描画高速化)</title>
+<title>yoheki-cad v0.10 (組み込み部品: U字溝/L形側溝/階段)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.9.4 (寸法ドラッグ引き出し・描画高速化)</span>
+  <span class="ver">v0.10 (組み込み部品: U字溝/L形側溝/階段)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -4071,19 +4071,27 @@ function registerPart() {
 function renderPartsList() {
   const parts = loadPartsStore();
   const div = document.getElementById('parts-list');
-  if (parts.length === 0) {
-    div.innerHTML = '<p style="color:#888; font-size:11px;">登録された部品はありません。図形を選択して上のボタンで登録してください。</p>';
-    return;
-  }
-  let html = '';
-  parts.forEach(p => {
+  let html = '<div style="margin:2px 0 4px; font-size:11px; color:#7fbfff; font-weight:bold;">組み込み部品（標準図形）</div>';
+  BUILTIN_PARTS.forEach(p => {
     html += `<div style="display:flex; align-items:center; gap:6px; padding:6px; border-bottom:1px solid #3a3a3a;">
       <span style="flex:1; font-size:12px;"><b>${escapeHtml(p.name)}</b>
-        <span style="color:#888; font-size:10px;"> [${p.category}] ${Math.round(p.w/(p.scale||0.15))}×${Math.round(p.h/(p.scale||0.15))}mm相当</span></span>
-      <button class="btn primary" style="padding:3px 8px;" onclick="placePart('${p.id}')">配置</button>
-      <button class="btn" style="padding:3px 8px;" onclick="deletePart('${p.id}')">🗑</button>
+        <span style="color:#888; font-size:10px;"> [${p.category}] ${p.w}×${p.h}mm</span></span>
+      <button class="btn primary" style="padding:3px 8px;" onclick="placeBuiltinPart('${p.key}')">配置</button>
     </div>`;
   });
+  html += '<div style="margin:10px 0 4px; font-size:11px; color:#7fbfff; font-weight:bold;">登録部品（自分で登録）</div>';
+  if (parts.length === 0) {
+    html += '<p style="color:#888; font-size:11px;">登録された部品はありません。図形を選択して上のボタンで登録してください。</p>';
+  } else {
+    parts.forEach(p => {
+      html += `<div style="display:flex; align-items:center; gap:6px; padding:6px; border-bottom:1px solid #3a3a3a;">
+        <span style="flex:1; font-size:12px;"><b>${escapeHtml(p.name)}</b>
+          <span style="color:#888; font-size:10px;"> [${p.category}] ${Math.round(p.w/(p.scale||0.15))}×${Math.round(p.h/(p.scale||0.15))}mm相当</span></span>
+        <button class="btn primary" style="padding:3px 8px;" onclick="placePart('${p.id}')">配置</button>
+        <button class="btn" style="padding:3px 8px;" onclick="deletePart('${p.id}')">🗑</button>
+      </div>`;
+    });
+  }
   div.innerHTML = html;
 }
 
@@ -4144,6 +4152,50 @@ function placePart(id) {
     saveHistory(); updateStats();
   }, 'fabric', PART_PROPS);
 
+  closeModal('modal-parts');
+  setTool('select');
+}
+
+// ===== 組み込み部品セット(標準図形) =====
+// 形状は実寸(mm)のポリライン。配置時に現在の縮尺(state.scale)でpx化。
+const BUILTIN_PARTS = [
+  { key:'u240_sec', name:'U字溝 240 断面', category:'側溝', w:300, h:270, shapes:[
+      { pts:[[0,0],[0,270],[300,270],[300,0],[270,0],[270,240],[30,240],[30,0],[0,0]] }
+    ] },
+  { key:'u240_plan', name:'U字溝 240 平面(L=600)', category:'側溝', w:300, h:600, shapes:[
+      { pts:[[0,0],[300,0],[300,600],[0,600],[0,0]] },
+      { pts:[[30,0],[30,600]] },
+      { pts:[[270,0],[270,600]] }
+    ] },
+  { key:'lgutter_sec', name:'L形側溝 断面', category:'側溝', w:450, h:300, shapes:[
+      { pts:[[0,0],[150,0],[150,150],[450,150],[450,300],[0,300],[0,0]] }
+    ] },
+  { key:'stairs_sec', name:'階段 断面(蹴上150×踏面300×4段)', category:'階段', w:1200, h:600, shapes:[
+      { pts:[[0,0],[300,0],[300,150],[600,150],[600,300],[900,300],[900,450],[1200,450],[1200,600],[0,600],[0,0]] }
+    ] }
+];
+
+function placeBuiltinPart(key) {
+  const def = BUILTIN_PARTS.find(p => p.key === key);
+  if (!def) return;
+  const sc = state.scale || 0.15;
+  const z = canvas.getZoom(); const vpt = canvas.viewportTransform;
+  const cx = (canvas.getWidth()/2 - vpt[4]) / z;
+  const cy = (canvas.getHeight()/2 - vpt[5]) / z;
+  const ox = cx - (def.w*sc)/2, oy = cy - (def.h*sc)/2;
+  const placed = def.shapes.map(shape => {
+    const pts = shape.pts.map(p => ({x: ox + p[0]*sc, y: oy + p[1]*sc}));
+    const o = new fabric.Polyline(pts, {
+      stroke:'#222', strokeWidth:1.5, fill:'',
+      _layer: state.activeLayer, selectable:true, evented:true
+    });
+    canvas.add(o);
+    return o;
+  });
+  canvas.discardActiveObject();
+  if (placed.length > 1) { canvas.setActiveObject(new fabric.ActiveSelection(placed, {canvas})); }
+  else if (placed.length === 1) { canvas.setActiveObject(placed[0]); }
+  canvas.renderAll(); saveHistory(); updateStats();
   closeModal('modal-parts');
   setTool('select');
 }
