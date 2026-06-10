@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.11 (寸法の端点ドラッグ・吸着)</title>
+<title>yoheki-cad v0.11.1 (補助線を下側のみ・線で全体移動)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.11 (寸法の端点ドラッグ・吸着)</span>
+  <span class="ver">v0.11.1 (補助線を下側のみ・線で全体移動)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -1790,13 +1790,21 @@ canvas.on('mouse:down', (opt) => {
       canvas.setActiveObject(tgt);
       const p = canvas.getPointer(opt.e);
       const tol = 12 / canvas.getZoom();
+      const off = tgt._textOff || {x:0,y:0};
+      const mid = {x:(tgt._start.x+tgt._end.x)/2, y:(tgt._start.y+tgt._end.y)/2};
+      const numPos = {x: mid.x + off.x, y: mid.y + off.y};
+      const tolNum = Math.max(10/canvas.getZoom(), (tgt._dimSize||14)*0.8);
       const dS = Math.hypot(p.x - tgt._start.x, p.y - tgt._start.y);
       const dE = Math.hypot(p.x - tgt._end.x,   p.y - tgt._end.y);
-      let mode = 'text';
+      const dN = Math.hypot(p.x - numPos.x,     p.y - numPos.y);
+      let mode;
       if (dS <= tol && dS <= dE) mode = 'start';
       else if (dE <= tol) mode = 'end';
+      else if (dN <= tolNum) mode = 'text';   // 数字付近 → 引き出し
+      else mode = 'move';                       // 線の本体 → 全体移動
       state.dimDrag = tgt;
       state.dimDragMode = mode;
+      state.dimDragOrig = { start:{x:tgt._start.x,y:tgt._start.y}, end:{x:tgt._end.x,y:tgt._end.y}, grab:{x:p.x,y:p.y} };
       state.dimDragMoved = false;
     }
     return;
@@ -1927,6 +1935,10 @@ canvas.on('mouse:move', (opt) => {
       const s = (state.dimDragMode === 'start') ? sp : dim._start;
       const e = (state.dimDragMode === 'end')   ? sp : dim._end;
       liveUpdateDimEndpoints(dim, s, e);
+    } else if (state.dimDragMode === 'move') {
+      const o = state.dimDragOrig;
+      const d = { x: p.x - o.grab.x, y: p.y - o.grab.y };
+      liveUpdateDimEndpoints(dim, {x:o.start.x+d.x, y:o.start.y+d.y}, {x:o.end.x+d.x, y:o.end.y+d.y});
     } else {
       const mid = { x:(dim._start.x+dim._end.x)/2, y:(dim._start.y+dim._end.y)/2 };
       liveUpdateDimLeader(dim, { x: p.x - mid.x, y: p.y - mid.y });
@@ -2034,7 +2046,7 @@ canvas.on('mouse:up', (opt) => {
   // 寸法のドラッグ終了
   if (state.dimDrag) {
     const moved = state.dimDragMoved;
-    state.dimDrag = null; state.dimDragMode = null; state.dimDragMoved = false;
+    state.dimDrag = null; state.dimDragMode = null; state.dimDragOrig = null; state.dimDragMoved = false;
     hideSnapMarker();
     if (moved) { saveHistory(); updateStats(); }
     return;
@@ -2278,25 +2290,35 @@ function createDimensionLine(start, end, opts) {
   const lineW = opts.width != null ? opts.width : 1;
   const ext = opts.extLen != null ? opts.extLen : 10;   // 補助線(返し=足)の長さ
 
+  // 数字の位置オフセット(線中点から)。既定は線に垂直な「上側」。
+  const defOff = dimSize/2 + 6;
+  let off = opts.textOff;
+  if (!off) {
+    let onx = Math.cos(perpAngle), ony = Math.sin(perpAngle);
+    if (ony > 0) { onx = -onx; ony = -ony; }   // 画面上で常に上側
+    off = { x: onx*defOff, y: ony*defOff };
+  }
+  // 補助線(返し)は数字と反対側(=下)へ片側のみ伸ばす
+  let ux = Math.cos(perpAngle), uy = Math.sin(perpAngle);
+  if (off.x*ux + off.y*uy > 0) { ux = -ux; uy = -uy; }
+
   // 寸法線本体
   const line = new fabric.Line([start.x, start.y, end.x, end.y], {
     stroke: '#666', strokeWidth: lineW
   });
-  
+
   // 矢印（簡易表現）
   const arrowSize = 8;
   const arrowAngle = Math.PI / 8;
   const dx = end.x - start.x, dy = end.y - start.y;
   const ang = Math.atan2(dy, dx);
-  
-  // 補助線(ext lines)
+
+  // 補助線(ext lines): 数字の反対側へ片側のみ
   const ext1 = new fabric.Line([
-    start.x - ext * Math.cos(perpAngle), start.y - ext * Math.sin(perpAngle),
-    start.x + ext * Math.cos(perpAngle), start.y + ext * Math.sin(perpAngle)
+    start.x, start.y, start.x + ext*ux, start.y + ext*uy
   ], {stroke: '#666', strokeWidth: lineW});
   const ext2 = new fabric.Line([
-    end.x - ext * Math.cos(perpAngle), end.y - ext * Math.sin(perpAngle),
-    end.x + ext * Math.cos(perpAngle), end.y + ext * Math.sin(perpAngle)
+    end.x, end.y, end.x + ext*ux, end.y + ext*uy
   ], {stroke: '#666', strokeWidth: lineW});
   
   const arrow1 = new fabric.Polygon([
@@ -2312,14 +2334,6 @@ function createDimensionLine(start, end, opts) {
   ], {fill: '#666', stroke: '#666'});
   
   const mid = {x: (start.x+end.x)/2, y: (start.y+end.y)/2};
-  // 数字の位置 = 線中点からのオフセット。既定は線に垂直な「上側」。
-  const defOff = dimSize/2 + 6;
-  let off = opts.textOff;
-  if (!off) {
-    let nx = Math.cos(perpAngle), ny = Math.sin(perpAngle);
-    if (ny > 0) { nx = -nx; ny = -ny; }   // 画面上で常に上側
-    off = { x: nx*defOff, y: ny*defOff };
-  }
   const textPos = { x: mid.x + off.x, y: mid.y + off.y };
   const offMag = Math.hypot(off.x, off.y);
 
@@ -2729,7 +2743,7 @@ function updateSelectedProps() {
       <div class="prop-row"><label>数字の引き出し角度 <span class="help-tip" data-tip="数字を引き出す向き(度)。90=上、0=右、180=左、-90=下。斜めにも引けます。">?</span></label>
         <input type="number" step="5" value="${Math.round(Math.atan2(-(obj._textOff||{x:0,y:0}).y,(obj._textOff||{x:0,y:0}).x)*180/Math.PI)}" onchange="updateDimLeader('ang', this.value)"></div>
       <div class="prop-row" style="font-size:10px;color:#999;">
-        <span>※ 寸法線をドラッグ：端点付近で端点移動(他図形に吸着)／それ以外で数字を引き出し</span>
+        <span>※ ドラッグ：端点=端点移動(図形に吸着)／数字=引き出し／線=全体移動</span>
       </div>
     `;
   } else {
