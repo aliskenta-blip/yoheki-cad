@@ -1478,6 +1478,19 @@ function eraseAt(pt, isDrag) {
   }
 }
 
+// オブジェクトの「実座標」セグメント。線は変換行列で端点を求める(移動/回転/正規化に強い)。
+function worldSegsOf(obj) {
+  if (obj.type === 'line') {
+    const m = obj.calcTransformMatrix();
+    const cx = (obj.x1 + obj.x2) / 2, cy = (obj.y1 + obj.y2) / 2;
+    return [[
+      fabric.util.transformPoint({x: obj.x1 - cx, y: obj.y1 - cy}, m),
+      fabric.util.transformPoint({x: obj.x2 - cx, y: obj.y2 - cy}, m)
+    ]];
+  }
+  return objToSegments(obj);
+}
+
 // 節間消しで残った直線の一区間を fabric.Line として再生成
 function addTrimLineSeg(p0, p1, props) {
   const sc = state.scale || 0.15;
@@ -1499,7 +1512,7 @@ function trimAt(pt) {
   const obj = hit.obj;
 
   if (obj.type === 'line') {
-    const segArr = objToSegments(obj);
+    const segArr = worldSegsOf(obj);
     if (!segArr.length) { canvas.remove(obj); canvas.renderAll(); saveHistory(); updateStats(); return; }
     const A = segArr[0][0], B = segArr[0][1];
     const dx = B.x - A.x, dy = B.y - A.y;
@@ -1509,7 +1522,7 @@ function trimAt(pt) {
     const ts = [0, 1];
     canvas.forEachObject(other => {
       if (other === obj || other._isGrid || other._isSnapMarker || other._isFrame || !other.visible) return;
-      objToSegments(other).forEach(cs => {
+      worldSegsOf(other).forEach(cs => {
         const ip = segIntersect([A, B], cs);
         if (ip) {
           const t = ((ip.x - A.x)*dx + (ip.y - A.y)*dy) / L2;
