@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.12 (部品大幅追加・長さ可変・角度/連続配置)</title>
+<title>yoheki-cad v0.13 (CP型枠ブロック擁壁断面・集水桝記号)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.12 (部品大幅追加・長さ可変・角度/連続配置)</span>
+  <span class="ver">v0.13 (CP型枠ブロック擁壁断面・集水桝記号)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -4261,10 +4261,31 @@ const BUILTIN_PARTS = [
     build:()=>[{closed:true,pts:[[15,0],[135,0],[150,250],[0,250]]}]},
   { key:'catchbasin_plan', name:'集水桝 平面(500角)', category:'桝',
     build:()=>[{closed:true,pts:[[0,0],[500,0],[500,500],[0,500]]},{closed:true,pts:[[60,60],[440,60],[440,440],[60,440]]}]},
+  { key:'sump_sym', name:'集水桝 記号(平面 ⊠)', category:'桝',
+    build:()=>[{closed:true,pts:[[0,0],[300,0],[300,300],[0,300]]},{pts:[[0,0],[300,300]]},{pts:[[300,0],[0,300]]}]},
   { key:'gravity_wall', name:'重力式擁壁 断面', category:'擁壁',
     build:()=>[{closed:true,pts:[[0,0],[400,0],[1500,2000],[0,2000]]}]},
   { key:'l_wall', name:'L型擁壁 断面', category:'擁壁',
     build:()=>[{closed:true,pts:[[0,0],[250,0],[250,1500],[1300,1500],[1300,1800],[0,1800]]}]},
+  { key:'cp_wall', name:'CP型枠ブロック擁壁 断面(高さ可変)', category:'擁壁', lengthVar:true, defLen:2000,
+    build:(H)=>{
+      H=H||2000; const courses=Math.max(1,Math.round(H/200)); const wh=courses*200;
+      const bw=150, fw=500, fh=200, fx=(bw-fw)/2; const s=[];
+      s.push({closed:true,pts:[[0,0],[bw,0],[bw,wh],[0,wh]]});                 // 壁外形
+      for(let i=1;i<courses;i++){const y=i*200; s.push({pts:[[0,y],[bw,y]]});} // 目地
+      for(let i=0;i<courses;i++){s.push({circle:[bw/2,i*200+100,55]});}       // 空洞(コア)
+      s.push({pts:[[45,20],[45,wh+fh-35]]});                                   // 縦筋
+      s.push({pts:[[105,20],[105,wh+fh-35]]});
+      s.push({closed:true,pts:[[fx,wh],[fx+fw,wh],[fx+fw,wh+fh],[fx,wh+fh]]}); // 基礎フーチング
+      s.push({pts:[[fx+30,wh+fh-45],[fx+fw-30,wh+fh-45]]});                    // 基礎横筋
+      s.push({closed:true,pts:[[fx-20,wh+fh],[fx+fw+20,wh+fh],[fx+fw+20,wh+fh+50],[fx-20,wh+fh+50]]}); // 均しコン
+      const sy=wh+fh+50; s.push({closed:true,pts:[[fx-40,sy],[fx+fw+40,sy],[fx+fw+40,sy+150],[fx-40,sy+150]]}); // 基礎砕石
+      for(let px=fx-10;px<fx+fw+20;px+=80){s.push({circle:[px,sy+50,22]});s.push({circle:[px+40,sy+105,20]});}  // 砕石粒
+      const gy=wh-300; s.push({pts:[[bw,gy],[bw+380,gy]]});                    // 地盤線GL
+      s.push({closed:true,pts:[[bw+330,gy-12],[bw+354,gy-12],[bw+342,gy]]});   // GL▽
+      for(let gx=bw+12;gx<bw+360;gx+=40){s.push({pts:[[gx,gy],[gx-12,gy+12]]});} // 地盤ハッチ
+      return s;
+    }},
   { key:'stairs_sec', name:'階段 断面(蹴上150×踏面300×4段)', category:'階段',
     build:()=>[{pts:[[0,0],[300,0],[300,150],[600,150],[600,300],[900,300],[900,450],[1200,450],[1200,600],[0,600],[0,0]]}]},
   { key:'backhoe', name:'バックホウ 側面(目安)', category:'重機',
