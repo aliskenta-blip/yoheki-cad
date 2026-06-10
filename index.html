@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.16 (DXF読込・部品サムネイル)</title>
+<title>yoheki-cad v0.16.1 (DXF読込・図形数ガード)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.16 (DXF読込・部品サムネイル)</span>
+  <span class="ver">v0.16.1 (DXF読込・図形数ガード)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -4481,7 +4481,14 @@ function importDXFText(text){
   const parsed=parseDXF(text);
   const prims=dxfToPrimitives(parsed);
   if(!prims.length){ alert('DXFから図形を取得できませんでした（対応外要素のみの可能性）'); return; }
+  // 図形数ガード(大きい図面はブラウザが固まるため)
+  if(prims.length>30000){ alert(`図形が多すぎます（約${prims.length.toLocaleString()}個）。\nブラウザが固まるため中止しました。\n\nJw_cadで「必要な部品だけ」を別ファイルにコピーしてDXF書出しすると軽くなります。`); return; }
+  if(prims.length>2500 && !confirm(`${prims.length.toLocaleString()}個の図形を読み込みます。多いと動作が重くなる場合があります。続けますか？`)) return;
   const sc=state.scale||0.15, fy=y=>-y;
+  // bbox は prims から直接(高速)
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  const acc=(x,y)=>{ if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; };
+  prims.forEach(p=>{ if(p.kind==='line'){acc(p.pts[0].x,p.pts[0].y);acc(p.pts[1].x,p.pts[1].y);} else if(p.kind==='poly'){p.pts.forEach(q=>acc(q.x,q.y));} else if(p.kind==='circle'){acc(p.c.x-p.r,p.c.y-p.r);acc(p.c.x+p.r,p.c.y+p.r);} else if(p.kind==='arc'){acc(p.cx-p.r,p.cy-p.r);acc(p.cx+p.r,p.cy+p.r);} else if(p.kind==='text'){acc(p.x,p.y);} });
   const arcPts=(cx,cy,r,a0,a1)=>{ let s=a0*Math.PI/180,e=a1*Math.PI/180; if(e<=s)e+=2*Math.PI; const seg=Math.max(8,Math.ceil((e-s)/(Math.PI/16))); const p=[]; for(let k=0;k<=seg;k++){const a=s+(e-s)*k/seg; p.push({x:cx+r*Math.cos(a), y:cy+r*Math.sin(a)});} return p; };
   const O={stroke:'#222',strokeWidth:1,fill:'',selectable:true,evented:true};
   const objs=[];
@@ -4492,12 +4499,15 @@ function importDXFText(text){
     else if(p.kind==='arc'){ const ap=arcPts(p.cx,p.cy,p.r,p.a0,p.a1).map(q=>({x:q.x*sc,y:fy(q.y)*sc})); objs.push(new fabric.Polyline(ap,{...O,...lay})); }
     else if(p.kind==='text'&&p.s) objs.push(new fabric.Text(String(p.s),{left:p.x*sc,top:fy(p.y)*sc,fontSize:Math.max(6,(p.h||200)*sc),fill:'#222',fontFamily:'Yu Gothic, sans-serif',angle:-(p.rot||0),originX:'left',originY:'bottom',...lay,selectable:true,evented:true}));
   });
+  // まとめて追加(イベント抑制で高速化)
+  canvas.renderOnAddRemove=false;
   objs.forEach(o=>canvas.add(o));
-  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-  objs.forEach(o=>{const b=o.getBoundingRect(true,true);minX=Math.min(minX,b.left);minY=Math.min(minY,b.top);maxX=Math.max(maxX,b.left+b.width);maxY=Math.max(maxY,b.top+b.height);});
-  if(isFinite(minX)){ const cw=canvas.getWidth(),ch=canvas.getHeight(),m=50; const z=Math.max(0.005,Math.min((cw-m*2)/((maxX-minX)||1),(ch-m*2)/((maxY-minY)||1))); const cx=(minX+maxX)/2,cy=(minY+maxY)/2; canvas.setViewportTransform([z,0,0,z,cw/2-cx*z,ch/2-cy*z]); const zs=document.getElementById('status-zoom'); if(zs)zs.textContent=Math.round(z*100)+'%'; }
+  canvas.renderOnAddRemove=true;
+  if(isFinite(minX)){ const X0=minX*sc,X1=maxX*sc,Y0=fy(maxY)*sc,Y1=fy(minY)*sc; const cw=canvas.getWidth(),ch=canvas.getHeight(),m=50;
+    const z=Math.max(0.005,Math.min((cw-m*2)/((X1-X0)||1),(ch-m*2)/((Y1-Y0)||1))); const cx=(X0+X1)/2,cy=(Y0+Y1)/2;
+    canvas.setViewportTransform([z,0,0,z,cw/2-cx*z,ch/2-cy*z]); const zs=document.getElementById('status-zoom'); if(zs)zs.textContent=Math.round(z*100)+'%'; }
   canvas.discardActiveObject(); drawGrid(); canvas.renderAll(); saveHistory(); updateStats();
-  alert(`DXFを読み込みました（${objs.length}図形）。\n必要部分を選択 →「🧩部品」で部品登録できます。\n※サイズが合わない場合は選択して拡大縮小してください。`);
+  alert(`DXFを読み込みました（${objs.length.toLocaleString()}図形）。\n必要部分を選択 →「🧩部品」で部品登録できます。`);
 }
 
 // ライブラリをファイルに書き出し
