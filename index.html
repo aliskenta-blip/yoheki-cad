@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.8.1 (節間消しを接点間に対応)</title>
+<title>yoheki-cad v0.8.2 (図枠を見やすく)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -1123,6 +1123,13 @@ function paperFrameDims() {
   return {paperW:p.w, paperH:p.h, S, realW, realH, pxW:realW*sc, pxH:realH*sc, sc, sizeKey:size};
 }
 
+// 図枠の線幅・破線をズームに依らず画面上一定(約2px)に保つ
+function syncFrameStroke() {
+  if (!paperFrame || !paperFrame.rect) return;
+  const z = canvas.getZoom() || 1;
+  paperFrame.rect.set({ strokeWidth: 2 / z, strokeDashArray: [10/z, 5/z] });
+}
+
 function updatePaperFrame() {
   // 既存枠を消す
   if (paperFrame) {
@@ -1140,22 +1147,23 @@ function updatePaperFrame() {
   const ox = 40, oy = 40;
   const rect = new fabric.Rect({
     left: ox, top: oy, width: d.pxW, height: d.pxH,
-    fill: 'rgba(255,255,255,0.0)', stroke: '#2962ff', strokeWidth: 1.5,
+    fill: 'rgba(255,255,255,0.0)', stroke: '#0d47a1', strokeWidth: 2,
     strokeDashArray: [8,4], selectable:false, evented:false,
     excludeFromExport:true, hoverCursor:'default', _isFrame:true
   });
   const labelTop = new fabric.Text(`${d.sizeKey.replace('L',' 横').replace('P',' 縦')}  1/${d.S}`, {
-    left: ox, top: oy - 22, fontSize: 14, fill: '#2962ff',
+    left: ox, top: oy - 22, fontSize: 14, fill: '#0d47a1',
     fontFamily:'Yu Gothic, sans-serif', selectable:false, evented:false,
     excludeFromExport:true, _isFrame:true
   });
   const labelDim = new fabric.Text(`枠内 ${Math.round(d.realW)}×${Math.round(d.realH)}mm`, {
-    left: ox, top: oy + d.pxH + 6, fontSize: 12, fill: '#2962ff',
+    left: ox, top: oy + d.pxH + 6, fontSize: 12, fill: '#0d47a1',
     fontFamily:'Yu Gothic, sans-serif', selectable:false, evented:false,
     excludeFromExport:true, _isFrame:true
   });
   paperFrame = {rect, labels:[labelTop, labelDim]};
   canvas.add(rect); canvas.add(labelTop); canvas.add(labelDim);
+  syncFrameStroke();
   canvas.renderAll();
 }
 
@@ -1175,6 +1183,7 @@ function fitToFrame() {
 }
 
 function drawGrid() {
+  syncFrameStroke();
   // 既存のグリッドを削除
   gridLines.forEach(line => canvas.remove(line));
   gridLines = [];
