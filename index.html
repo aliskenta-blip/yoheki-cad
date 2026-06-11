@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.34 (鉄筋の既定をD13・SD295・曲げなしに)</title>
+<title>yoheki-cad v0.35 (横筋○: 既定1.5/オフセット10・グリッド吸着連続配置)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.34 (鉄筋の既定をD13・SD295・曲げなしに)</span>
+  <span class="ver">v0.35 (横筋○: 既定1.5/オフセット10・グリッド吸着連続配置)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -640,7 +640,7 @@
       </div>
       <div class="prop-row">
         <label>表示倍率</label>
-        <input type="number" id="rebardot-mag" value="2.5" min="0.5" max="10" step="0.5" title="径に対する丸の表示倍率(見やすさ調整)">
+        <input type="number" id="rebardot-mag" value="1.5" min="0.5" max="10" step="0.5" title="径に対する丸の表示倍率(見やすさ調整)">
       </div>
       <div class="prop-row">
         <label>配置位置 <span class="help-tip" data-tip="ドラッグした線に対して丸を置く位置。中央=線上、上/下/左/右=線からオフセット距離だけずらして配置。配力筋を主筋の脇に置くときに。">?</span></label>
@@ -656,10 +656,10 @@
       </div>
       <div class="prop-row">
         <label>オフセット(mm)</label>
-        <input type="number" id="rebardot-offset" value="0" min="0" max="5000" step="10">
+        <input type="number" id="rebardot-offset" value="10" min="0" max="5000" step="10">
       </div>
       <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
-        <span>クリック=1個 / ドラッグ=ピッチ連続配置(スナップ刻み)</span>
+        <span>クリック=1個 / ドラッグ=スナップ分割の刻みで連続配置。<b>グリッドスナップON</b>で各○が方眼(水平・垂直とも)に吸着、OFFで自由配置。</span>
       </div>
     </div>
     
@@ -807,6 +807,12 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.35 横筋○の改善:</b></p>
+      <ul>
+        <li>既定を <b>径D13・表示倍率1.5・オフセット10</b> に</li>
+        <li><b>連続配置(ドラッグ)の各○が方眼(水平・垂直とも)に吸着</b>。スナップ分割の刻みで並びます</li>
+        <li><b>グリッドスナップOFFで自由配置</b>(刻み間隔のまま、方眼に縛られず置けます)</li>
       </ul>
       <p><b>🆕 v0.33 鉄筋の描画:</b></p>
       <ul>
@@ -3114,14 +3120,22 @@ function createRebar(start, end, opts) {
 function dotRowPoints(start, end) {
   const divEl = document.getElementById('snap-div');
   const div = divEl ? parseFloat(divEl.value) : 1;
-  const step = state.gridSize / (div || 1);
+  const step = state.gridSize / (div || 1);   // スナップ分割の刻み(mm)
   const dx = end.x - start.x, dy = end.y - start.y;
   const dist = Math.hypot(dx, dy);
-  if (dist < step * 0.5) return [start];  // ほぼ動いてない=1個
+  if (dist < step * 0.5) return [start];      // ほぼ動いてない=1個
+  const ux = dx / dist, uy = dy / dist;       // 方向の単位ベクトル
   const n = Math.max(1, Math.round(dist / step));
+  // グリッドスナップON時は各○を方眼(分割刻み)に吸着、OFF時は刻み間隔で自由配置
+  const gs = document.getElementById('grid-snap');
+  const snapOn = state.snapToGrid && gs && gs.checked;
   const pts = [];
   for (let i = 0; i <= n; i++) {
-    pts.push({x: start.x + dx*i/n, y: start.y + dy*i/n});
+    let p = { x: start.x + ux * step * i, y: start.y + uy * step * i };
+    if (snapOn) p = { x: Math.round(p.x / step) * step, y: Math.round(p.y / step) * step };
+    const prev = pts[pts.length - 1];
+    if (prev && Math.abs(prev.x - p.x) < 0.01 && Math.abs(prev.y - p.y) < 0.01) continue;  // 重複除去
+    pts.push(p);
   }
   return pts;
 }
