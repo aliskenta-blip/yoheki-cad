@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.53 (部品配置後ズーム・L形正面を作り直し)</title>
+<title>yoheki-cad v0.54 (部品が配置できない不具合を修正)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.53 (部品配置後ズーム・L形正面を作り直し)</span>
+  <span class="ver">v0.54 (部品が配置できない不具合を修正)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -833,6 +833,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.54 部品が配置できない不具合を修正:</b> 登録部品(DXF含む)の「配置」を押しても出てこない原因(復元処理の引数誤り)を修正。配置できるようになりました。</p>
       <p><b>🆕 v0.53 部品配置・L形正面:</b></p>
       <ul>
         <li><b>部品を配置すると、その部品が見えるよう自動でズーム</b>(DXFなど大きい部品が「配置できない」=画面外だった問題を解消)</li>
@@ -5584,6 +5585,7 @@ function placePart(id) {
   const baseY = cy - (part.h * mult)/2;
 
   fabric.util.enlivenObjects(part.objects, (objs) => {
+    if (!objs || !objs.length) { alert('部品の図形を復元できませんでした。'); return; }
     const placed = [];
     objs.forEach((o, i) => {
       const meta = part.objects[i];
@@ -5615,7 +5617,7 @@ function placePart(id) {
     canvas.renderAll();
     saveHistory(); updateStats();
     zoomToObject(placedObj);   // 配置した部品が見えるようにズーム(DXF等の大きい部品対策)
-  }, 'fabric', PART_PROPS);
+  });
 
   closeModal('modal-parts');
 }
