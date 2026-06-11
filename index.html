@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.35 (横筋○: 既定1.5/オフセット10・グリッド吸着連続配置)</title>
+<title>yoheki-cad v0.36 (マスタ登録ページ: 鉄筋定尺・二次製品・矛盾チェック)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.35 (横筋○: 既定1.5/オフセット10・グリッド吸着連続配置)</span>
+  <span class="ver">v0.36 (マスタ登録ページ: 鉄筋定尺・二次製品・矛盾チェック)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -262,6 +262,7 @@
   <span class="menu-item" onclick="openPerspective()">🧊 パース</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="openRebarTools()">🔩 配筋ツール</span>
+  <span class="menu-item" onclick="openMaster()">📚 マスタ登録</span>
   <span class="menu-item" onclick="runValidation()">🔍 配筋検査</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="exportSVG()">SVG出力</span>
@@ -640,7 +641,7 @@
       </div>
       <div class="prop-row">
         <label>表示倍率</label>
-        <input type="number" id="rebardot-mag" value="1.5" min="0.5" max="10" step="0.5" title="径に対する丸の表示倍率(見やすさ調整)">
+        <input type="number" id="rebardot-mag" value="1" min="0.5" max="10" step="0.5" title="径に対する丸の表示倍率(見やすさ調整)">
       </div>
       <div class="prop-row">
         <label>配置位置 <span class="help-tip" data-tip="ドラッグした線に対して丸を置く位置。中央=線上、上/下/左/右=線からオフセット距離だけずらして配置。配力筋を主筋の脇に置くときに。">?</span></label>
@@ -807,6 +808,12 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.36 マスタ登録（基本構造）:</b></p>
+      <ul>
+        <li>メニュー<b>「📚 マスタ登録」</b>で、<b>鉄筋の定尺(D10/D13…の1本長さm)</b>と<b>二次製品(U字溝・L形…のH×W×L)</b>を登録(ブラウザ保存)</li>
+        <li><b>矛盾チェック</b>: 配置済みの部品の外形寸法を登録マスタと照合、鉄筋長が定尺を超えていないか(継手要否)を一覧</li>
+        <li>横筋の定尺は今後パースの奥行き等にも活用予定。横筋○の表示倍率の既定は<b>1</b>に</li>
       </ul>
       <p><b>🆕 v0.35 横筋○の改善:</b></p>
       <ul>
@@ -1146,6 +1153,50 @@
         <button class="btn" onclick="importPartsLibrary()">📥 ファイルから読み込み</button>
       </div>
       <button class="btn" onclick="closeModal('modal-parts')">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- マスタ登録(基本構造)モーダル -->
+<div class="modal-bg" id="modal-master">
+  <div class="modal" style="max-width:680px;">
+    <h3>📚 マスタ登録（基本構造）</h3>
+    <p style="font-size:12px; color:#aaa;">鉄筋の定尺や、U字溝・L形などの二次製品の基本寸法を登録します。パース・展開図・図面がこれを参照し、寸法の矛盾をチェックできます。ブラウザに保存されます。</p>
+
+    <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:8px;">
+      <h4 style="margin-top:0;">① 鉄筋 定尺（1本の長さ・m）</h4>
+      <div style="font-size:11px;color:#9cf;margin-bottom:6px;">横筋に径を指定すると、パースで「1本＝この長さ分の奥行き」になります。</div>
+      <div id="master-rebar" style="display:grid; grid-template-columns:repeat(5,1fr); gap:6px;"></div>
+    </div>
+
+    <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:8px;">
+      <h4 style="margin-top:0;">② 二次製品（基本寸法・mm）</h4>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:flex-end; font-size:11px;">
+        <div><label style="display:block;color:#aaa;">名称</label><input type="text" id="mp-name" placeholder="例: U240" style="width:90px;"></div>
+        <div><label style="display:block;color:#aaa;">種別</label>
+          <select id="mp-kind">
+            <option value="uditch">U字溝</option><option value="lkata">L形</option>
+            <option value="block">ブロック</option><option value="kenchi">間知</option>
+            <option value="other">その他</option>
+          </select></div>
+        <div><label style="display:block;color:#aaa;">高さ</label><input type="number" id="mp-h" value="240" style="width:64px;"></div>
+        <div><label style="display:block;color:#aaa;">幅</label><input type="number" id="mp-w" value="240" style="width:64px;"></div>
+        <div><label style="display:block;color:#aaa;">長さ</label><input type="number" id="mp-l" value="600" style="width:64px;"></div>
+        <button class="btn primary" onclick="addMasterProduct()">追加</button>
+      </div>
+      <div id="master-products" style="max-height:200px; overflow-y:auto; margin-top:8px; font-size:12px;"></div>
+    </div>
+
+    <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:8px;">
+      <h4 style="margin-top:0;">③ 図面の矛盾チェック</h4>
+      <div style="font-size:11px;color:#aaa;margin-bottom:6px;">配置済みの部品・鉄筋を、登録したマスタと照合して寸法の食い違いを一覧します。</div>
+      <button class="btn" style="width:100%;" onclick="runMasterCheck()">🔍 矛盾をチェック</button>
+      <div id="master-check-result" style="margin-top:8px; font-size:11px; line-height:1.6; max-height:160px; overflow-y:auto;"></div>
+    </div>
+
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn primary" onclick="saveMaster()">💾 保存</button>
+      <button class="btn" onclick="closeModal('modal-master')">閉じる</button>
     </div>
   </div>
 </div>
@@ -4893,6 +4944,135 @@ function savePartsStore(parts) {
 function openPartsLibrary() {
   renderPartsList();
   document.getElementById('modal-parts').classList.add('show');
+}
+
+// ============================================================
+// マスタ登録(基本構造): 鉄筋定尺 + 二次製品。localStorageに保存。
+// ============================================================
+const MASTER_KEY = 'yoheki-cad-master';
+const REBAR_DIAS = ['D10','D13','D16','D19','D22'];
+function defaultMaster() {
+  return {
+    rebarLen: { D10:5.5, D13:5.5, D16:5.5, D19:5.5, D22:5.5 },   // 定尺(m)
+    products: [
+      {id:'m1', name:'U240', kind:'uditch', h:240, w:240, l:600},
+      {id:'m2', name:'L250', kind:'lkata',  h:250, w:300, l:1000}
+    ]
+  };
+}
+function loadMaster() {
+  try {
+    const m = JSON.parse(localStorage.getItem(MASTER_KEY));
+    if (!m) return defaultMaster();
+    if (!m.rebarLen) m.rebarLen = defaultMaster().rebarLen;
+    if (!m.products) m.products = [];
+    return m;
+  } catch { return defaultMaster(); }
+}
+function saveMasterStore(m) {
+  try { localStorage.setItem(MASTER_KEY, JSON.stringify(m)); }
+  catch (e) { alert('保存に失敗しました: ' + e.message); }
+}
+// 径ごとの定尺(mm)。横筋の奥行き等に使う。
+function rebarStdLenMm(dia) {
+  const m = loadMaster();
+  const v = (m.rebarLen && m.rebarLen[dia]) || 5.5;
+  return v * 1000;
+}
+
+function openMaster() {
+  renderMasterRebar();
+  renderMasterProducts();
+  document.getElementById('master-check-result').innerHTML = '';
+  document.getElementById('modal-master').classList.add('show');
+}
+function renderMasterRebar() {
+  const m = loadMaster();
+  const div = document.getElementById('master-rebar');
+  div.innerHTML = REBAR_DIAS.map(d =>
+    `<div><label style="display:block;color:#aaa;font-size:11px;">${d}</label>
+      <input type="number" id="mrl-${d}" value="${m.rebarLen[d]||5.5}" step="0.5" min="0.5" style="width:100%;"></div>`
+  ).join('');
+}
+function renderMasterProducts() {
+  const m = loadMaster();
+  const kindL = {uditch:'U字溝',lkata:'L形',block:'ブロック',kenchi:'間知',other:'その他'};
+  const div = document.getElementById('master-products');
+  if (!m.products.length) { div.innerHTML = '<div style="color:#888;">未登録です。上で追加してください。</div>'; return; }
+  div.innerHTML = m.products.map(p =>
+    `<div style="display:flex; align-items:center; gap:6px; padding:5px 4px; border-bottom:1px solid #3a3a3a;">
+      <span style="flex:1;"><b>${escapeHtml(p.name)}</b> <span style="color:#888;">[${kindL[p.kind]||p.kind}]</span> H${p.h}×W${p.w}×L${p.l}</span>
+      <button class="btn" style="padding:2px 8px;" onclick="deleteMasterProduct('${p.id}')">🗑</button>
+    </div>`
+  ).join('');
+}
+function addMasterProduct() {
+  const name = document.getElementById('mp-name').value.trim();
+  if (!name) { alert('名称を入力してください'); return; }
+  const m = loadMaster();
+  m.products.push({
+    id: 'm_' + (m.products.length + 1) + '_' + name,
+    name,
+    kind: document.getElementById('mp-kind').value,
+    h: parseFloat(document.getElementById('mp-h').value)||0,
+    w: parseFloat(document.getElementById('mp-w').value)||0,
+    l: parseFloat(document.getElementById('mp-l').value)||0
+  });
+  saveMasterStore(m);
+  document.getElementById('mp-name').value = '';
+  renderMasterProducts();
+}
+function deleteMasterProduct(id) {
+  const m = loadMaster();
+  m.products = m.products.filter(p => p.id !== id);
+  saveMasterStore(m);
+  renderMasterProducts();
+}
+// 鉄筋定尺の入力を保存
+function saveMaster() {
+  const m = loadMaster();
+  REBAR_DIAS.forEach(d => {
+    const el = document.getElementById('mrl-' + d);
+    if (el) m.rebarLen[d] = parseFloat(el.value) || 5.5;
+  });
+  saveMasterStore(m);
+  alert('マスタを保存しました。');
+}
+// ③ 矛盾チェック: 配置部品の寸法 vs 登録二次製品 / 鉄筋長 vs 定尺
+function runMasterCheck() {
+  saveMaster();   // 入力中の定尺も反映
+  const m = loadMaster();
+  const issues = [];
+  const TOL = 30;  // mm 許容差
+  const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame && !o._isSnapMarker);
+
+  // 部品(グループ)の外形寸法を登録二次製品と照合
+  const parts = objs.filter(o => o._type === 'part' || o.type === 'group');
+  parts.forEach(o => {
+    const b = o.getBoundingRect(true, true);
+    const W = Math.round(b.width), H = Math.round(b.height);
+    // 近い登録製品を探す(W/H の組がH×W or W×Hで一致)
+    const hit = m.products.find(p =>
+      (Math.abs(p.w - W) <= TOL && Math.abs(p.h - H) <= TOL) ||
+      (Math.abs(p.h - W) <= TOL && Math.abs(p.w - H) <= TOL) ||
+      (Math.abs(p.l - W) <= TOL && Math.abs(p.h - H) <= TOL));
+    if (!hit) issues.push(`⚠ 部品「${o._partName||'部品'}」(${W}×${H}mm) に一致する登録二次製品がありません`);
+  });
+
+  // 鉄筋の長さが定尺を超えていないか
+  objs.filter(o => o._type === 'rebar').forEach(o => {
+    const len = o._length || 0;
+    const std = rebarStdLenMm(o._dia || 'D13');
+    if (len > std + TOL) issues.push(`⚠ 鉄筋 ${o._dia||''} の長さ ${len}mm が定尺 ${Math.round(std)}mm を超えています(継手が必要)`);
+  });
+
+  const div = document.getElementById('master-check-result');
+  if (!issues.length) {
+    div.innerHTML = '<span style="color:#69f0ae;">✓ 登録マスタとの矛盾は見つかりませんでした。</span>';
+  } else {
+    div.innerHTML = `<span style="color:#ffab40;">${issues.length}件の指摘:</span><br>` +
+      issues.map(s => escapeHtml(s)).join('<br>');
+  }
 }
 
 // 選択図形を部品として登録
