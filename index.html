@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.36 (マスタ登録ページ: 鉄筋定尺・二次製品・矛盾チェック)</title>
+<title>yoheki-cad v0.37 (展開図に横筋の継手位置・本数=マスタ定尺を参照)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.36 (マスタ登録ページ: 鉄筋定尺・二次製品・矛盾チェック)</span>
+  <span class="ver">v0.37 (展開図に横筋の継手位置・本数=マスタ定尺を参照)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -809,6 +809,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.37 展開図×マスタ定尺:</b> 配筋展開図(正面図)で、横筋が<b>定尺(マスタ登録の5.5m等)</b>を超えると<b>継手位置を縦の橙破線</b>で表示し、<b>横筋の必要本数/列・継手箇所</b>をラベルに注記します。径ごとの定尺は「📚 マスタ登録」で変更できます。</p>
       <p><b>🆕 v0.36 マスタ登録（基本構造）:</b></p>
       <ul>
         <li>メニュー<b>「📚 マスタ登録」</b>で、<b>鉄筋の定尺(D10/D13…の1本長さm)</b>と<b>二次製品(U字溝・L形…のH×W×L)</b>を登録(ブラウザ保存)</li>
@@ -2777,7 +2778,24 @@ function makeDevelopment() {
       });
     }
     if (n >= 1) addPitchDim(made, baseX, vTop - ts*2.5, n, P, ts);  // 縦筋ピッチ注記(上)
-    labelText = `配筋正面図  縦筋${barDia}@${Math.round(P)}  横筋${hDia}@${Ph>0?Math.round(Ph):'—'}`;
+
+    // 横筋の継手(定尺)位置を縦の破線で示し、必要本数を注記(マスタの定尺を参照)
+    const stdLen = rebarStdLenMm(hDia);   // mm
+    let jointTxt = '';
+    if (stdLen > 0 && L > stdLen) {
+      const nJoint = Math.floor((L - 1) / stdLen);  // 継手の本数
+      for (let k = 1; k <= nJoint; k++) {
+        const x = baseX + k * stdLen;
+        const jl = new fabric.Line([x, vTop, x, vBot], {
+          stroke:'#e67e22', strokeWidth:1, strokeDashArray:[14,8], fill:'',
+          _layer: state.activeLayer, selectable:true, evented:true
+        });
+        canvas.add(jl); made.push(jl);
+      }
+      jointTxt = `  継手${nJoint}箇所(定尺${stdLen/1000}m)`;
+    }
+    const barsPerRow = Math.max(1, Math.ceil(L / stdLen));
+    labelText = `配筋正面図  縦筋${barDia}@${Math.round(P)}  横筋${hDia}@${Ph>0?Math.round(Ph):'—'}  横筋${barsPerRow}本/列${jointTxt}`;
   }
 
   // 外形枠 + ラベル(共通)
