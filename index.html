@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.45 (線の太さ既定を20に)</title>
+<title>yoheki-cad v0.46 (図枠の既定をA4横1/100に)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.45 (線の太さ既定を20に)</span>
+  <span class="ver">v0.46 (図枠の既定をA4横1/100に)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -430,8 +430,8 @@
       <div class="prop-row">
         <label>用紙 <span class="help-tip" data-tip="出力する紙のサイズと向き(A4/A3・横/縦)。">?</span></label>
         <select id="paper-size" onchange="updatePaperFrame()">
-          <option value="A4L">A4 横</option>
-          <option value="A4P" selected>A4 縦</option>
+          <option value="A4L" selected>A4 横</option>
+          <option value="A4P">A4 縦</option>
           <option value="A3L">A3 横</option>
           <option value="A3P">A3 縦</option>
         </select>
@@ -444,8 +444,8 @@
           <option value="15">15</option>
           <option value="20">20</option>
           <option value="30">30</option>
-          <option value="50" selected>50</option>
-          <option value="100">100</option>
+          <option value="50">50</option>
+          <option value="100" selected>100</option>
           <option value="200">200</option>
           <option value="300">300</option>
           <option value="500">500</option>
