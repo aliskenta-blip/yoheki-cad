@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.49 (パース: テクスチャ・パン移動・拡大表示)</title>
+<title>yoheki-cad v0.50 (面ペン・複数直線の実寸化)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.49 (パース: テクスチャ・パン移動・拡大表示)</span>
+  <span class="ver">v0.50 (面ペン・複数直線の実寸化)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -559,6 +559,9 @@
         <button class="btn" style="flex:1;" onclick="tagRebarFace()">この面を指定</button>
         <button class="btn" style="flex:1;" onclick="selectByFace()">面で選択</button>
       </div>
+      <div class="prop-row" style="gap:4px;">
+        <button class="btn" style="flex:1;" onclick="setTool('facepen')">🖊 クリックで面指定(連続)</button>
+      </div>
       <div class="prop-row" style="font-size:10px;color:#9cf;line-height:1.4;">
         <span>① 鉄筋を選択→配置面を選び「この面を指定」でタグ付け ② 後で「面で選択」→「展開図を作成」</span>
       </div>
@@ -829,6 +832,11 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.50 面ペン・複数直線の実寸化:</b></p>
+      <ul>
+        <li><b>面ペン</b>: 「断面図→展開図」の<b>「🖊 クリックで面指定(連続)」</b>で、配置面を選んでから鉄筋を次々クリック→その面にどんどんタグ付け(節間消しのように連続)。選択(S)で終了</li>
+        <li><b>複数の直線で囲った形も実寸化</b>: バラバラの直線を<b>まとめて選択</b>(枠ドラッグ)→「📏 各辺の距離を入力」で1つの形にして実寸化できます</li>
       </ul>
       <p><b>🆕 v0.49 パースの見た目・操作:</b></p>
       <ul>
@@ -2153,7 +2161,7 @@ function setTool(tool) {
   });
   
   // カーソル
-  if (tool === 'eraser' || tool === 'trim') {
+  if (tool === 'eraser' || tool === 'trim' || tool === 'facepen') {
     canvas.defaultCursor = 'cell';
   } else {
     canvas.defaultCursor = (tool === 'select') ? 'default' : 'crosshair';
@@ -2170,9 +2178,10 @@ function setTool(tool) {
     'select': '選択', 'line': '直線', 'rect': '矩形', 'circle': '円',
     'polygon': '多角形', 'freehand': 'フリーハンド', 'dim': '寸法線',
     'rebar': '鉄筋', 'text': 'テキスト', 'eraser': '消しゴム', 'trim': '節間消し',
-    'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線'
+    'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線', 'facepen': '面指定ペン'
   };
-  document.getElementById('status-mode').textContent = 'モード: ' + (labels[tool] || tool);
+  document.getElementById('status-mode').textContent = 'モード: ' + (labels[tool] || tool) +
+    (tool === 'facepen' ? `（配置面「${document.getElementById('dev-face').value||'未選択'}」を鉄筋クリックで指定。Sキー/選択で終了）` : '');
   
   canvas.renderAll();
 }
@@ -2256,6 +2265,21 @@ canvas.on('mouse:down', (opt) => {
   }
   if (state.tool === 'trim') {
     trimAt(canvas.getPointer(opt.e));
+    return;
+  }
+  // 面指定ペン: クリックした鉄筋に配置面をタグ付けし、選択(ピンク)に追加していく
+  if (state.tool === 'facepen') {
+    const hit = pickObjectAt(canvas.getPointer(opt.e));
+    if (hit && (hit.obj._type === 'rebar' || hit.obj._type === 'rebardot')) {
+      const face = document.getElementById('dev-face').value;
+      if (face) hit.obj._face = face;
+      let cur = canvas.getActiveObjects().slice();
+      if (!cur.includes(hit.obj)) cur.push(hit.obj);
+      canvas.discardActiveObject();
+      canvas.setActiveObject(cur.length > 1 ? new fabric.ActiveSelection(cur, {canvas}) : cur[0]);
+      canvas.requestRenderAll(); saveHistory();
+      document.getElementById('status-mode').textContent = `「${face||'面未選択'}」に指定 計${cur.length}本（続けてクリック / 選択(S)で終了）`;
+    }
     return;
   }
 
@@ -2855,13 +2879,33 @@ function sdNext(ev, i) {
   if (next) { next.focus(); next.select(); }
   else document.getElementById('sd-' + i).blur();
 }
-function openShapeDims() {
-  const o = canvas.getActiveObject();
-  if (!o || !(o.type === 'polyline' || o.type === 'polygon' || o.type === 'line')) {
-    alert('折れ線・多角形・直線を1つ選んでください。(複数選択は不可。連続線は「多角形」ツールで描けます)'); return;
+// アクティブ図形から実寸化用の頂点列を取得。単一(折れ線/多角形/直線)＋複数の直線(囲った形)をチェーン。
+function collectShapePoints() {
+  const a = canvas.getActiveObject();
+  if (!a) return null;
+  if (a.type === 'polyline' || a.type === 'polygon' || a.type === 'line') {
+    return { pts: shapeWorldPoints(a), closed: a.type === 'polygon', sources: [a] };
   }
-  _shapeDimTarget = o;
-  const pts = shapeWorldPoints(o);
+  if (a.type === 'activeSelection') {
+    const lines = a.getObjects().filter(o => o.type === 'line' || o.type === 'polyline');
+    if (!lines.length) return null;
+    const segs = [];
+    lines.forEach(o => { const wp = shapeWorldPoints(o); for (let i=0;i<wp.length-1;i++) segs.push([wp[i], wp[i+1]]); });
+    const chains = chainSegments(segs).sort((x,y)=>y.length-x.length);
+    let pts = chains[0] || [];
+    let closed = false;
+    if (pts.length > 2 && Math.hypot(pts[0].x-pts[pts.length-1].x, pts[0].y-pts[pts.length-1].y) < 5) { closed = true; pts = pts.slice(0,-1); }
+    return { pts, closed, sources: lines };
+  }
+  return null;
+}
+function openShapeDims() {
+  const res = collectShapePoints();
+  if (!res || res.pts.length < 2) {
+    alert('折れ線・多角形・直線を選んでください。複数の直線で囲った形は、まとめて選択(枠ドラッグ)すればOKです。'); return;
+  }
+  _shapeDimTarget = res;
+  const pts = res.pts;
   // ラベルサイズは図形の大きさに比例(小さすぎ/大きすぎ防止)
   let mnx=Infinity,mxx=-Infinity,mny=Infinity,mxy=-Infinity;
   pts.forEach(p=>{mnx=Math.min(mnx,p.x);mxx=Math.max(mxx,p.x);mny=Math.min(mny,p.y);mxy=Math.max(mxy,p.y);});
@@ -2877,7 +2921,8 @@ function openShapeDims() {
         onkeydown="sdNext(event,${i})" onfocus="highlightSdEdge(${i})">
       <span style="color:#888;font-size:10px;min-width:56px;">現在 ${mval}m</span></div>`;
   }
-  if (o.type === 'polygon') html += `<div style="font-size:10px;color:#9cf;margin-top:4px;">※多角形の最後の辺は自動で閉じます。</div>`;
+  if (res.closed) html += `<div style="font-size:10px;color:#9cf;margin-top:4px;">※閉じた形です。最後の辺は自動で閉じます。</div>`;
+  if (res.sources.length > 1) html += `<div style="font-size:10px;color:#9cf;">※${res.sources.length}本の線を1つの形にまとめて実寸化します。</div>`;
   div.innerHTML = html;
   document.getElementById('modal-shapedim').classList.add('show');
   setTimeout(() => { const f = document.getElementById('sd-0'); if (f){ f.focus(); f.select(); } }, 50);
@@ -2887,10 +2932,10 @@ function closeShapeDims() {
   closeModal('modal-shapedim');
 }
 function applyShapeDims() {
-  const o = _shapeDimTarget;
-  if (!o) return;
+  const res = _shapeDimTarget;
+  if (!res) return;
+  const pts = res.pts;
   const unitMul = (document.getElementById('sd-unit').value === 'm') ? 1000 : 1;
-  const pts = shapeWorldPoints(o);
   // 各辺の向きを保ったまま、入力距離で頂点を作り直す
   const newPts = [{x: pts[0].x, y: pts[0].y}];
   let cur = {x: pts[0].x, y: pts[0].y};
@@ -2902,24 +2947,24 @@ function applyShapeDims() {
     cur = {x: cur.x + dx/d*lenmm, y: cur.y + dy/d*lenmm};
     newPts.push(cur);
   }
-  const closed = (o.type === 'polygon');
-  // 元の線色・太さを取得(選択ハイライトのピンクを拾わないよう、元色に戻して読む)
+  const closed = res.closed;
+  const src0 = res.sources[0];
+  // 元の線色・太さ(選択ハイライトのピンクを拾わないよう元色で読む)
   let props;
   withoutSelHighlight(() => {
     props = {
-      stroke: o.stroke, strokeWidth: o.strokeWidth, fill: o.fill || '',
-      strokeDashArray: o.strokeDashArray, _layer: o._layer ?? state.activeLayer,
-      _kind: o._kind, selectable: true, evented: true
+      stroke: src0.stroke, strokeWidth: src0.strokeWidth, fill: closed ? (src0.fill || '') : '',
+      strokeDashArray: src0.strokeDashArray, _layer: src0._layer ?? state.activeLayer,
+      _kind: src0._kind, selectable: true, evented: true
     };
   });
   const shape = closed ? new fabric.Polygon(newPts, props) : new fabric.Polyline(newPts, props);
-  canvas.remove(o);
-  canvas.add(shape);
   canvas.discardActiveObject();
+  res.sources.forEach(s => canvas.remove(s));   // 元の線(複数可)を削除して1つの形に
+  canvas.add(shape);
   clearSdLabels();
   closeModal('modal-shapedim');
-  // 実寸化後、図枠に収まる縮尺を自動選択して図枠にフィット
-  autoScaleToFit(shape.getBoundingRect(true, true));
+  autoScaleToFit(shape.getBoundingRect(true, true));   // 図枠に収まる縮尺へ
   setTool('select');
   canvas.setActiveObject(shape);
   canvas.renderAll(); saveHistory(); updateStats();
@@ -3897,7 +3942,7 @@ function updateSelectedProps() {
     } else {
       html += `<div class="prop-row"><label>色</label><input type="color" value="${obj.stroke || '#000000'}" onchange="updateObjProp('stroke', this.value)"></div>`;
     html += `<div class="prop-row"><label>太さ</label><input type="number" value="${obj.strokeWidth || 1}" onchange="updateObjProp('strokeWidth', this.value)"></div>`;
-    if (obj.type === 'line' || obj.type === 'polyline' || obj.type === 'polygon') {
+    if (obj.type === 'line' || obj.type === 'polyline' || obj.type === 'polygon' || obj.type === 'activeSelection') {
       html += `<div class="prop-row"><button class="btn" style="width:100%;" onclick="openShapeDims()">📏 各辺の距離を入力(実寸化)</button></div>`;
     }
     if (obj._hatch) {
