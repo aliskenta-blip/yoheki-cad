@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.43 (寸法mを追加・ラフ形を各辺の距離で実寸化)</title>
+<title>yoheki-cad v0.44 (実寸化: 色保持・辺番号表示・Enter送り・図枠フィット)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.43 (寸法mを追加・ラフ形を各辺の距離で実寸化)</span>
+  <span class="ver">v0.44 (実寸化: 色保持・辺番号表示・Enter送り・図枠フィット)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -447,6 +447,9 @@
           <option value="50" selected>50</option>
           <option value="100">100</option>
           <option value="200">200</option>
+          <option value="300">300</option>
+          <option value="500">500</option>
+          <option value="1000">1000</option>
         </select>
       </div>
       <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
@@ -826,6 +829,14 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.44 実寸化の改善:</b></p>
+      <ul>
+        <li><b>線の色が変わる不具合を修正</b>(元の色を保ちます)</li>
+        <li><b>図形に「辺1・辺2…」を表示</b>。入力欄にカーソルを置くとその辺が赤く強調されます</li>
+        <li><b>Enterで次の辺の入力欄へ</b>移動</li>
+        <li>実寸化後、<b>図枠に収まる縮尺を自動選択して図枠にフィット</b>(縮尺に300/500/1000も追加)</li>
+        <li>直線(1本)でも使えます</li>
       </ul>
       <p><b>🆕 v0.43 現場全体図向け:</b></p>
       <ul>
@@ -1239,7 +1250,7 @@
     <div id="sd-list" style="max-height:320px; overflow-y:auto; margin-top:6px;"></div>
     <div class="modal-actions">
       <button class="btn primary" onclick="applyShapeDims()">実寸化して作り直す</button>
-      <button class="btn" onclick="closeModal('modal-shapedim')">閉じる</button>
+      <button class="btn" onclick="closeShapeDims()">閉じる</button>
     </div>
   </div>
 </div>
@@ -2771,25 +2782,73 @@ function shapeWorldPoints(o) {
 
 // ② ラフ形→各辺の距離入力→実寸化。選択中の折れ線/多角形/直線の各辺の入力欄を作る。
 let _shapeDimTarget = null;
+let _sdLabels = [];      // 図面上に出す辺番号ラベル(一時)
+function clearSdLabels() {
+  _sdLabels.forEach(o => canvas.remove(o));
+  _sdLabels = [];
+  canvas.requestRenderAll();
+}
+// 図形に辺番号(辺1,辺2…)を一時表示
+function drawSdLabels(pts, ts) {
+  clearSdLabels();
+  for (let i = 0; i < pts.length - 1; i++) {
+    const mx = (pts[i].x + pts[i+1].x)/2, my = (pts[i].y + pts[i+1].y)/2;
+    const t = new fabric.Text(`辺${i+1}`, {
+      left: mx, top: my, originX:'center', originY:'center',
+      fontSize: ts, fill:'#fff', backgroundColor:'#e91e63',
+      fontFamily:'Yu Gothic, sans-serif', padding:2,
+      selectable:false, evented:false, excludeFromExport:true, _isSnapMarker:true, _sdIndex:i
+    });
+    canvas.add(t); _sdLabels.push(t);
+  }
+  canvas.requestRenderAll();
+}
+// 入力欄フォーカス時、その辺のラベルを強調(赤・拡大)
+function highlightSdEdge(i) {
+  _sdLabels.forEach(l => {
+    const on = (l._sdIndex === i);
+    l.set({ backgroundColor: on ? '#ff1744' : '#e91e63', scaleX: on ? 1.5 : 1, scaleY: on ? 1.5 : 1 });
+  });
+  canvas.requestRenderAll();
+}
+// Enterで次の辺へ(最後ならそのまま)
+function sdNext(ev, i) {
+  if (ev.key !== 'Enter') return;
+  ev.preventDefault();
+  const next = document.getElementById('sd-' + (i+1));
+  if (next) { next.focus(); next.select(); }
+  else document.getElementById('sd-' + i).blur();
+}
 function openShapeDims() {
   const o = canvas.getActiveObject();
   if (!o || !(o.type === 'polyline' || o.type === 'polygon' || o.type === 'line')) {
-    alert('折れ線・多角形・直線を1つ選んでください。'); return;
+    alert('折れ線・多角形・直線を1つ選んでください。(複数選択は不可。連続線は「多角形」ツールで描けます)'); return;
   }
   _shapeDimTarget = o;
   const pts = shapeWorldPoints(o);
+  // ラベルサイズは図形の大きさに比例(小さすぎ/大きすぎ防止)
+  let mnx=Infinity,mxx=-Infinity,mny=Infinity,mxy=-Infinity;
+  pts.forEach(p=>{mnx=Math.min(mnx,p.x);mxx=Math.max(mxx,p.x);mny=Math.min(mny,p.y);mxy=Math.max(mxy,p.y);});
+  const ts = Math.max(120, Math.max(mxx-mnx, mxy-mny) * 0.05);
+  drawSdLabels(pts, ts);
   const div = document.getElementById('sd-list');
   let html = '';
   for (let i = 0; i < pts.length - 1; i++) {
     const len = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y);
     const mval = (len / 1000).toFixed(2);
-    html += `<div class="prop-row"><label>辺${i+1}</label>
-      <input type="number" id="sd-${i}" value="${mval}" step="0.1" style="flex:1;">
-      <span style="color:#888;font-size:10px;min-width:60px;">現在 ${mval}m</span></div>`;
+    html += `<div class="prop-row"><label style="color:#e91e63;font-weight:bold;">辺${i+1}</label>
+      <input type="number" id="sd-${i}" value="${mval}" step="0.1" style="flex:1;"
+        onkeydown="sdNext(event,${i})" onfocus="highlightSdEdge(${i})">
+      <span style="color:#888;font-size:10px;min-width:56px;">現在 ${mval}m</span></div>`;
   }
-  if (o.type === 'polygon') html += `<div style="font-size:10px;color:#9cf;margin-top:4px;">※多角形の最後の辺(${pts.length}本目)は自動で閉じます。</div>`;
+  if (o.type === 'polygon') html += `<div style="font-size:10px;color:#9cf;margin-top:4px;">※多角形の最後の辺は自動で閉じます。</div>`;
   div.innerHTML = html;
   document.getElementById('modal-shapedim').classList.add('show');
+  setTimeout(() => { const f = document.getElementById('sd-0'); if (f){ f.focus(); f.select(); } }, 50);
+}
+function closeShapeDims() {
+  clearSdLabels();
+  closeModal('modal-shapedim');
 }
 function applyShapeDims() {
   const o = _shapeDimTarget;
@@ -2808,21 +2867,42 @@ function applyShapeDims() {
     newPts.push(cur);
   }
   const closed = (o.type === 'polygon');
-  const props = {
-    stroke: o.stroke, strokeWidth: o.strokeWidth, fill: o.fill || '',
-    strokeDashArray: o.strokeDashArray, _layer: o._layer ?? state.activeLayer,
-    _kind: o._kind, selectable: true, evented: true
-  };
-  // polygonは最後の点を閉じるので、終点(=開始へ戻る点)は重複しないよう除く
-  const finalPts = closed ? newPts.slice(0, newPts.length) : newPts;
-  const shape = closed ? new fabric.Polygon(finalPts, props) : new fabric.Polyline(finalPts, props);
+  // 元の線色・太さを取得(選択ハイライトのピンクを拾わないよう、元色に戻して読む)
+  let props;
+  withoutSelHighlight(() => {
+    props = {
+      stroke: o.stroke, strokeWidth: o.strokeWidth, fill: o.fill || '',
+      strokeDashArray: o.strokeDashArray, _layer: o._layer ?? state.activeLayer,
+      _kind: o._kind, selectable: true, evented: true
+    };
+  });
+  const shape = closed ? new fabric.Polygon(newPts, props) : new fabric.Polyline(newPts, props);
   canvas.remove(o);
   canvas.add(shape);
   canvas.discardActiveObject();
+  clearSdLabels();
+  closeModal('modal-shapedim');
+  // 実寸化後、図枠に収まる縮尺を自動選択して図枠にフィット
+  autoScaleToFit(shape.getBoundingRect(true, true));
+  setTool('select');
   canvas.setActiveObject(shape);
   canvas.renderAll(); saveHistory(); updateStats();
-  closeModal('modal-shapedim');
-  document.getElementById('status-mode').textContent = '形を入力距離で実寸化しました。Fで全体表示';
+  document.getElementById('status-mode').textContent = '形を入力距離で実寸化しました。';
+}
+
+// 図形の実寸が図枠に収まる最小の縮尺を選び、図枠を表示してフィット
+function autoScaleToFit(bbox) {
+  const sel = document.getElementById('paper-scale');
+  const sizeKey = document.getElementById('paper-size').value;
+  const p = PAPER_MM[sizeKey];
+  const needW = bbox.width * 1.15, needH = bbox.height * 1.15;   // 余白15%
+  const opts = Array.from(sel.options).map(o => parseFloat(o.value)).sort((a,b)=>a-b);
+  let chosen = opts[opts.length-1];
+  for (const S of opts) { if (p.w*S >= needW && p.h*S >= needH) { chosen = S; break; } }
+  sel.value = String(chosen);
+  document.getElementById('frame-show').checked = true;
+  updatePaperFrame();
+  if (typeof fitToFrame === 'function') fitToFrame();
 }
 
 // 横筋○の高さ間隔(Y)の代表値(中央値)を求める=横筋ピッチ。5mm丸め。
