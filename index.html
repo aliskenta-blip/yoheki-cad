@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.21 (文字サイズ変更・初期値設定)</title>
+<title>yoheki-cad v0.22 (コピペ・等間隔連続複製・部品実寸化)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.21 (文字サイズ変更・初期値設定)</span>
+  <span class="ver">v0.22 (コピペ・等間隔連続複製・部品実寸化)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -477,6 +477,29 @@
         <label>文字サイズ(mm) <span class="help-tip" data-tip="テキスト(T)・引き出し線(G)の文字の大きさの初期値(mm)。描いた後も、選択して個別に変更できます。印刷縮尺で読める大きさに(例:1/50なら250mmで紙上5mm)。">?</span></label>
         <input type="number" id="default-text-size" value="100" min="5" max="5000" step="10">
       </div>
+    </div>
+
+    <div class="panel-section">
+      <h4>複製・連続配置</h4>
+      <div class="prop-row" style="font-size:10px; color:#999; line-height:1.4;">
+        <span>選択(S)した図形を <kbd>Ctrl</kbd>+<kbd>C</kbd> コピー → <kbd>Ctrl</kbd>+<kbd>V</kbd> 貼り付け</span>
+      </div>
+      <div class="prop-row">
+        <label>方向 <span class="help-tip" data-tip="選択した図形を、この向きに等間隔で並べて複製します。L形・U字溝を連続配置するのに便利。">?</span></label>
+        <select id="array-dir">
+          <option value="h">水平 →</option>
+          <option value="v">垂直 ↓</option>
+        </select>
+      </div>
+      <div class="prop-row">
+        <label>間隔(mm)</label>
+        <input type="number" id="array-pitch" value="500" min="1" step="10">
+      </div>
+      <div class="prop-row">
+        <label>個数</label>
+        <input type="number" id="array-count" value="3" min="1" max="200">
+      </div>
+      <button class="btn" style="width:100%; margin-top:4px;" onclick="arrayDuplicate()">選択を等間隔で複製</button>
     </div>
 
     <div class="panel-section" id="rebar-settings" style="display:none">
@@ -712,6 +735,13 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.22 複製・連続配置・部品:</b></p>
+      <ul>
+        <li><b>コピー＝Ctrl+C / 貼り付け＝Ctrl+V</b>(選択→コピー→貼り付け)</li>
+        <li>左パネル「複製・連続配置」で<b>方向(水平/垂直)・間隔(mm)・個数</b>を決めて「等間隔で複製」。L形・U字溝を並べるのに便利</li>
+        <li><b>組み込み部品・登録部品が実寸(mm)で配置</b>されるように修正(以前は約1/6.7で小さかった)。古い登録部品は自動で実寸へ拡大します</li>
+      </ul>
+      <p><b>🆕 v0.21 文字サイズ:</b> テキスト/引き出しの文字サイズを変更可＋初期値設定(「線の設定」)。</p>
       <p><b>🆕 v0.20 選択の改善:</b></p>
       <ul>
         <li><b>重なっていても線・図形ごとに選べる</b>ように(クリックした線の上で正確に判定)</li>
@@ -1197,6 +1227,9 @@ const PAPER_MM = {
   'A4L': {w:297, h:210}, 'A4P': {w:210, h:297},
   'A3L': {w:420, h:297}, 'A3P': {w:297, h:420}
 };
+
+// キャンバスの基準: 1単位 = 1mm (実寸1:1)。部品など mm→キャンバス換算に使う。
+const UNITS_PER_MM = 1;
 
 // 図枠の実寸(mm)とpxサイズを計算
 function paperFrameDims() {
@@ -2804,7 +2837,75 @@ function duplicateSelected() {
     canvas.renderAll();
     saveHistory();
     updateStats();
-  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']));
+  }, CLONE_PROPS));
+}
+
+// クローン時に引き継ぐカスタムプロパティ
+const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end'];
+let _clipboard = null;
+
+// ⑫ コピー(Ctrl+C)
+function copySelected() {
+  const active = canvas.getActiveObject();
+  if (!active) return;
+  withoutSelHighlight(() => active.clone(cl => { _clipboard = cl; }, CLONE_PROPS));
+  const n = canvas.getActiveObjects().length;
+  document.getElementById('status-mode').textContent = `コピーしました(${n}個)。Ctrl+Vで貼り付け`;
+}
+
+// 1つのクローンをキャンバスへ追加(activeSelectionは展開)。追加した実体配列を返す。
+function addClone(cl, dx, dy) {
+  const out = [];
+  cl.set({ left: cl.left + dx, top: cl.top + dy, evented: true });
+  if (cl.type === 'activeSelection') {
+    cl.canvas = canvas;
+    cl.forEachObject(o => { o.selectable = true; canvas.add(o); out.push(o); });
+    cl.setCoords();
+  } else {
+    cl.selectable = true;
+    canvas.add(cl);
+    out.push(cl);
+  }
+  return out;
+}
+
+// ⑫ 貼り付け(Ctrl+V)
+function pasteClipboard() {
+  if (!_clipboard) return;
+  _clipboard.clone(cl => {
+    const made = addClone(cl, 40, 40);
+    canvas.discardActiveObject();
+    const sel = made.length > 1 ? new fabric.ActiveSelection(made, {canvas}) : made[0];
+    if (sel) canvas.setActiveObject(sel);
+    canvas.requestRenderAll(); saveHistory(); updateStats();
+  }, CLONE_PROPS);
+}
+
+// ⑫ 等間隔で連続複製(水平/垂直)。L形・U字溝などを並べる用。
+function arrayDuplicate() {
+  const active = canvas.getActiveObject();
+  if (!active) { alert('先に複製したい図形を選択してください'); return; }
+  const dir = document.getElementById('array-dir').value;
+  const pitch = parseFloat(document.getElementById('array-pitch').value) || 0;
+  const count = Math.max(1, Math.min(200, parseInt(document.getElementById('array-count').value) || 1));
+  if (!pitch) { alert('間隔(mm)を入力してください'); return; }
+  const baseL = active.left, baseT = active.top;
+  const made = [];
+  withoutSelHighlight(() => {
+    for (let i = 1; i <= count; i++) {
+      active.clone(cl => {
+        const dx = dir === 'h' ? pitch * i : 0;
+        const dy = dir === 'v' ? pitch * i : 0;
+        addClone(cl, (baseL + dx) - cl.left, (baseT + dy) - cl.top).forEach(o => made.push(o));
+      }, CLONE_PROPS);
+    }
+  });
+  if (made.length) {
+    canvas.discardActiveObject();
+    canvas.setActiveObject(new fabric.ActiveSelection(made, {canvas}));
+    canvas.requestRenderAll(); saveHistory(); updateStats();
+  }
+  document.getElementById('status-mode').textContent = `等間隔で${count}個複製しました`;
 }
 
 function selectAll() {
@@ -3268,6 +3369,8 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'z') { undo(); e.preventDefault(); }
     else if (e.key === 'y') { redo(); e.preventDefault(); }
     else if (e.key === 'd') { duplicateSelected(); e.preventDefault(); }
+    else if (e.key === 'c') { copySelected(); e.preventDefault(); }
+    else if (e.key === 'v') { pasteClipboard(); e.preventDefault(); }
     else if (e.key === 'a') { selectAll(); e.preventDefault(); }
     else if (e.key === 's') { saveJSON(); e.preventDefault(); }
     return;
@@ -4348,7 +4451,7 @@ function registerPart() {
   parts.push({
     id: 'p_' + Date.now(),
     name, category,
-    scale: state.scale,       // 作成時のpx/mm
+    scale: UNITS_PER_MM,      // 作成時の単位/mm(=1。キャンバス実寸)
     w: br.width, h: br.height,
     objects: serial,
     created: new Date().toISOString()
@@ -4408,8 +4511,8 @@ function placePart(id) {
   // 配置倍率
   let mult = document.getElementById('part-place-scale').value;
   if (mult === 'auto') {
-    // 部品作成時のscaleと現在scaleの比で実寸を保つ
-    mult = (state.scale || 0.15) / (part.scale || 0.15);
+    // 作成時のscale(=単位/mm)から実寸(1単位=1mm)へ。旧部品(0.15)は約6.7倍に拡大して実寸化。
+    mult = UNITS_PER_MM / (part.scale || 0.15);
   } else {
     mult = parseFloat(mult);
   }
@@ -4566,7 +4669,7 @@ function partThumbSVG(def){
 function placePartAt(def, pos, len, angleDeg, mult){
   const shapes = def.build(def.lengthVar ? (len||def.defLen||600) : undefined);
   const bb = partBBox(shapes);
-  const sc = (state.scale||0.15) * (mult||1);
+  const sc = UNITS_PER_MM * (mult||1);   // 部品はmmで定義 → 実寸(1単位=1mm)で配置
   const a = (angleDeg||0)*Math.PI/180, cos=Math.cos(a), sin=Math.sin(a);
   const toW = (x,y)=>{ const lx=(x-bb.cx)*sc, ly=(y-bb.cy)*sc; return {x: pos.x + lx*cos - ly*sin, y: pos.y + lx*sin + ly*cos}; };
   const placed=[];
