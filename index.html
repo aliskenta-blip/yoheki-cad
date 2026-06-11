@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.18.2 (ズーム範囲拡大・縮尺1/5〜追加)</title>
+<title>yoheki-cad v0.19 (移動方向の制限: 水平/垂直/角度)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.18.2 (ズーム範囲拡大・縮尺1/5〜追加)</span>
+  <span class="ver">v0.19 (移動方向の制限: 水平/垂直/角度)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -387,6 +387,19 @@
       <div class="prop-row">
         <label><input type="checkbox" id="ortho"> 直交モード <kbd>Shift</kbd></label>
         <span class="help-tip" data-tip="ONにすると線が水平か垂直だけに固定されます。Shiftキーを押している間だけ一時的に効かせることも可能。">?</span>
+      </div>
+      <div class="prop-row">
+        <label>移動方向 <span class="help-tip" data-tip="選択(S)で図形をドラッグして動かすときに、動かせる向きを制限します。L形やU字溝をまっすぐ並べたいときに便利。">?</span></label>
+        <select id="move-constraint" onchange="updateMoveConstraint()">
+          <option value="free" selected>自由</option>
+          <option value="h">水平のみ ↔</option>
+          <option value="v">垂直のみ ↕</option>
+          <option value="angle">角度指定 ⟋</option>
+        </select>
+      </div>
+      <div class="prop-row" id="move-angle-row" style="display:none">
+        <label>角度(°) <span class="help-tip" data-tip="0=水平, 90=垂直, 45=右下がりの斜め。この向きにだけ動かせます。">?</span></label>
+        <input type="number" id="move-angle" value="45" min="0" max="180" step="5" onchange="updateMoveConstraint()">
       </div>
       <div class="prop-row">
         <label>表示倍率 <span class="help-tip" data-tip="画面上での図面の見かけの大きさ(px/mm)。図面の実寸は変わりません。拡大して描きやすくする設定です。">?</span></label>
@@ -694,6 +707,12 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.19 移動方向の制限:</b></p>
+      <ul>
+        <li>左パネル「表示設定」の<b>「移動方向」</b>で、選択(S)した図形をドラッグするとき動かせる向きを制限できます</li>
+        <li><b>自由 / 水平のみ↔ / 垂直のみ↕ / 角度指定⟋</b>(0=水平,90=垂直,45=斜め)から選択</li>
+        <li>L形やU字溝をまっすぐ並べる・ずらすときに便利。使い終わったら「自由」に戻してください</li>
       </ul>
       <p><b>🆕 v0.18.2 ズーム・縮尺:</b></p>
       <ul>
@@ -1107,6 +1126,8 @@ let state = {
   showGrid: true,
   snapToGrid: true,
   orthoMode: false,
+  moveConstraint: 'free',   // 移動方向の制限: free/h/v/angle
+  moveAngle: 45,            // angle時の角度(度)
   spacePressed: false,
   isPanning: false,
   isErasing: false,
@@ -2326,6 +2347,40 @@ canvas.on('selection:cleared', () => {
 
 canvas.on('object:modified', () => {
   saveHistory();
+});
+
+// --- ⑬ 移動方向の制限(水平/垂直/角度) ---
+function updateMoveConstraint() {
+  state.moveConstraint = document.getElementById('move-constraint').value;
+  state.moveAngle = parseFloat(document.getElementById('move-angle').value) || 0;
+  document.getElementById('move-angle-row').style.display =
+    (state.moveConstraint === 'angle') ? '' : 'none';
+}
+
+// ドラッグ開始時に元の位置を記録(制限の基準にする)
+canvas.on('mouse:down', (opt) => {
+  if (state.tool !== 'select') return;
+  const t = opt.target;
+  if (t) t._moveStart = { left: t.left, top: t.top };
+});
+
+// ドラッグ中に、選んだ向き以外の移動を打ち消す
+canvas.on('object:moving', (opt) => {
+  const o = opt.target;
+  const c = state.moveConstraint || 'free';
+  if (c === 'free' || !o || !o._moveStart) return;
+  const s = o._moveStart;
+  if (c === 'h') {
+    o.set('top', s.top);
+  } else if (c === 'v') {
+    o.set('left', s.left);
+  } else if (c === 'angle') {
+    const a = (state.moveAngle || 0) * Math.PI / 180;
+    const ux = Math.cos(a), uy = Math.sin(a);
+    const proj = (o.left - s.left) * ux + (o.top - s.top) * uy;  // 角度軸への射影
+    o.set({ left: s.left + proj * ux, top: s.top + proj * uy });
+  }
+  o.setCoords();
 });
 
 // ============================================================
