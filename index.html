@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.61 (展開図を投影方式に: 縦筋実長×横筋を軸へ射影)</title>
+<title>yoheki-cad v0.62 (縦筋=青/横筋=赤の色タグ方式・展開図はタグを使用)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.61 (展開図を投影方式に: 縦筋実長×横筋を軸へ射影)</span>
+  <span class="ver">v0.62 (縦筋=青/横筋=赤の色タグ方式・展開図はタグを使用)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -567,11 +567,12 @@
         <button class="btn" style="flex:1;" onclick="tagRebarRole('yoko')">選択を横筋に</button>
       </div>
       <div class="prop-row" style="gap:4px;">
-        <button class="btn" style="flex:1;" onclick="startRolePen('tate')">🖊縦筋(連続)</button>
-        <button class="btn" style="flex:1;" onclick="startRolePen('yoko')">🖊横筋(連続)</button>
+        <button class="btn" style="flex:1;" onclick="startRolePen('tate')">🖊縦筋(青)</button>
+        <button class="btn" style="flex:1;" onclick="startRolePen('yoko')">🖊横筋(赤)</button>
+        <button class="btn" style="flex:0; min-width:32px;" onclick="clearRebarRoles()" title="縦横の指定(色)をクリア">↺</button>
       </div>
       <div class="prop-row" style="font-size:10px;color:#9cf;line-height:1.4;">
-        <span>※「🖊連続」は鉄筋を次々クリックで指定(横筋など複数を一気に)。選択(S)で終了。指定すると展開図はそれに従います(未指定は向きで自動判別)。</span>
+        <span>※「🖊縦筋(青)/横筋(赤)」で鉄筋を次々クリック→<b>色が変わってタグ付け</b>(縦筋=青/横筋=赤)。選択は不要。<b>展開図はこの色タグの鉄筋だけ</b>を使います。↺でクリア。</span>
       </div>
       <div class="prop-row" style="font-size:10px;color:#9cf;line-height:1.4;">
         <span>① 鉄筋を選択→配置面を選び「この面を指定」でタグ付け ② 後で「面で選択」→「展開図を作成」</span>
@@ -843,6 +844,12 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.62 縦筋=青/横筋=赤の色タグ:</b></p>
+      <ul>
+        <li>「🖊縦筋(青)/横筋(赤)」で鉄筋をクリック→<b>色が変わってタグ付け</b>。選択を使わないので混ざりません</li>
+        <li><b>展開図はこの色タグの鉄筋だけ</b>を使います(縦筋=青の実長を縦線、横筋=赤を縦筋上の位置に)。↺でクリア</li>
+        <li>狙い違いは色で一目で分かるので、間違えたら別の色で塗り直すだけ</li>
       </ul>
       <p><b>🆕 v0.61 展開図を投影方式に(パースの2D版):</b></p>
       <ul>
@@ -2323,20 +2330,14 @@ canvas.on('mouse:down', (opt) => {
     }
     return;
   }
-  // 役割ペン: クリックした鉄筋を縦筋/横筋に指定しながら蓄積選択(横筋など複数を連続指定)
+  // 役割ペン: クリックした鉄筋を縦筋(青)/横筋(赤)に色付けタグ。選択は使わず色で見分け。
   if (state.tool === 'rolepen') {
     const hit = pickObjectAt(canvas.getPointer(opt.e));
     if (hit && (hit.obj._type === 'rebar' || hit.obj._type === 'rebardot')) {
-      hit.obj._role = state.rolePenRole || 'yoko';
-      hit.obj.selectable = true; hit.obj.evented = true;   // 選択を保持できるように
-      if (!state.rolePenList) state.rolePenList = [];
-      if (!state.rolePenList.includes(hit.obj)) state.rolePenList.push(hit.obj);
-      const objs = state.rolePenList.filter(o => o.canvas);   // 残っているものだけ
-      canvas.discardActiveObject();
-      if (objs.length) canvas.setActiveObject(objs.length > 1 ? new fabric.ActiveSelection(objs, {canvas}) : objs[0]);
+      setRebarRole(hit.obj, state.rolePenRole || 'yoko');
       canvas.requestRenderAll(); saveHistory();
-      const rl = state.rolePenRole==='tate'?'縦筋':'横筋';
-      document.getElementById('status-mode').textContent = `${rl}に指定 計${objs.length}本（続けてクリック / 選択(S)で終了）`;
+      const rl = state.rolePenRole==='tate'?'縦筋(青)':'横筋(赤)';
+      document.getElementById('status-mode').textContent = `${rl}に指定（続けてクリック / 選択(S)で終了）。展開図はこの色タグを使います`;
     }
     return;
   }
@@ -2861,17 +2862,30 @@ function tagRebarFace() {
   document.getElementById('status-mode').textContent = `${objs.length}個の鉄筋を「${face}」に指定しました`;
 }
 // 選択した鉄筋を「縦筋(tate)/横筋(yoko)」に指定。展開図がこの指定を優先する。
+// 役割の色: 縦筋=青 / 横筋=赤。色で見分け＋展開図のタグに使う。
+const ROLE_COLOR = { tate:'#0066cc', yoko:'#cc0000' };
+function setRebarRole(o, role) {
+  if (o._origStroke === undefined) o._origStroke = o.stroke;   // 元の色を退避
+  o._role = role;
+  o.set('stroke', ROLE_COLOR[role] || o.stroke);
+  o.dirty = true;
+}
+function clearRebarRoles() {
+  const objs = canvas.getObjects().filter(o => (o._type==='rebar'||o._type==='rebardot') && o._role);
+  objs.forEach(o => { if (o._origStroke !== undefined) o.set('stroke', o._origStroke); o._role = null; });
+  canvas.renderAll(); saveHistory();
+  document.getElementById('status-mode').textContent = `${objs.length}本の縦横指定をクリアしました`;
+}
 function tagRebarRole(role) {
   const objs = canvas.getActiveObjects().filter(o => o._type === 'rebar' || o._type === 'rebardot');
   if (!objs.length) { alert('縦筋/横筋に指定する鉄筋を先に選択してください。'); return; }
-  objs.forEach(o => { o._role = role; });
-  saveHistory();
-  document.getElementById('status-mode').textContent = `${objs.length}本を「${role==='tate'?'縦筋':'横筋'}」に指定しました`;
+  objs.forEach(o => setRebarRole(o, role));
+  canvas.renderAll(); saveHistory();
+  document.getElementById('status-mode').textContent = `${objs.length}本を「${role==='tate'?'縦筋(青)':'横筋(赤)'}」に指定しました`;
 }
 // クリックで連続して縦筋/横筋を指定するモード
 function startRolePen(role) {
   state.rolePenRole = role;
-  state.rolePenList = [];   // 蓄積リストをリセット
   canvas.discardActiveObject();
   setTool('rolepen');
 }
@@ -3077,19 +3091,18 @@ function makeDevelopment() {
   const L = parseFloat(document.getElementById('dev-length').value) || 0;
   if (L <= 0) { alert('延長L(mm)を入力してください'); return; }
 
-  // 対象: 選択中の配筋(縦筋・横筋○)。無ければ全鉄筋系。
-  let targets = canvas.getActiveObjects().filter(o => o._type === 'rebar' || o._type === 'rebardot');
-  if (!targets.length) targets = canvas.getObjects().filter(o => o._type === 'rebar' || o._type === 'rebardot');
+  // 対象: 縦筋/横筋に色タグ(役割)を付けた鉄筋を最優先。無ければ選択中、無ければ全鉄筋。
+  const isReb = o => o._type === 'rebar' || o._type === 'rebardot';
+  const tagged = canvas.getObjects().filter(o => isReb(o) && (o._role === 'tate' || o._role === 'yoko'));
+  let targets;
+  if (tagged.length) targets = tagged;                                  // 色タグ優先(選択不要)
+  else { targets = canvas.getActiveObjects().filter(isReb); if (!targets.length) targets = canvas.getObjects().filter(isReb); }
   if (!targets.length) { alert('配筋(縦筋・横筋○)が見つかりません。先に断面図を描いてください。'); return; }
 
   const dots = targets.filter(o => o._type === 'rebardot');
   const bars = targets.filter(o => o._type === 'rebar');
-
-  // 鉄筋だけを選択した場合: 横筋は「断面の実際の位置・本数」をそのまま反映(規則ピッチにしない)。
-  //   縦筋はピッチ(入力値)で並べる。数値は後から入力欄で変更できる。
-  const activeObjs = canvas.getActiveObjects();
-  const rebarOnly = activeObjs.length > 0 && activeObjs.every(o => o._type === 'rebar' || o._type === 'rebardot');
-  let autoNote = rebarOnly ? ` 横筋は断面の実位置で${dots.length}本` : '';
+  const rebarOnly = true;   // 配筋から作るので常に断面の実位置を採用
+  let autoNote = '';
 
   const P = parseFloat(document.getElementById('dev-pitch').value) || 0;
   if (P <= 0) { alert('縦筋ピッチ(mm)を入力してください'); return; }
@@ -3667,7 +3680,7 @@ function saveHistory() {
   if (state.isLoadingHistory) return;
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
-  const snap = withoutSelHighlight(() => JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face'])));
+  const snap = withoutSelHighlight(() => JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke'])));
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex++;
@@ -3730,7 +3743,7 @@ function duplicateSelected() {
 }
 
 // クローン時に引き継ぐカスタムプロパティ
-const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_partName','_face'];
+const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_partName','_face','_origStroke'];
 let _clipboard = null;
 
 // ⑫ コピー(Ctrl+C)
@@ -4369,7 +4382,7 @@ function saveJSON() {
     version: '0.8',
     created: new Date().toISOString(),
     layers: state.layers,
-    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face']))
+    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke']))
   };
   // グリッドは除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame);
@@ -5370,7 +5383,7 @@ function zoomFitObjects(objs) {
 //   localStorage保存 + ファイル書出/読込。配置時に縮尺指定。
 // ============================================================
 const PARTS_KEY = 'yoheki-cad-parts';
-const PART_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_face'];
+const PART_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_face','_origStroke'];
 
 function loadPartsStore() {
   try { return JSON.parse(localStorage.getItem(PARTS_KEY)) || []; }
