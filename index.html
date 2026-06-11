@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.23 (折れ線鉄筋・鉄筋テンプレ・横筋スナップ)</title>
+<title>yoheki-cad v0.24 (多角形ハッチ: 斜め・多角形の範囲を塗る)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.23 (折れ線鉄筋・鉄筋テンプレ・横筋スナップ)</span>
+  <span class="ver">v0.24 (多角形ハッチ: 斜め・多角形の範囲を塗る)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -759,6 +759,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.24 多角形ハッチ:</b> ハッチ(▦)モーダルの「▰ 多角形で囲んで塗る」で、斜め・多角形の範囲をクリックして囲み、ダブルクリック/Enterで塗れます。</p>
       <p><b>🆕 v0.23 鉄筋の強化:</b></p>
       <ul>
         <li><b>折れ線鉄筋</b>: 鉄筋(B)設定の「折れ線で描く」をONにすると、クリックで頂点を足してL字・コ字・U字の鉄筋を直線で描けます(ダブルクリック/Enterで確定)</li>
@@ -1082,7 +1083,8 @@
     </div>
     <div class="modal-actions" style="justify-content:space-between;">
       <div>
-        <button class="btn primary" onclick="startHatchDraw()">▭ 領域を描いて塗る</button>
+        <button class="btn primary" onclick="startHatchDraw()">▭ 矩形で塗る</button>
+        <button class="btn primary" onclick="startHatchPolyDraw()">▰ 多角形で囲んで塗る</button>
         <button class="btn" onclick="applyHatchToSelected()">選択図形に適用</button>
       </div>
       <button class="btn" onclick="closeModal('modal-hatch')">閉じる</button>
@@ -1214,6 +1216,7 @@ let state = {
   orthoMode: false,
   moveConstraint: 'free',   // 移動方向の制限: free/h/v/angle
   moveAngle: 45,            // angle時の角度(度)
+  hatchPoly: false,        // 多角形ハッチ描画中か
   spacePressed: false,
   isPanning: false,
   isErasing: false,
@@ -1881,6 +1884,7 @@ function orthoPoint(start, end) {
 function setTool(tool) {
   if (tool !== 'stamp') state.stamp = null;   // 部品配置モードを解除
   state.tool = tool;
+  state.hatchPoly = false;                    // 多角形ハッチモードを解除
   state.polygonPoints = [];
   hideSnapMarker();
   if (state.tempObject) {
@@ -2213,7 +2217,7 @@ canvas.on('mouse:move', (opt) => {
     if (state.tempObject) { canvas.remove(state.tempObject); state.tempObject = null; }
     const pts = applyDotOffset(dotRowPoints(state.dotStart, endPt), state.dotStart, endPt);
     pts.forEach(p => { const d = createRebarDot(p); canvas.add(d); state.dotPreview.push(d); });
-  } else if (state.tool === 'hatch' && state.tempObject) {
+  } else if (state.tool === 'hatch' && !hatchPolyMode() && state.tempObject) {
     state.tempObject.set({
       width: Math.abs(endPt.x - state.startPoint.x),
       height: Math.abs(endPt.y - state.startPoint.y),
@@ -2361,13 +2365,16 @@ function rebarPolyMode() {
   const cb = document.getElementById('rebar-polyline');
   return state.tool === 'rebar' && cb && cb.checked;
 }
-function polyDrawing() { return state.tool === 'polygon' || rebarPolyMode(); }
+// ④ ハッチを多角形(斜め・多角形)で囲んで塗るモード
+function hatchPolyMode() { return state.tool === 'hatch' && state.hatchPoly; }
+function polyDrawing() { return state.tool === 'polygon' || rebarPolyMode() || hatchPolyMode(); }
 function polyMinPts() { return rebarPolyMode() ? 2 : 3; }
 
 function finishPolygon() {
   if (state.polygonPoints.length < polyMinPts()) return;
   if (state.tempObject) { canvas.remove(state.tempObject); state.tempObject = null; }
   if (rebarPolyMode()) { finishRebarPoly(); return; }
+  if (hatchPolyMode()) { finishHatchPoly(); return; }
   const strokeColor = document.getElementById('stroke-color').value;
   const strokeWidth = parseFloat(document.getElementById('stroke-width').value);
   const fillColor = document.getElementById('fill-none').checked ? '' : document.getElementById('fill-color').value;
@@ -4344,8 +4351,37 @@ function applyHatchToSelected() {
 function startHatchDraw() {
   state.pendingHatch = hatchSelected;
   setTool('hatch');
+  state.hatchPoly = false;
   closeModal('modal-hatch');
   document.getElementById('status-mode').textContent = 'モード: ハッチ領域 (ドラッグで矩形を描く)';
+}
+
+// ④ 領域を多角形(斜め・多角形)で囲んで塗るモード
+function startHatchPolyDraw() {
+  state.pendingHatch = hatchSelected;
+  setTool('hatch');
+  state.hatchPoly = true;   // setToolの後に立てる(setToolがクリアするため)
+  closeModal('modal-hatch');
+  document.getElementById('status-mode').textContent = 'モード: ハッチ多角形 (クリックで頂点→ダブルクリック/Enterで確定)';
+}
+
+// 多角形ハッチを確定
+function finishHatchPoly() {
+  const pts = state.polygonPoints.map(p => ({x:p.x, y:p.y}));
+  const hop = (parseFloat(document.getElementById('hatch-opacity').value)||100)/100;
+  const poly = new fabric.Polygon(pts, {
+    fill: makeHatchPattern(), stroke: '#666', strokeWidth: 0.5,
+    _hatch: state.pendingHatch || hatchSelected, _hatchOpacity: hop, opacity: hop,
+    _layer: state.activeLayer, selectable: (state.tool === 'select')
+  });
+  canvas.add(poly);
+  state.polygonPoints = [];
+  state.tempObject = null;
+  state.isDrawing = false;
+  state.hatchPoly = false;
+  hideSnapMarker();
+  saveHistory();
+  updateStats();
 }
 
 // ============================================================
