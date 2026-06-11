@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.20 (選択: 線ごと選択＋ピンク強調)</title>
+<title>yoheki-cad v0.21 (文字サイズ変更・初期値設定)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.20 (選択: 線ごと選択＋ピンク強調)</span>
+  <span class="ver">v0.21 (文字サイズ変更・初期値設定)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -473,8 +473,12 @@
         <label><input type="checkbox" id="fill-none" checked> 塗りなし</label>
         <span></span>
       </div>
+      <div class="prop-row">
+        <label>文字サイズ(mm) <span class="help-tip" data-tip="テキスト(T)・引き出し線(G)の文字の大きさの初期値(mm)。描いた後も、選択して個別に変更できます。印刷縮尺で読める大きさに(例:1/50なら250mmで紙上5mm)。">?</span></label>
+        <input type="number" id="default-text-size" value="100" min="5" max="5000" step="10">
+      </div>
     </div>
-    
+
     <div class="panel-section" id="rebar-settings" style="display:none">
       <h4>鉄筋設定</h4>
       <div class="prop-row">
@@ -2025,7 +2029,7 @@ canvas.on('mouse:down', (opt) => {
     if (text) {
       const t = new fabric.IText(text, {
         left: pt.x, top: pt.y,
-        fontSize: 16, fill: strokeColor,
+        fontSize: defaultTextSize(), fill: strokeColor,
         fontFamily: 'Yu Gothic, sans-serif',
         _layer: state.activeLayer
       });
@@ -2254,11 +2258,12 @@ canvas.on('mouse:up', (opt) => {
       canvas.add(leader);
       // 文字位置側に文字を配置(線の向きで左右寄せを調整)
       const alignRight = textPos.x < tip.x;
+      const ts = defaultTextSize();
       const t = new fabric.IText(txt, {
         left: textPos.x + (alignRight ? -4 : 4),
-        top: textPos.y - 18,
+        top: textPos.y - ts*1.1,
         originX: alignRight ? 'right' : 'left',
-        fontSize: 16, fill: color, fontFamily:'Yu Gothic, sans-serif',
+        fontSize: ts, fill: color, fontFamily:'Yu Gothic, sans-serif',
         _layer: state.activeLayer
       });
       canvas.add(t);
@@ -2960,13 +2965,19 @@ function updateSelectedProps() {
     if (obj.angle !== undefined) {
       html += `<div class="prop-row"><label>回転</label><input type="number" value="${Math.round(obj.angle)}" onchange="updateObjProp('angle', this.value)"></div>`;
     }
-    html += `<div class="prop-row"><label>色</label><input type="color" value="${obj.stroke || '#000000'}" onchange="updateObjProp('stroke', this.value)"></div>`;
+    // テキスト(注記・引き出し文字)は文字サイズ・文字色を編集
+    if (obj.type === 'i-text' || obj.type === 'text') {
+      html += `<div class="prop-row"><label>文字サイズ(mm)</label><input type="number" min="5" max="5000" step="5" value="${Math.round(obj.fontSize||100)}" onchange="updateObjProp('fontSize', this.value)"></div>`;
+      html += `<div class="prop-row"><label>文字色</label><input type="color" value="${obj.fill || '#000000'}" onchange="updateObjProp('fill', this.value)"></div>`;
+    } else {
+      html += `<div class="prop-row"><label>色</label><input type="color" value="${obj.stroke || '#000000'}" onchange="updateObjProp('stroke', this.value)"></div>`;
     html += `<div class="prop-row"><label>太さ</label><input type="number" value="${obj.strokeWidth || 1}" onchange="updateObjProp('strokeWidth', this.value)"></div>`;
     if (obj._hatch) {
       const op = Math.round((obj.opacity != null ? obj.opacity : 1) * 100);
       html += `<div class="prop-row"><label>透過率</label>
         <input type="range" min="10" max="100" value="${op}" oninput="setHatchOpacity(this.value); this.nextElementSibling.textContent=this.value+'%';">
         <span style="min-width:40px;text-align:right;">${op}%</span></div>`;
+      }
     }
   }
 
@@ -3136,6 +3147,13 @@ function setHatchOpacity(val) {
   obj._hatchOpacity = op;
   canvas.renderAll();
   saveHistory();
+}
+
+// テキスト/引き出しの初期文字サイズ(mm)
+function defaultTextSize() {
+  const el = document.getElementById('default-text-size');
+  const v = el ? parseFloat(el.value) : 100;
+  return (!isNaN(v) && v > 0) ? v : 100;
 }
 
 function updateObjProp(key, val) {
