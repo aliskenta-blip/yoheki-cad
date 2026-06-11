@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.37 (展開図に横筋の継手位置・本数=マスタ定尺を参照)</title>
+<title>yoheki-cad v0.38 (横筋○のスナップ修正: 縦もグリッドに吸着)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.37 (展開図に横筋の継手位置・本数=マスタ定尺を参照)</span>
+  <span class="ver">v0.38 (横筋○のスナップ修正: 縦もグリッドに吸着)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -529,11 +529,11 @@
       </div>
       <div class="prop-row">
         <label>縦筋ピッチ(mm) <span class="help-tip" data-tip="縦筋を横方向に繰り返す間隔。展開図ではこのピッチで縦線(正面)/丸(平面)が並びます。">?</span></label>
-        <input type="number" id="dev-pitch" value="250" min="10" step="10">
+        <input type="number" id="dev-pitch" value="200" min="10" step="10">
       </div>
       <div class="prop-row">
         <label>横筋ピッチ(mm) <span class="help-tip" data-tip="横筋(配力筋)の間隔。正面図でこの間隔の横線グリッドにし、左に n×P=高さ の寸法を付けます。0なら断面の横筋○の高さに引きます。">?</span></label>
-        <input type="number" id="dev-hpitch" value="250" min="0" step="10">
+        <input type="number" id="dev-hpitch" value="200" min="0" step="10">
       </div>
       <div class="prop-row">
         <label>投影 <span class="help-tip" data-tip="正面図=壁を正面から見た姿(横筋=横線・縦筋=ピッチの縦線)。平面図=上から見た図(横筋=長さ方向の線・縦筋=ピッチの丸)。">?</span></label>
@@ -809,6 +809,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.38 横筋○スナップ修正・展開図ピッチ既定:</b> 横筋○が<b>縦方向もグリッドに吸着</b>するように修正(垂線スナップで縦に流れる不具合を解消。端点・交点・方眼に吸着)。展開図のピッチ既定を<b>200</b>に。</p>
       <p><b>🆕 v0.37 展開図×マスタ定尺:</b> 配筋展開図(正面図)で、横筋が<b>定尺(マスタ登録の5.5m等)</b>を超えると<b>継手位置を縦の橙破線</b>で表示し、<b>横筋の必要本数/列・継手箇所</b>をラベルに注記します。径ごとの定尺は「📚 マスタ登録」で変更できます。</p>
       <p><b>🆕 v0.36 マスタ登録（基本構造）:</b></p>
       <ul>
@@ -1735,6 +1736,9 @@ function snapForHandle(pt) {
 }
 
 function snapPoint(pt) {
+  // 横筋○は「縦も吸着」させたい。垂線/中点(線に沿って自由になる)は使わず、
+  // 端点・交点(点で固定)とグリッド(両軸)に吸着する。
+  if (state.tool === 'rebardot') return snapPointForDot(pt);
   const osnap = objectSnap(pt);
   if (osnap) {
     lastSnapInfo = osnap;
@@ -1749,6 +1753,24 @@ function snapPoint(pt) {
     x: Math.round(pt.x / step) * step,
     y: Math.round(pt.y / step) * step
   };
+}
+
+// 横筋○用スナップ: 端点/交点(点固定)を優先し、無ければグリッド(両軸)。垂線・中点は使わない。
+function snapPointForDot(pt) {
+  const os = objectSnap(pt);
+  if (os && (os.type === 'endpoint' || os.type === 'intersection')) {
+    lastSnapInfo = os;
+    return {x: os.x, y: os.y};
+  }
+  lastSnapInfo = null;
+  const gs = document.getElementById('grid-snap');
+  if (state.snapToGrid && gs && gs.checked) {
+    const divEl = document.getElementById('snap-div');
+    const div = divEl ? parseFloat(divEl.value) : 1;
+    const step = state.gridSize / (div || 1);
+    return { x: Math.round(pt.x / step) * step, y: Math.round(pt.y / step) * step };
+  }
+  return pt;   // グリッドOFF=自由配置
 }
 
 // ============================================================
