@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.16.1 (DXF読込・図形数ガード)</title>
+<title>yoheki-cad v0.17 (選択時のみ移動・節間消し矩形対応)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.16.1 (DXF読込・図形数ガード)</span>
+  <span class="ver">v0.17 (選択時のみ移動・節間消し矩形対応)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -319,7 +319,7 @@
   <button class="tool-btn" data-tool="eraser" data-help="消しゴム。クリック/ドラッグで図形を丸ごと削除" title="消しゴム (E) — クリック/ドラッグで削除" onclick="setTool('eraser')">
     <span class="icon">🩹</span><span class="label">消しゴム</span>
   </button>
-  <button class="tool-btn" data-tool="trim" data-help="節間消し。折れ線の1区間だけ削除" title="節間消し (X) — 折れ点間の1区間だけ削除" onclick="setTool('trim')">
+  <button class="tool-btn" data-tool="trim" data-help="節間消し。折れ線/矩形/交差した直線の1区間(辺)だけ削除" title="節間消し (X) — 折れ点間・矩形の1辺・交差点間だけ削除" onclick="setTool('trim')">
     <span class="icon">✂</span><span class="label">節間消し</span>
   </button>
   <div class="tool-divider"></div>
@@ -688,8 +688,15 @@
       <ul>
         <li><kbd>E</kbd> 消しゴム：クリックで最も近い図形を1つ削除。押したままドラッグで連続削除</li>
         <li><kbd>X</kbd> 節間消し：折れ線・多角形・鉄筋の<b>クリックした区間(折れ点〜折れ点)だけ</b>を削除。残りは分割して保持</li>
-        <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。多角形は1辺を抜くと開いた折れ線に再構成</li>
+        <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
+        <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.17:</b></p>
+      <ul>
+        <li><b>図形の移動は「選択(S)」モードのときだけ</b>に。描画・消しゴム等のツール使用中は図形を掴んで動かしてしまうことがなくなりました</li>
+        <li>節間消しが<b>矩形(四角)</b>に対応（クリックした辺だけ削除）</li>
+        <li>範囲選択して消す: 「選択(S)」で何もない所から枠をドラッグ→図形を囲んで <kbd>Delete</kbd>。または消しゴムの方式を「範囲で消す」に</li>
       </ul>
       <p><b>編集:</b></p>
       <ul>
@@ -1573,6 +1580,24 @@ function trimAt(pt) {
   if (!hit) return;
   const obj = hit.obj;
 
+  // 矩形(四角): クリックした1辺だけ消して開いた折れ線(コの字)に再構成
+  if (obj.type === 'rect') {
+    obj.setCoords();
+    const a = obj.aCoords;                 // 回転も考慮した実座標の4隅
+    const c = [a.tl, a.tr, a.br, a.bl];
+    const edges = [];
+    for (let i=0;i<4;i++) edges.push([c[i], c[(i+1)%4]]);
+    // クリックに最も近い辺を1本選ぶ
+    let segIdx = 0, bd = Infinity;
+    edges.forEach((s,i)=>{ const d = pointSegDist(pt, s); if (d < bd) { bd = d; segIdx = i; } });
+    const props = sharedRebarProps(obj);
+    canvas.remove(obj);
+    const remain = edges.filter((_,i)=> i !== segIdx);
+    chainSegments(remain).forEach(poly => { if (poly.length >= 2) addTrimResult(poly, props, obj); });
+    canvas.renderAll(); saveHistory(); updateStats();
+    return;
+  }
+
   if (obj.type === 'line') {
     const segArr = worldSegsOf(obj);
     if (!segArr.length) { canvas.remove(obj); canvas.renderAll(); saveHistory(); updateStats(); return; }
@@ -1745,6 +1770,9 @@ function setTool(tool) {
   
   // 選択モード以外では選択不可
   canvas.selection = (tool === 'select');
+  // 選択モード以外では図形を一切ヒットさせない(=掴めない・動かせない)。
+  // 描画/消しゴム/節間消し等は独自のクリック処理(getPointer)なので影響なし。
+  canvas.skipTargetFind = (tool !== 'select');
   canvas.forEachObject(obj => {
     if (obj._isGrid || obj._isFrame) return;
     obj.selectable = (tool === 'select');
