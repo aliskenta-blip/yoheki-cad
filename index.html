@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.58 (縦横指定ペンの連続選択を修正)</title>
+<title>yoheki-cad v0.59 (展開図の注記を整理: 口径×ピッチ×全長を枠上に)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.58 (縦横指定ペンの連続選択を修正)</span>
+  <span class="ver">v0.59 (展開図の注記を整理: 口径×ピッチ×全長を枠上に)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -844,6 +844,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.59 展開図の注記を整理:</b> 文字が図の真ん中に来る問題を修正し、<b>枠の上に左寄せで整列</b>。表示を<b>口径×ピッチ×全長</b>(縦筋 D13 @200 L=2000 / 横筋 D13 @200 L=3000)の形式にしました。縦筋=青・横筋=赤。</p>
       <p><b>🆕 v0.58 連続指定の修正:</b> 「🖊横筋(連続)」などで<b>複数の鉄筋が溜まっていかない不具合を修正</b>(専用リストで確実に蓄積)。クリックするたびにピンクで増えていきます。</p>
       <p><b>🆕 v0.57 縦筋/横筋を連続クリック指定:</b> 「🖊縦筋(連続)」「🖊横筋(連続)」を追加。横筋など<b>複数の鉄筋を次々クリックして一気に指定</b>できます(枠選択しづらい時に便利)。選択(S)で終了。</p>
       <p><b>🆕 v0.56 縦筋/横筋を自分で指定:</b> 「断面図→展開図」に<b>「選択を縦筋に」「選択を横筋に」</b>を追加。断面でどれが縦筋(ピッチで並ぶ)・横筋(位置で引く)かを自分で指定でき、<b>展開図はその指定に従います</b>(未指定の鉄筋は向きで自動判別)。L字主筋など自動判別が難しい場合に。</p>
@@ -3098,6 +3099,7 @@ function makeDevelopment() {
   const n = Math.floor(L / P);
   const ts = defaultTextSize();
   let frameTop, frameH, labelText;
+  let calloutT = '', calloutY = '';   // 縦筋・横筋の引出し注記(口径×ピッチ×全長)
 
   if (proj === 'top') {
     // 平面図(上から): 横軸=延長L, 縦軸=断面の厚み(X)。
@@ -3129,8 +3131,9 @@ function makeDevelopment() {
         canvas.add(c); made.push(c);
       }
     });
-    if (n >= 1) addPitchDim(made, baseX, topY - ts*2.5, n, P, ts);  // 縦筋ピッチ注記
-    labelText = `${facePfx}上面図(底版)  L=${Math.round(L)}  縦筋@${Math.round(P)}`;
+    labelText = `${facePfx}上面図(底版)`;
+    calloutT = `縦筋 @${Math.round(P)}`;
+    calloutY = `横筋 L=${Math.round(L)}`;
   } else {
     // 正面図: 縦向き鉄筋=縦筋(ピッチの縦線)、横向き鉄筋・横筋○=横筋(その高さの横線)
     const _diaW = {'D10':3,'D13':4,'D16':5,'D19':6,'D22':7};
@@ -3163,6 +3166,7 @@ function makeDevelopment() {
     const hDia = (hBars[0] && hBars[0].bar._dia) || (dots[0] && dots[0]._dia) || 'D13';
     const hColor = _diaC[hDia] || '#c00';
     const hWidth = _diaW[hDia] || 4;
+    let hPitchShown = 0;
     const Ph = rebarOnly ? 0 : (parseFloat((document.getElementById('dev-hpitch')||{}).value) || 0);
     if (Ph > 0) {
       const H = vBot - vTop;
@@ -3176,7 +3180,7 @@ function makeDevelopment() {
         });
         canvas.add(ln); made.push(ln);
       }
-      addPitchDimV(made, baseX - ts*1.2, vTop, m, Ph, ts);   // 横筋ピッチ注記(左)
+      hPitchShown = Ph;
     } else {
       // 横筋位置 = 横筋○の高さ + 横向き鉄筋の中心高さ(重複除去)。断面の実位置を反映。
       const ys=[];
@@ -3192,15 +3196,15 @@ function makeDevelopment() {
         });
         canvas.add(ln); made.push(ln);
       });
+      hPitchShown = uniq.length>=2 ? Math.round((uniq[uniq.length-1]-uniq[0])/(uniq.length-1)) : 0;
       autoNote = ` 横筋${uniq.length}本(断面の実位置)`;
     }
-    if (n >= 1) addPitchDim(made, baseX, vTop - ts*2.5, n, P, ts);  // 縦筋ピッチ注記(上)
 
-    // 横筋の継手(定尺)位置を縦の破線で示し、必要本数を注記(マスタの定尺を参照)
+    // 横筋の継手(定尺)位置を縦の破線で示す(マスタの定尺を参照)
     const stdLen = rebarStdLenMm(hDia);   // mm
     let jointTxt = '';
     if (stdLen > 0 && L > stdLen) {
-      const nJoint = Math.floor((L - 1) / stdLen);  // 継手の本数
+      const nJoint = Math.floor((L - 1) / stdLen);
       for (let k = 1; k <= nJoint; k++) {
         const x = baseX + k * stdLen;
         const jl = new fabric.Line([x, vTop, x, vBot], {
@@ -3209,10 +3213,12 @@ function makeDevelopment() {
         });
         canvas.add(jl); made.push(jl);
       }
-      jointTxt = `  継手${nJoint}箇所(定尺${stdLen/1000}m)`;
+      jointTxt = ` 継手${nJoint}`;
     }
-    const barsPerRow = Math.max(1, Math.ceil(L / stdLen));
-    labelText = `${facePfx}正面図(縦壁)  縦筋${barDia}@${Math.round(P)}  横筋${hDia}  横筋${barsPerRow}本/列${jointTxt}`;
+    // 引出し注記: 口径 × ピッチ × 全長
+    labelText = `${facePfx}正面図(縦壁)`;
+    calloutT = `縦筋 ${barDia} @${Math.round(P)} L=${Math.round(vBot - vTop)}`;
+    calloutY = `横筋 ${hDia}${hPitchShown? ' @'+hPitchShown : ''} L=${Math.round(L)}${jointTxt}`;
   }
 
   // 外形枠 + ラベル(共通)
@@ -3222,12 +3228,19 @@ function makeDevelopment() {
     _layer: state.activeLayer, selectable: true, evented: true
   });
   canvas.add(frame); made.push(frame);
-  const label = new fabric.IText(labelText, {
-    left: baseX, top: frameTop - ts * 1.6,
-    fontSize: ts, fill: '#333', fontFamily: 'Yu Gothic, sans-serif',
-    _layer: state.activeLayer, selectable: true, evented: true
-  });
-  canvas.add(label); made.push(label);
+  // 注記は枠の上に左寄せで整列(タイトル→縦筋→横筋)。図の真ん中に来ないように。
+  const fts = ts * 0.9;
+  const addTxt = (txt, dy, color) => {
+    if (!txt) return;
+    const t = new fabric.IText(txt, {
+      left: baseX, top: frameTop - dy, fontSize: fts, fill: color,
+      fontFamily: 'Yu Gothic, sans-serif', _layer: state.activeLayer, selectable: true, evented: true
+    });
+    canvas.add(t); made.push(t);
+  };
+  addTxt(labelText, fts * 3.4, '#333');   // タイトル
+  addTxt(calloutT, fts * 2.1, '#0066cc');  // 縦筋(口径×ピッチ×全長)
+  addTxt(calloutY, fts * 0.8, '#c00');     // 横筋(口径×ピッチ×全長)
 
   canvas.discardActiveObject();
   setTool('select');
