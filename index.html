@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.46 (図枠の既定をA4横1/100に)</title>
+<title>yoheki-cad v0.47 (修正: 展開図横筋表示/重複頂点/連続複製/まとめて3D種別)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.46 (図枠の既定をA4横1/100に)</span>
+  <span class="ver">v0.47 (修正: 展開図横筋表示/重複頂点/連続複製/まとめて3D種別)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -829,6 +829,13 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.47 まとめて修正:</b></p>
+      <ul>
+        <li>展開図の<b>正面図に横筋が出ない不具合を修正</b>(径ベースの太さ・色に)</li>
+        <li>実寸化で<b>多角形に余分な「辺」が出る</b>(重複頂点)を修正</li>
+        <li><b>連続複製の2回目以降が左へ飛ぶ</b>不具合を修正</li>
+        <li><b>複数まとめて選択して「3D種別」を一括設定</b>できるように(直線・複数図形もOK)</li>
       </ul>
       <p><b>🆕 v0.44 実寸化の改善:</b></p>
       <ul>
@@ -2766,18 +2773,29 @@ function selectByFace() {
   document.getElementById('status-mode').textContent = `「${face}」の鉄筋を ${objs.length} 個選択（このまま展開図を作成できます）`;
 }
 
-// 図形のワールド頂点列(line/polyline/polygon)
+// 図形のワールド頂点列(line/polyline/polygon)。重複頂点(ダブルクリック確定など)は除去。
 function shapeWorldPoints(o) {
+  let pts;
   if (o.type === 'line') {
     const m = o.calcTransformMatrix();
     const cx = (o.x1 + o.x2) / 2, cy = (o.y1 + o.y2) / 2;
-    return [
+    pts = [
       fabric.util.transformPoint({x: o.x1 - cx, y: o.y1 - cy}, m),
       fabric.util.transformPoint({x: o.x2 - cx, y: o.y2 - cy}, m)
     ];
+  } else {
+    const m = o.calcTransformMatrix();
+    pts = o.points.map(p => fabric.util.transformPoint({x: p.x - o.pathOffset.x, y: p.y - o.pathOffset.y}, m));
   }
-  const m = o.calcTransformMatrix();
-  return o.points.map(p => fabric.util.transformPoint({x: p.x - o.pathOffset.x, y: p.y - o.pathOffset.y}, m));
+  // 連続する重複点を除去
+  const out = [];
+  pts.forEach(p => { const l = out[out.length-1]; if (!l || Math.hypot(l.x-p.x, l.y-p.y) > 1) out.push({x:p.x, y:p.y}); });
+  // 多角形で末尾が先頭とほぼ同じなら除く(自動で閉じるため)
+  if (o.type === 'polygon' && out.length > 2) {
+    const a = out[0], b = out[out.length-1];
+    if (Math.hypot(a.x-b.x, a.y-b.y) < 1) out.pop();
+  }
+  return out;
 }
 
 // ② ラフ形→各辺の距離入力→実寸化。選択中の折れ線/多角形/直線の各辺の入力欄を作る。
@@ -2991,10 +3009,12 @@ function makeDevelopment() {
     labelText = `${facePfx}上面図(底版)  L=${Math.round(L)}  縦筋@${Math.round(P)}`;
   } else {
     // 正面図: 横筋○→その高さの横線, 縦筋→ピッチで縦線
-    let vTop = Infinity, vBot = -Infinity, barStroke = '#c00', barWidth = 4, barDia = 'D16';
+    const _diaW = {'D10':3,'D13':4,'D16':5,'D19':6,'D22':7};
+    const _diaC = {'D10':'#888','D13':'#0066cc','D16':'#c00','D19':'#900','D22':'#600'};
+    let vTop = Infinity, vBot = -Infinity, barStroke = '#c00', barWidth = 4, barDia = 'D13';
     if (bars.length) {
       bars.forEach(bar => { const b = bar.getBoundingRect(true, true); vTop = Math.min(vTop, b.top); vBot = Math.max(vBot, b.top + b.height); });
-      barStroke = bars[0].stroke || '#c00'; barWidth = bars[0].strokeWidth || 4; barDia = bars[0]._dia || 'D16';
+      barDia = bars[0]._dia || 'D13'; barStroke = _diaC[barDia] || '#c00'; barWidth = _diaW[barDia] || 4;
     } else { vTop = minY; vBot = maxY; }
     frameTop = vTop; frameH = (vBot - vTop);
     for (let k = 0; k <= n; k++) {
@@ -3009,9 +3029,11 @@ function makeDevelopment() {
     // 横筋: ピッチ指定があれば等間隔グリッド+左に寸法、無ければ断面の横筋○の高さに引く
     // 鉄筋だけ選択時は横筋を実位置(断面の○の高さ)で反映。それ以外は横筋ピッチ入力で等間隔グリッド。
     const Ph = rebarOnly ? 0 : (parseFloat((document.getElementById('dev-hpitch')||{}).value) || 0);
-    const hColor = (dots[0] && dots[0].stroke) || '#c00';
-    const hWidth = Math.max(2, (dots[0] && dots[0].strokeWidth) || 2);
+    const diaWmap = {'D10':3,'D13':4,'D16':5,'D19':6,'D22':7};
+    const diaCmap = {'D10':'#888','D13':'#0066cc','D16':'#c00','D19':'#900','D22':'#600'};
     const hDia = (dots[0] && dots[0]._dia) || 'D13';
+    const hColor = diaCmap[hDia] || '#c00';   // 径の色(選択中のピンクを拾わない)
+    const hWidth = diaWmap[hDia] || 4;   // 径ベースの太さ(丸の輪郭太さ0.5だと細すぎて見えなかった)
     if (Ph > 0) {
       const H = vBot - vTop;
       const m = Math.max(1, Math.floor(H / Ph));
@@ -3648,33 +3670,43 @@ function pasteClipboard() {
 
 // ⑫ 連続複製。方向(右/左/下/上)に、間隔0なら「図形サイズ＋目地」で隣接、数値ならその間隔で。
 function arrayDuplicate() {
-  const active = canvas.getActiveObject();
-  if (!active) { alert('先に複製したい図形を選択してください'); return; }
+  const objs = canvas.getActiveObjects().slice();
+  if (!objs.length) { alert('先に複製したい図形を選択してください'); return; }
   const dir = document.getElementById('array-dir').value;          // right/left/down/up
   const pitch = parseFloat(document.getElementById('array-pitch').value) || 0;
   const gap = parseFloat(document.getElementById('array-gap').value) || 0;
   const count = Math.max(1, Math.min(200, parseInt(document.getElementById('array-count').value) || 1));
-
   const horizontal = (dir === 'right' || dir === 'left');
   const sign = (dir === 'right' || dir === 'down') ? 1 : -1;
-  const b = active.getBoundingRect(true, true);
-  // 間隔: 指定があればそれ、無ければ図形の大きさ＋目地(=隣にピタッと並ぶ)
-  const step = pitch > 0 ? pitch : ((horizontal ? b.width : b.height) + gap);
 
-  const baseL = active.left, baseT = active.top;
+  // 選択を解除して各図形を絶対座標に戻す(activeSelection内ではleft/topが相対座標のため、
+  // これをしないと2回目以降に位置がズレて左へ飛ぶ)
+  canvas.discardActiveObject();
+
+  // 選択全体の外形(絶対座標)
+  let minx=Infinity, miny=Infinity, maxx=-Infinity, maxy=-Infinity;
+  objs.forEach(o => { o.setCoords(); const b = o.getBoundingRect(true, true);
+    minx=Math.min(minx,b.left); miny=Math.min(miny,b.top); maxx=Math.max(maxx,b.left+b.width); maxy=Math.max(maxy,b.top+b.height); });
+  const step = pitch > 0 ? pitch : ((horizontal ? (maxx-minx) : (maxy-miny)) + gap);
+
   const made = [];
   withoutSelHighlight(() => {
-    for (let i = 1; i <= count; i++) {
-      active.clone(cl => {
-        const dx = horizontal ? sign * step * i : 0;
-        const dy = horizontal ? 0 : sign * step * i;
-        addClone(cl, (baseL + dx) - cl.left, (baseT + dy) - cl.top).forEach(o => made.push(o));
-      }, CLONE_PROPS);
-    }
+    objs.forEach(src => {
+      const sl = src.left, st = src.top;
+      for (let i = 1; i <= count; i++) {
+        src.clone(cl => {
+          const dx = horizontal ? sign * step * i : 0;
+          const dy = horizontal ? 0 : sign * step * i;
+          cl.set({ left: sl + dx, top: st + dy, evented: true, selectable: true });
+          cl.setCoords();
+          canvas.add(cl);
+          made.push(cl);
+        }, CLONE_PROPS);
+      }
+    });
   });
   if (made.length) {
-    canvas.discardActiveObject();
-    canvas.setActiveObject(new fabric.ActiveSelection(made, {canvas}));
+    canvas.setActiveObject(made.length > 1 ? new fabric.ActiveSelection(made, {canvas}) : made[0]);
     canvas.requestRenderAll(); saveHistory(); updateStats();
   }
   const dirLabel = {right:'右',left:'左',down:'下',up:'上'}[dir];
@@ -3860,9 +3892,11 @@ function updateSelectedProps() {
   }
 
   // 3Dパース設定 (rebar/dimension以外。線・折れ線・図形すべて対象) v0.7
-  if (obj._type !== 'rebar' && obj._type !== 'dimension' && obj.type !== 'activeSelection') {
-    const kind = obj._kind || 'auto';
-    const depthVal = obj._depth || '';
+  if (obj._type !== 'rebar' && obj._type !== 'dimension') {
+    // activeSelection(複数選択)でも3D種別を設定可(全図形に一括適用)
+    const isMulti = (obj.type === 'activeSelection');
+    const kind = isMulti ? 'auto' : (obj._kind || 'auto');
+    const depthVal = isMulti ? '' : (obj._depth || '');
     const kindOpts = [
       ['auto','自動(汎用)'],
       ['wall','擁壁'],['block','ブロック'],['kenchi','間知ブロック'],
@@ -4039,6 +4073,15 @@ function defaultTextSize() {
 function updateObjProp(key, val) {
   const obj = canvas.getActiveObject();
   if (!obj) return;
+  // 複数選択(activeSelection)で3D種別/個別奥行は全図形へ一括適用
+  if (obj.type === 'activeSelection' && (key === '_kind' || key === '_depth')) {
+    canvas.getActiveObjects().forEach(o => {
+      if (key === '_kind') o._kind = val;
+      else o._depth = (val === '' || val == null) ? null : parseFloat(val);
+    });
+    canvas.renderAll(); saveHistory();
+    return;
+  }
   if (key === '_kind') {
     obj._kind = val;
   } else if (key === '_depth') {
