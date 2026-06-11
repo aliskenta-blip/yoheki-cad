@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.41 (展開図: 正面(縦壁)/上面(底版)＋配置面ラベル ダブル配筋対応)</title>
+<title>yoheki-cad v0.42 (鉄筋に配置面をタグ付け→面で選択して展開図)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.41 (展開図: 正面(縦壁)/上面(底版)＋配置面ラベル ダブル配筋対応)</span>
+  <span class="ver">v0.42 (鉄筋に配置面をタグ付け→面で選択して展開図)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -543,7 +543,7 @@
         </select>
       </div>
       <div class="prop-row">
-        <label>配置面 <span class="help-tip" data-tip="ダブル配筋(L字2本)のとき、どの面の鉄筋かを図のタイトルに付けます。前面/背面(縦壁)・上面/下面(底版)。面ごとに鉄筋を選んで作成→2枚に分けます。">?</span></label>
+        <label>配置面 <span class="help-tip" data-tip="ダブル配筋(L字2本)のとき、どの面の鉄筋かを指定。前面/背面(縦壁)・上面/下面(底版)。先に鉄筋を選んで『面を指定』でタグ付けし、後で『面で選択』して展開図を作れます。">?</span></label>
         <select id="dev-face">
           <option value="">指定なし</option>
           <option value="前面">前面(縦壁)</option>
@@ -551,6 +551,13 @@
           <option value="上面">上面(底版)</option>
           <option value="下面">下面(底版)</option>
         </select>
+      </div>
+      <div class="prop-row" style="gap:4px;">
+        <button class="btn" style="flex:1;" onclick="tagRebarFace()">この面を指定</button>
+        <button class="btn" style="flex:1;" onclick="selectByFace()">面で選択</button>
+      </div>
+      <div class="prop-row" style="font-size:10px;color:#9cf;line-height:1.4;">
+        <span>① 鉄筋を選択→配置面を選び「この面を指定」でタグ付け ② 後で「面で選択」→「展開図を作成」</span>
       </div>
       <button class="btn" style="width:100%; margin-top:4px;" onclick="makeDevelopment()">展開図を作成</button>
       <div class="prop-row" style="font-size:10px;color:#999;line-height:1.4;">
@@ -819,6 +826,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.42 配置面のタグ付け:</b> 鉄筋を選び、配置面(前面/背面/上面/下面)を選んで<b>「この面を指定」でタグ付け</b>(図面に保存)。後で<b>「面で選択」</b>でその面の鉄筋だけまとめて選べます→そのまま展開図を作成。ダブル配筋を面ごとに分けて作るのが楽になります。判定は自動でなく<b>その都度こちらで指定</b>する方式です。</p>
       <p><b>🆕 v0.41 展開図 正面/上面・ダブル配筋:</b> 投影を<b>正面図(縦壁・正面から)</b>と<b>上面図(底版・上から)</b>に。<b>配置面</b>(前面/背面/上面/下面)を選ぶと図のタイトルに付きます。<b>ダブル配筋(L字2本)は、面ごとに鉄筋を選んで2枚作成</b>してください(前面/背面、上面/下面)。</p>
       <p><b>🆕 v0.40 展開図は断面の実配置を反映:</b> <b>鉄筋だけを選択</b>して展開図を作ると、<b>横筋は断面の実際の位置・本数</b>をそのまま反映します(規則ピッチにしません)。<b>縦筋はピッチ(入力値)</b>で並びます。寸法の数値は後から手書き(テキスト)で記入できます。要は断面図と本数が合っていればOK。</p>
       <p><b>🆕 v0.38 横筋○スナップ修正・展開図ピッチ既定:</b> 横筋○が<b>縦方向もグリッドに吸着</b>するように修正(垂線スナップで縦に流れる不具合を解消。端点・交点・方眼に吸着)。展開図のピッチ既定を<b>200</b>に。</p>
@@ -2703,6 +2711,29 @@ function selectRebarOnly() {
   document.getElementById('status-mode').textContent = `鉄筋を ${pool.length} 個選択しました（このまま展開図を作成できます）`;
 }
 
+// 選択した鉄筋に「配置面(前面/背面/上面/下面)」を指定(タグ付け)。保存にも残る。
+function tagRebarFace() {
+  const face = document.getElementById('dev-face').value;
+  if (!face) { alert('「配置面」を前面/背面/上面/下面から選んでください。'); return; }
+  const objs = canvas.getActiveObjects().filter(o => o._type === 'rebar' || o._type === 'rebardot');
+  if (!objs.length) { alert('面を指定する鉄筋を先に選択してください。'); return; }
+  objs.forEach(o => { o._face = face; });
+  saveHistory();
+  document.getElementById('status-mode').textContent = `${objs.length}個の鉄筋を「${face}」に指定しました`;
+}
+// 指定した配置面の鉄筋をまとめて選択
+function selectByFace() {
+  const face = document.getElementById('dev-face').value;
+  if (!face) { alert('「配置面」を選んでください。'); return; }
+  const objs = canvas.getObjects().filter(o => (o._type === 'rebar' || o._type === 'rebardot') && o._face === face);
+  if (!objs.length) { alert(`「${face}」に指定された鉄筋がありません。先に「この面を指定」でタグ付けしてください。`); return; }
+  setTool('select');
+  canvas.discardActiveObject();
+  canvas.setActiveObject(objs.length > 1 ? new fabric.ActiveSelection(objs, {canvas}) : objs[0]);
+  canvas.requestRenderAll();
+  document.getElementById('status-mode').textContent = `「${face}」の鉄筋を ${objs.length} 個選択（このまま展開図を作成できます）`;
+}
+
 // 横筋○の高さ間隔(Y)の代表値(中央値)を求める=横筋ピッチ。5mm丸め。
 function computeDotPitch(dots) {
   if (!dots || dots.length < 2) return 0;
@@ -3326,7 +3357,7 @@ function saveHistory() {
   if (state.isLoadingHistory) return;
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
-  const snap = withoutSelHighlight(() => JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end'])));
+  const snap = withoutSelHighlight(() => JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face'])));
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex++;
@@ -3389,7 +3420,7 @@ function duplicateSelected() {
 }
 
 // クローン時に引き継ぐカスタムプロパティ
-const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_partName'];
+const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_partName','_face'];
 let _clipboard = null;
 
 // ⑫ コピー(Ctrl+C)
@@ -4004,7 +4035,7 @@ function saveJSON() {
     version: '0.8',
     created: new Date().toISOString(),
     layers: state.layers,
-    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']))
+    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face']))
   };
   // グリッドは除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame);
@@ -5005,7 +5036,7 @@ function zoomFitObjects(objs) {
 //   localStorage保存 + ファイル書出/読込。配置時に縮尺指定。
 // ============================================================
 const PARTS_KEY = 'yoheki-cad-parts';
-const PART_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end'];
+const PART_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_face'];
 
 function loadPartsStore() {
   try { return JSON.parse(localStorage.getItem(PARTS_KEY)) || []; }
