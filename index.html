@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.50 (面ペン・複数直線の実寸化)</title>
+<title>yoheki-cad v0.51 (DXF: LWPOLYLINE対応・実寸mm・部品として取込)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.50 (面ペン・複数直線の実寸化)</span>
+  <span class="ver">v0.51 (DXF: LWPOLYLINE対応・実寸mm・部品として取込)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -832,6 +832,13 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.51 DXF読込の改良:</b></p>
+      <ul>
+        <li><b>LWPOLYLINE（軽量ポリライン）に対応</b>(対応図形が増え、欠けが減りました)</li>
+        <li>読込の<b>縮尺を実寸mmに統一</b>(以前は約1/6.7で小さくなっていた)</li>
+        <li>DXF読込時に<b>「部品として登録」</b>を選べます(キャンバスに出さず部品ライブラリへ保存)。「📂DXF読込」→OKで部品登録</li>
+        <li>※DWGは未対応。DXFに変換してから読み込んでください</li>
       </ul>
       <p><b>🆕 v0.50 面ペン・複数直線の実寸化:</b></p>
       <ul>
@@ -5777,7 +5784,16 @@ function openDXFImport(){
         try{ text=new TextDecoder('shift_jis',{fatal:false}).decode(buf); }catch(_){ text=null; }
         if(!text || text.indexOf('SECTION')<0){ text=new TextDecoder('utf-8',{fatal:false}).decode(buf); }
       }catch(err){ alert('DXF読込エラー: '+err.message); return; }
-      try{ importDXFText(text); }catch(err){ alert('DXF解析エラー: '+(err.message||err)); }
+      try{
+        const baseName=(f.name||'DXF').replace(/\.[^.]+$/,'');
+        const asPart=confirm(`「${f.name}」を取り込みます。\n\n[OK] 部品として登録（キャンバスに出さず、部品ライブラリに保存）\n[キャンセル] キャンバスに展開`);
+        if(asPart){
+          const nm=prompt('部品名を入力:', baseName) || baseName;
+          if(importDXFAsPart(text, nm)) alert(`部品「${nm}」を登録しました。\n「🧩部品」→ 一覧から配置できます。`);
+        } else {
+          importDXFText(text);
+        }
+      }catch(err){ alert('DXF解析エラー: '+(err.message||err)); }
     };
     r.readAsArrayBuffer(f);
   };
@@ -5792,6 +5808,13 @@ function parseDXF(text){
   const toks=dxfTokenize(text); const n=toks.length; let i=0;
   const blocks={}, entities=[]; let section=null;
   function readEnt(type){ // i は type の次。次の 0 まで読む。POLYLINEはVERTEX/SEQEND対応
+    if(type==='LWPOLYLINE'){ const e={type:'POLYLINE',flag:0,verts:[]}; let cx=null;
+      while(i<n && toks[i][0]!==0){ const c=toks[i][0], v=toks[i][1];
+        if(c===70) e.flag=parseInt(v,10)||0;
+        else if(c===10){ cx=parseFloat(v); }
+        else if(c===20){ if(cx!==null){ e.verts.push([cx, parseFloat(v)]); cx=null; } }
+        i++; }
+      return e; }
     if(type==='POLYLINE'){ const e={type,flag:0,verts:[]};
       while(i<n && toks[i][0]!==0){ if(toks[i][0]===70)e.flag=parseInt(toks[i][1],10)||0; i++; }
       while(i<n && toks[i][0]===0 && toks[i][1]==='VERTEX'){ i++; let x=0,y=0;
@@ -5838,18 +5861,9 @@ function dxfToPrimitives(parsed){
   emit(parsed.entities, id, 0);
   return prims;
 }
-function importDXFText(text){
-  const parsed=parseDXF(text);
-  const prims=dxfToPrimitives(parsed);
-  if(!prims.length){ alert('DXFから図形を取得できませんでした（対応外要素のみの可能性）'); return; }
-  // 図形数ガード(大きい図面はブラウザが固まるため)
-  if(prims.length>30000){ alert(`図形が多すぎます（約${prims.length.toLocaleString()}個）。\nブラウザが固まるため中止しました。\n\nJw_cadで「必要な部品だけ」を別ファイルにコピーしてDXF書出しすると軽くなります。`); return; }
-  if(prims.length>2500 && !confirm(`${prims.length.toLocaleString()}個の図形を読み込みます。多いと動作が重くなる場合があります。続けますか？`)) return;
-  const sc=state.scale||0.15, fy=y=>-y;
-  // bbox は prims から直接(高速)
-  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-  const acc=(x,y)=>{ if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; };
-  prims.forEach(p=>{ if(p.kind==='line'){acc(p.pts[0].x,p.pts[0].y);acc(p.pts[1].x,p.pts[1].y);} else if(p.kind==='poly'){p.pts.forEach(q=>acc(q.x,q.y));} else if(p.kind==='circle'){acc(p.c.x-p.r,p.c.y-p.r);acc(p.c.x+p.r,p.c.y+p.r);} else if(p.kind==='arc'){acc(p.cx-p.r,p.cy-p.r);acc(p.cx+p.r,p.cy+p.r);} else if(p.kind==='text'){acc(p.x,p.y);} });
+// DXFのprimitives → fabricオブジェクト配列(キャンバスには追加しない)。縮尺=実寸mm(1単位=1mm)。
+function dxfPrimsToObjects(prims){
+  const sc=UNITS_PER_MM, fy=y=>-y;   // DXF(mm) → キャンバス(mm)。Yは下が正なので反転。
   const arcPts=(cx,cy,r,a0,a1)=>{ let s=a0*Math.PI/180,e=a1*Math.PI/180; if(e<=s)e+=2*Math.PI; const seg=Math.max(8,Math.ceil((e-s)/(Math.PI/16))); const p=[]; for(let k=0;k<=seg;k++){const a=s+(e-s)*k/seg; p.push({x:cx+r*Math.cos(a), y:cy+r*Math.sin(a)});} return p; };
   const O={stroke:'#222',strokeWidth:1,fill:'',selectable:true,evented:true};
   const objs=[];
@@ -5860,15 +5874,44 @@ function importDXFText(text){
     else if(p.kind==='arc'){ const ap=arcPts(p.cx,p.cy,p.r,p.a0,p.a1).map(q=>({x:q.x*sc,y:fy(q.y)*sc})); objs.push(new fabric.Polyline(ap,{...O,...lay})); }
     else if(p.kind==='text'&&p.s) objs.push(new fabric.Text(String(p.s),{left:p.x*sc,top:fy(p.y)*sc,fontSize:Math.max(6,(p.h||200)*sc),fill:'#222',fontFamily:'Yu Gothic, sans-serif',angle:-(p.rot||0),originX:'left',originY:'bottom',...lay,selectable:true,evented:true}));
   });
-  // まとめて追加(イベント抑制で高速化)
+  return objs;
+}
+function importDXFText(text){
+  const parsed=parseDXF(text);
+  const prims=dxfToPrimitives(parsed);
+  if(!prims.length){ alert('DXFから図形を取得できませんでした（対応外要素のみの可能性）'); return; }
+  if(prims.length>30000){ alert(`図形が多すぎます（約${prims.length.toLocaleString()}個）。\nブラウザが固まるため中止しました。\n\nJw_cadで「必要な部品だけ」を別ファイルにコピーしてDXF書出しすると軽くなります。`); return; }
+  if(prims.length>2500 && !confirm(`${prims.length.toLocaleString()}個の図形を読み込みます。多いと動作が重くなる場合があります。続けますか？`)) return;
+  const objs=dxfPrimsToObjects(prims);
   canvas.renderOnAddRemove=false;
   objs.forEach(o=>canvas.add(o));
   canvas.renderOnAddRemove=true;
-  if(isFinite(minX)){ const X0=minX*sc,X1=maxX*sc,Y0=fy(maxY)*sc,Y1=fy(minY)*sc; const cw=canvas.getWidth(),ch=canvas.getHeight(),m=50;
-    const z=Math.max(0.005,Math.min((cw-m*2)/((X1-X0)||1),(ch-m*2)/((Y1-Y0)||1))); const cx=(X0+X1)/2,cy=(Y0+Y1)/2;
+  // 内容にフィット
+  let minx=Infinity,miny=Infinity,maxx=-Infinity,maxy=-Infinity;
+  objs.forEach(o=>{ o.setCoords(); const b=o.getBoundingRect(true,true); minx=Math.min(minx,b.left);miny=Math.min(miny,b.top);maxx=Math.max(maxx,b.left+b.width);maxy=Math.max(maxy,b.top+b.height); });
+  if(isFinite(minx)){ const cw=canvas.getWidth(),ch=canvas.getHeight(),m=50;
+    const z=Math.max(0.003,Math.min((cw-m*2)/((maxx-minx)||1),(ch-m*2)/((maxy-miny)||1))); const cx=(minx+maxx)/2,cy=(miny+maxy)/2;
     canvas.setViewportTransform([z,0,0,z,cw/2-cx*z,ch/2-cy*z]); const zs=document.getElementById('status-zoom'); if(zs)zs.textContent=Math.round(z*100)+'%'; }
   canvas.discardActiveObject(); drawGrid(); canvas.renderAll(); saveHistory(); updateStats();
   alert(`DXFを読み込みました（${objs.length.toLocaleString()}図形）。\n必要部分を選択 →「🧩部品」で部品登録できます。`);
+}
+// DXFを直接「部品」として部品ライブラリに登録(キャンバスには出さない)
+function importDXFAsPart(text, name){
+  const parsed=parseDXF(text);
+  const prims=dxfToPrimitives(parsed);
+  if(!prims.length){ alert('DXFから図形を取得できませんでした。'); return false; }
+  if(prims.length>30000){ alert(`図形が多すぎます（約${prims.length.toLocaleString()}個）。中止しました。`); return false; }
+  const objs=dxfPrimsToObjects(prims);
+  if(!objs.length){ alert('登録できる図形がありませんでした。'); return false; }
+  // 外形(絶対座標)
+  let minx=Infinity,miny=Infinity,maxx=-Infinity,maxy=-Infinity;
+  objs.forEach(o=>{ o.setCoords(); const b=o.getBoundingRect(true,true); minx=Math.min(minx,b.left);miny=Math.min(miny,b.top);maxx=Math.max(maxx,b.left+b.width);maxy=Math.max(maxy,b.top+b.height); });
+  const serial=objs.map(o=>{ const json=o.toObject(PART_PROPS); const ab=o.getBoundingRect(true,true); json._relLeft=ab.left-minx; json._relTop=ab.top-miny; return json; });
+  const parts=loadPartsStore();
+  parts.push({ id:'p_'+Date.now()+'_'+Math.floor(Math.random()*1e4), name:name||'DXF部品', category:'DXF',
+    scale:UNITS_PER_MM, w:(maxx-minx), h:(maxy-miny), objects:serial, created:new Date().toISOString() });
+  try{ savePartsStore(parts); }catch(e){ alert('保存に失敗(容量超過の可能性): '+e.message); return false; }
+  return true;
 }
 
 // ライブラリをファイルに書き出し
