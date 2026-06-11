@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.18 (縮尺整合: 横筋○・オフセット・図枠を実寸mmに)</title>
+<title>yoheki-cad v0.18.1 (印刷修正: 白画面/縮尺1:S出力)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.18 (縮尺整合: 横筋○・オフセット・図枠を実寸mm)</span>
+  <span class="ver">v0.18.1 (印刷修正: 白画面/縮尺1:S出力)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -691,6 +691,12 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.18.1 印刷の修正:</b></p>
+      <ul>
+        <li><b>印刷後に画面が白くなる不具合を修正</b>(印刷用画像の生成でキャンバスを巨大化していたのをやめ、印刷後に自動再描画)</li>
+        <li><b>図枠ありの印刷が「縮尺1/S」で出力</b>されるように。画像を用紙の実寸(A3=420×297mm等)で印刷します</li>
+        <li>正しい縮尺で出すコツ: 印刷ダイアログで<b>用紙を図枠と同じサイズ(A3/A4)・向き</b>にし、<b>倍率は「100%」(「ページに合わせる」はOFF)</b>、余白「なし」を選ぶ</li>
       </ul>
       <p><b>🆕 v0.18 縮尺の整合(1マス=設定mm):</b></p>
       <ul>
@@ -3268,21 +3274,17 @@ function renderRegionPNG(multiplier) {
   let mult = multiplier || 2;
   const longest = Math.max(reg.width, reg.height) * mult;
   if (longest > MAX_PX) mult = MAX_PX / Math.max(reg.width, reg.height);
-  if (mult < 0.3) mult = 0.3;
+  if (mult < 0.05) mult = 0.05;   // 図枠が実寸で巨大でも出力できるよう下限を低く
 
-  // 一時ビューポートを「原点・等倍」にして、ワールド座標=スクリーン座標へ
+  // ビューポートを「原点・等倍」にして領域左上を(0,0)へ。
+  // ※メインcanvasのサイズは変えない(FabricのtoDataURLは出力用canvasを自前で作る)。
+  //   以前はsetWidth/setHeightで巨大化させ、ブラウザのcanvas上限超過で画面が壊れていた。
   const vpt = canvas.viewportTransform.slice();
-  const savedW = canvas.getWidth(), savedH = canvas.getHeight();
-  gridLines.forEach(l => l.visible = false);
   let frameVis = [];
   if (paperFrame) frameVis = [paperFrame.rect, ...paperFrame.labels];
   frameVis.forEach(o => o.visible = false);
 
   canvas.setViewportTransform([1,0,0,1, -reg.left, -reg.top]);
-  // 出力領域をカバーするようcanvasを一時拡大
-  canvas.setWidth(Math.ceil(reg.width));
-  canvas.setHeight(Math.ceil(reg.height));
-  canvas.renderAll();
 
   let dataURL = null;
   state.exporting = true;   // フックでグリッドを描かない(背景塗りは残す)
@@ -3302,10 +3304,8 @@ function renderRegionPNG(multiplier) {
   state.exporting = false;
 
   // 復元
-  gridLines.forEach(l => l.visible = true);
   frameVis.forEach(o => o.visible = true);
   canvas.setViewportTransform(vpt);
-  canvas.setWidth(savedW); canvas.setHeight(savedH);
   drawGrid();
   canvas.renderAll();
 
@@ -3334,10 +3334,28 @@ function printDrawing() {
     return;
   }
   const img = document.getElementById('print-img');
+
+  // 縮尺印刷: 図枠ありなら画像を「用紙の実寸(mm)」で印刷 → 図面は 1/S で出力される。
+  //   図枠が収める実寸 realW = 用紙mm × S。その realW を用紙mm幅に印刷 = 1/S。
+  let pageStyle = document.getElementById('print-page-style');
+  if (!pageStyle) { pageStyle = document.createElement('style'); pageStyle.id = 'print-page-style'; document.head.appendChild(pageStyle); }
   let title = '';
   if (paperFrame) {
     const d = paperFrameDims();
+    const paper = d.sizeKey.slice(0,2);                       // 'A3' / 'A4'
+    const orient = d.sizeKey.endsWith('L') ? 'landscape' : 'portrait';
+    pageStyle.textContent =
+      '@media print {' +
+        `@page { size: ${paper} ${orient}; margin: 0; }` +
+        `#print-area img { width: ${d.paperW}mm !important; height: ${d.paperH}mm !important;` +
+          ' max-width: none !important; position: absolute; left: 0; top: 0; margin: 0 !important; }' +
+        '#print-title { position: absolute; left: 2mm; top: 1mm; margin: 0; font-size: 10px;' +
+          ' background: rgba(255,255,255,0.7); padding: 1px 3px; z-index: 2; }' +
+      '}';
     title = `${d.sizeKey.replace('L',' 横').replace('P',' 縦')}　縮尺 1/${d.S}`;
+  } else {
+    // 図枠なし: 従来どおりページにフィット(縮尺は保証されない)
+    pageStyle.textContent = '';
   }
   document.getElementById('print-title').textContent = title;
 
@@ -3350,6 +3368,11 @@ function printDrawing() {
   if (img.complete && img.naturalWidth > 0) doPrint();
   setTimeout(doPrint, 800);
 }
+
+// 印刷ダイアログを閉じた後、画面(キャンバス/グリッド)が白いままにならないよう再描画
+window.addEventListener('afterprint', () => {
+  try { resizeCanvas(); drawGrid(); canvas.renderAll(); } catch (e) {}
+});
 
 // ============================================================
 // テンプレート読み込み
