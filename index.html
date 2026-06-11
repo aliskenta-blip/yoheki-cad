@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.25 (配筋断面図→展開図を作成)</title>
+<title>yoheki-cad v0.26 (規定値変更・部品複製修正・回転スナップ)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.25 (配筋断面図→展開図を作成)</span>
+  <span class="ver">v0.26 (規定値変更・部品複製修正・回転スナップ)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -402,6 +402,14 @@
         <input type="number" id="move-angle" value="45" min="5" max="90" step="5" onchange="updateMoveConstraint()">
       </div>
       <div class="prop-row">
+        <label>回転スナップ <span class="help-tip" data-tip="選択した図形を回転ハンドルで回すとき、角度をこの刻みに固定します。90°/45°なら水平垂直や斜めにピタッと止まります。自由は無段階。">?</span></label>
+        <select id="rotate-snap" onchange="updateRotateSnap()">
+          <option value="0">自由</option>
+          <option value="45">45°刻み</option>
+          <option value="90">90°刻み</option>
+        </select>
+      </div>
+      <div class="prop-row">
         <label>表示倍率 <span class="help-tip" data-tip="画面上での図面の見かけの大きさ(px/mm)。図面の実寸は変わりません。拡大して描きやすくする設定です。">?</span></label>
         <select id="scale-select" onchange="updateScale()">
           <option value="0.3">大 (0.30px/mm)</option>
@@ -415,15 +423,15 @@
     <div class="panel-section">
       <h4>図枠 (用紙・縮尺)</h4>
       <div class="prop-row">
-        <label><input type="checkbox" id="frame-show" onchange="updatePaperFrame()"> 図枠を表示</label><span class="help-tip" data-tip="印刷する用紙の範囲を青枠で表示します。枠内に図面が収まるよう配置・縮尺を決めます。">?</span>
+        <label><input type="checkbox" id="frame-show" checked onchange="updatePaperFrame()"> 図枠を表示</label><span class="help-tip" data-tip="印刷する用紙の範囲を青枠で表示します。枠内に図面が収まるよう配置・縮尺を決めます。">?</span>
         <span></span>
       </div>
       <div class="prop-row">
         <label>用紙 <span class="help-tip" data-tip="出力する紙のサイズと向き(A4/A3・横/縦)。">?</span></label>
         <select id="paper-size" onchange="updatePaperFrame()">
           <option value="A4L">A4 横</option>
-          <option value="A4P">A4 縦</option>
-          <option value="A3L" selected>A3 横</option>
+          <option value="A4P" selected>A4 縦</option>
+          <option value="A3L">A3 横</option>
           <option value="A3P">A3 縦</option>
         </select>
       </div>
@@ -638,7 +646,11 @@
       <h4>寸法線設定</h4>
       <div class="prop-row">
         <label>サイズ</label>
-        <input type="number" id="dim-size" value="14" min="8" max="48" step="1">
+        <input type="number" id="dim-size" value="30" min="8" max="200" step="1">
+      </div>
+      <div class="prop-row">
+        <label>線の太さ</label>
+        <input type="number" id="dim-width" value="3" min="0.5" max="20" step="0.5">
       </div>
       <div class="prop-row">
         <label>単位</label>
@@ -774,6 +786,12 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.26 規定値・部品・回転:</b></p>
+      <ul>
+        <li>寸法線の規定値を<b>サイズ30・線太さ3</b>に。用紙の規定を<b>A4縦</b>に。<b>図枠を最初から表示</b></li>
+        <li><b>部品の複製不具合を修正</b>(U字溝が四角になる/分解される)。部品は1グループにまとめて配置 → コピー・複製・連続配置(Ctrl+C/V・等間隔複製)が正しく効きます</li>
+        <li><b>回転スナップ</b>(表示設定): 図形を回すとき角度を<b>自由/45°/90°</b>刻みに固定できます</li>
       </ul>
       <p><b>🆕 v0.25 配筋断面図→展開図:</b> 左パネル「断面図→展開図」で延長L・縦筋ピッチを入れ、配筋(縦筋・横筋○)を選択して「展開図を作成」。横筋○→横線、縦筋→ピッチ反復の縦線で右側に姿図を作ります(Fで全体表示)。</p>
       <p><b>🆕 v0.24 多角形ハッチ:</b> ハッチ(▦)モーダルの「▰ 多角形で囲んで塗る」で、斜め・多角形の範囲をクリックして囲み、ダブルクリック/Enterで塗れます。</p>
@@ -2661,6 +2679,13 @@ function updateMoveConstraint() {
     (state.moveConstraint === 'angle') ? '' : 'none';
 }
 
+// ⑤ 回転スナップ(自由/45°/90°)。回転ハンドルで回す角度を刻みに固定。
+function updateRotateSnap() {
+  const deg = parseFloat(document.getElementById('rotate-snap').value) || 0;
+  fabric.Object.prototype.snapAngle = deg;       // これ以降に作る図形に適用
+  canvas.forEachObject(o => { o.snapAngle = deg; });  // 既存図形にも適用
+}
+
 // ドラッグ開始時に元の位置を記録(制限の基準にする)
 canvas.on('mouse:down', (opt) => {
   if (state.tool !== 'select') return;
@@ -2728,8 +2753,9 @@ function createDimensionLine(start, end, opts) {
   const angle = Math.atan2(end.y-start.y, end.x-start.x) * 180 / Math.PI;
   const perpAngle = (angle + 90) * Math.PI / 180;
 
-  const dimSize = opts.size != null ? opts.size : (parseFloat(document.getElementById('dim-size').value) || 14);
-  const lineW = opts.width != null ? opts.width : 1;
+  const dimSize = opts.size != null ? opts.size : (parseFloat(document.getElementById('dim-size').value) || 30);
+  const dimWEl = document.getElementById('dim-width');
+  const lineW = opts.width != null ? opts.width : ((dimWEl && parseFloat(dimWEl.value)) || 3);
   const ext = opts.extLen != null ? opts.extLen : 10;   // 補助線(返し=足)の長さ
 
   // 数字の位置オフセット(線中点から)。既定は線に垂直な「上側」。
@@ -3041,22 +3067,20 @@ function deleteSelected() {
 function duplicateSelected() {
   const active = canvas.getActiveObject();
   if (!active) return;
-  // 複製元がピンク強調中でも元の線色で複製する
+  // 複製元がピンク強調中でも元の線色で複製する。activeSelectionは分解せず正しく複製。
   withoutSelHighlight(() => active.clone((cloned) => {
-    cloned.set({
-      left: cloned.left + 30,
-      top: cloned.top + 30
-    });
-    canvas.add(cloned);
-    canvas.setActiveObject(cloned);
-    canvas.renderAll();
+    const made = addClone(cloned, 30, 30);
+    canvas.discardActiveObject();
+    const sel = made.length > 1 ? new fabric.ActiveSelection(made, {canvas}) : made[0];
+    if (sel) canvas.setActiveObject(sel);
+    canvas.requestRenderAll();
     saveHistory();
     updateStats();
   }, CLONE_PROPS));
 }
 
 // クローン時に引き継ぐカスタムプロパティ
-const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end'];
+const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_partName'];
 let _clipboard = null;
 
 // ⑫ コピー(Ctrl+C)
@@ -4785,14 +4809,16 @@ function placePart(id) {
       // ポリライン系のstrokeWidthはスケールで太くなりすぎないよう補正なし(意図通り拡縮)
       o.setCoords();
       o.selectable = true; o.evented = true;
-      canvas.add(o);
       placed.push(o);
     });
     canvas.discardActiveObject();
     if (placed.length > 1) {
-      const sel = new fabric.ActiveSelection(placed, {canvas});
-      canvas.setActiveObject(sel);
+      // 1グループにまとめる(複製で分解されないように)
+      const g = new fabric.Group(placed, {_type:'part', _partName:(part.name||'部品'), _layer:state.activeLayer, selectable:true, evented:true});
+      canvas.add(g);
+      canvas.setActiveObject(g);
     } else if (placed.length === 1) {
+      canvas.add(placed[0]);
       canvas.setActiveObject(placed[0]);
     }
     canvas.renderAll();
@@ -4932,6 +4958,12 @@ function placePartAt(def, pos, len, angleDeg, mult){
       placed.push(sh.closed ? new fabric.Polygon(wpts, opt) : new fabric.Polyline(wpts, opt));
     }
   });
+  // 複数図形は1つのグループにまとめる(複製・コピー・連続配置で分解されないように)
+  if (placed.length > 1) {
+    const g = new fabric.Group(placed, {_type:'part', _partName:(def.name||'部品'), _layer:state.activeLayer, selectable:true, evented:true});
+    canvas.add(g);
+    return [g];
+  }
   placed.forEach(o=>canvas.add(o));
   return placed;
 }
