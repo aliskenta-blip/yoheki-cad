@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.42 (鉄筋に配置面をタグ付け→面で選択して展開図)</title>
+<title>yoheki-cad v0.43 (寸法mを追加・ラフ形を各辺の距離で実寸化)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.42 (鉄筋に配置面をタグ付け→面で選択して展開図)</span>
+  <span class="ver">v0.43 (寸法mを追加・ラフ形を各辺の距離で実寸化)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -695,6 +695,7 @@
         <label>単位</label>
         <select id="dim-unit">
           <option value="mm" selected>mm</option>
+          <option value="m">m（現場全体図向け）</option>
           <option value="">無し</option>
         </select>
       </div>
@@ -825,6 +826,11 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.43 現場全体図向け:</b></p>
+      <ul>
+        <li><b>寸法の単位に「m」を追加</b>(寸法線設定)。現場全体図で m 表示できます(例 12.5 m)</li>
+        <li><b>ラフな形→実寸化</b>: 現場の大体の形を折れ線/多角形で描く→選択→プロパティの<b>「📏 各辺の距離を入力(実寸化)」</b>→各辺の実距離(m)を入れると、<b>向きはそのまま・その距離どおりの実寸の形</b>に作り直します。あとは図枠の縮尺を選べば用紙に収まります</li>
       </ul>
       <p><b>🆕 v0.42 配置面のタグ付け:</b> 鉄筋を選び、配置面(前面/背面/上面/下面)を選んで<b>「この面を指定」でタグ付け</b>(図面に保存)。後で<b>「面で選択」</b>でその面の鉄筋だけまとめて選べます→そのまま展開図を作成。ダブル配筋を面ごとに分けて作るのが楽になります。判定は自動でなく<b>その都度こちらで指定</b>する方式です。</p>
       <p><b>🆕 v0.41 展開図 正面/上面・ダブル配筋:</b> 投影を<b>正面図(縦壁・正面から)</b>と<b>上面図(底版・上から)</b>に。<b>配置面</b>(前面/背面/上面/下面)を選ぶと図のタイトルに付きます。<b>ダブル配筋(L字2本)は、面ごとに鉄筋を選んで2枚作成</b>してください(前面/背面、上面/下面)。</p>
@@ -1219,6 +1225,21 @@
     <div class="modal-actions" style="justify-content:space-between;">
       <button class="btn primary" onclick="saveMaster()">💾 保存</button>
       <button class="btn" onclick="closeModal('modal-master')">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 形状寸法(ラフ形→実寸化)モーダル -->
+<div class="modal-bg" id="modal-shapedim">
+  <div class="modal" style="max-width:440px;">
+    <h3>📏 各辺の距離を入力（実寸化）</h3>
+    <p style="font-size:12px;color:#aaa;">選んだ形(折れ線・多角形・直線)の各辺に実際の距離を入力すると、<b>向きはそのままで、その距離どおりの実寸の形</b>に作り直します。現場のラフな形を描いて距離を入れる用。多角形は最後の辺が自動で閉じます。</p>
+    <div class="prop-row"><label>単位</label>
+      <select id="sd-unit"><option value="m" selected>m</option><option value="mm">mm</option></select></div>
+    <div id="sd-list" style="max-height:320px; overflow-y:auto; margin-top:6px;"></div>
+    <div class="modal-actions">
+      <button class="btn primary" onclick="applyShapeDims()">実寸化して作り直す</button>
+      <button class="btn" onclick="closeModal('modal-shapedim')">閉じる</button>
     </div>
   </div>
 </div>
@@ -2734,6 +2755,76 @@ function selectByFace() {
   document.getElementById('status-mode').textContent = `「${face}」の鉄筋を ${objs.length} 個選択（このまま展開図を作成できます）`;
 }
 
+// 図形のワールド頂点列(line/polyline/polygon)
+function shapeWorldPoints(o) {
+  if (o.type === 'line') {
+    const m = o.calcTransformMatrix();
+    const cx = (o.x1 + o.x2) / 2, cy = (o.y1 + o.y2) / 2;
+    return [
+      fabric.util.transformPoint({x: o.x1 - cx, y: o.y1 - cy}, m),
+      fabric.util.transformPoint({x: o.x2 - cx, y: o.y2 - cy}, m)
+    ];
+  }
+  const m = o.calcTransformMatrix();
+  return o.points.map(p => fabric.util.transformPoint({x: p.x - o.pathOffset.x, y: p.y - o.pathOffset.y}, m));
+}
+
+// ② ラフ形→各辺の距離入力→実寸化。選択中の折れ線/多角形/直線の各辺の入力欄を作る。
+let _shapeDimTarget = null;
+function openShapeDims() {
+  const o = canvas.getActiveObject();
+  if (!o || !(o.type === 'polyline' || o.type === 'polygon' || o.type === 'line')) {
+    alert('折れ線・多角形・直線を1つ選んでください。'); return;
+  }
+  _shapeDimTarget = o;
+  const pts = shapeWorldPoints(o);
+  const div = document.getElementById('sd-list');
+  let html = '';
+  for (let i = 0; i < pts.length - 1; i++) {
+    const len = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y);
+    const mval = (len / 1000).toFixed(2);
+    html += `<div class="prop-row"><label>辺${i+1}</label>
+      <input type="number" id="sd-${i}" value="${mval}" step="0.1" style="flex:1;">
+      <span style="color:#888;font-size:10px;min-width:60px;">現在 ${mval}m</span></div>`;
+  }
+  if (o.type === 'polygon') html += `<div style="font-size:10px;color:#9cf;margin-top:4px;">※多角形の最後の辺(${pts.length}本目)は自動で閉じます。</div>`;
+  div.innerHTML = html;
+  document.getElementById('modal-shapedim').classList.add('show');
+}
+function applyShapeDims() {
+  const o = _shapeDimTarget;
+  if (!o) return;
+  const unitMul = (document.getElementById('sd-unit').value === 'm') ? 1000 : 1;
+  const pts = shapeWorldPoints(o);
+  // 各辺の向きを保ったまま、入力距離で頂点を作り直す
+  const newPts = [{x: pts[0].x, y: pts[0].y}];
+  let cur = {x: pts[0].x, y: pts[0].y};
+  for (let i = 0; i < pts.length - 1; i++) {
+    const inp = document.getElementById('sd-' + i);
+    const lenmm = (parseFloat(inp.value) || 0) * unitMul;
+    const dx = pts[i+1].x - pts[i].x, dy = pts[i+1].y - pts[i].y;
+    const d = Math.hypot(dx, dy) || 1;
+    cur = {x: cur.x + dx/d*lenmm, y: cur.y + dy/d*lenmm};
+    newPts.push(cur);
+  }
+  const closed = (o.type === 'polygon');
+  const props = {
+    stroke: o.stroke, strokeWidth: o.strokeWidth, fill: o.fill || '',
+    strokeDashArray: o.strokeDashArray, _layer: o._layer ?? state.activeLayer,
+    _kind: o._kind, selectable: true, evented: true
+  };
+  // polygonは最後の点を閉じるので、終点(=開始へ戻る点)は重複しないよう除く
+  const finalPts = closed ? newPts.slice(0, newPts.length) : newPts;
+  const shape = closed ? new fabric.Polygon(finalPts, props) : new fabric.Polyline(finalPts, props);
+  canvas.remove(o);
+  canvas.add(shape);
+  canvas.discardActiveObject();
+  canvas.setActiveObject(shape);
+  canvas.renderAll(); saveHistory(); updateStats();
+  closeModal('modal-shapedim');
+  document.getElementById('status-mode').textContent = '形を入力距離で実寸化しました。Fで全体表示';
+}
+
 // 横筋○の高さ間隔(Y)の代表値(中央値)を求める=横筋ピッチ。5mm丸め。
 function computeDotPitch(dots) {
   if (!dots || dots.length < 2) return 0;
@@ -3148,7 +3239,14 @@ function createDimensionLine(start, end, opts) {
   }
 
   const unit = document.getElementById('dim-unit').value;
-  const text = new fabric.Text(realLen + (unit ? ' ' + unit : ''), {
+  // m単位なら mm→m に換算して表示(小数2桁・末尾0は省く)
+  let dispLen;
+  if (unit === 'm') {
+    dispLen = (realLen / 1000).toFixed(2).replace(/\.?0+$/, '') + ' m';
+  } else {
+    dispLen = realLen + (unit ? ' ' + unit : '');
+  }
+  const text = new fabric.Text(dispLen, {
     left: textPos.x, top: textPos.y,
     fontSize: dimSize,
     fontFamily: 'Yu Gothic, sans-serif',
@@ -3669,6 +3767,9 @@ function updateSelectedProps() {
     } else {
       html += `<div class="prop-row"><label>色</label><input type="color" value="${obj.stroke || '#000000'}" onchange="updateObjProp('stroke', this.value)"></div>`;
     html += `<div class="prop-row"><label>太さ</label><input type="number" value="${obj.strokeWidth || 1}" onchange="updateObjProp('strokeWidth', this.value)"></div>`;
+    if (obj.type === 'line' || obj.type === 'polyline' || obj.type === 'polygon') {
+      html += `<div class="prop-row"><button class="btn" style="width:100%;" onclick="openShapeDims()">📏 各辺の距離を入力(実寸化)</button></div>`;
+    }
     if (obj._hatch) {
       const op = Math.round((obj.opacity != null ? obj.opacity : 1) * 100);
       html += `<div class="prop-row"><label>透過率</label>
