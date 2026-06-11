@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.39 (展開図: 鉄筋だけ選択で横筋ピッチを断面から自動算定)</title>
+<title>yoheki-cad v0.40 (展開図: 鉄筋選択時は横筋を断面の実位置・実本数で反映)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.39 (展開図: 鉄筋だけ選択で横筋ピッチを断面から自動算定)</span>
+  <span class="ver">v0.40 (展開図: 鉄筋選択時は横筋を断面の実位置・実本数で反映)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -809,7 +809,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
-      <p><b>🆕 v0.39 展開図のピッチ自動算定:</b> <b>鉄筋だけを選択</b>して展開図を作ると、断面の<b>横筋○の高さ間隔から横筋ピッチを自動算定</b>して反映します(入力欄にも入ります)。※縦筋ピッチ(長さ方向)は断面に現れないため入力値を使います。</p>
+      <p><b>🆕 v0.40 展開図は断面の実配置を反映:</b> <b>鉄筋だけを選択</b>して展開図を作ると、<b>横筋は断面の実際の位置・本数</b>をそのまま反映します(規則ピッチにしません)。<b>縦筋はピッチ(入力値)</b>で並びます。寸法の数値は後から手書き(テキスト)で記入できます。要は断面図と本数が合っていればOK。</p>
       <p><b>🆕 v0.38 横筋○スナップ修正・展開図ピッチ既定:</b> 横筋○が<b>縦方向もグリッドに吸着</b>するように修正(垂線スナップで縦に流れる不具合を解消。端点・交点・方眼に吸着)。展開図のピッチ既定を<b>200</b>に。</p>
       <p><b>🆕 v0.37 展開図×マスタ定尺:</b> 配筋展開図(正面図)で、横筋が<b>定尺(マスタ登録の5.5m等)</b>を超えると<b>継手位置を縦の橙破線</b>で表示し、<b>横筋の必要本数/列・継手箇所</b>をラベルに注記します。径ごとの定尺は「📚 マスタ登録」で変更できます。</p>
       <p><b>🆕 v0.36 マスタ登録（基本構造）:</b></p>
@@ -2718,21 +2718,12 @@ function makeDevelopment() {
   const dots = targets.filter(o => o._type === 'rebardot');
   const bars = targets.filter(o => o._type === 'rebar');
 
-  // 鉄筋だけを選択した場合は、断面図(横筋○の高さ間隔)からピッチを自動算定して入力欄に反映
+  // 鉄筋だけを選択した場合: 横筋は「断面の実際の位置・本数」をそのまま反映(規則ピッチにしない)。
+  //   縦筋はピッチ(入力値)で並べる。数値は後から入力欄で変更できる。
   const activeObjs = canvas.getActiveObjects();
   const rebarOnly = activeObjs.length > 0 && activeObjs.every(o => o._type === 'rebar' || o._type === 'rebardot');
-  let autoNote = '';
-  if (rebarOnly) {
-    // 横筋ピッチ(縦の間隔)は断面の横筋○の高さ間隔から算定できる
-    const hp = computeDotPitch(dots);
-    if (hp > 0) {
-      document.getElementById('dev-hpitch').value = hp;
-      autoNote = ` 横筋ピッチ=${hp}mm(断面から算定)`;
-    }
-    // ※縦筋ピッチ(長さ方向)は断面に現れないため算定不可 → 入力値を使用
-  }
+  let autoNote = rebarOnly ? ` 横筋は断面の実位置で${dots.length}本` : '';
 
-  // 縦筋ピッチ(自動算定後の値を採用)
   const P = parseFloat(document.getElementById('dev-pitch').value) || 0;
   if (P <= 0) { alert('縦筋ピッチ(mm)を入力してください'); return; }
 
@@ -2801,7 +2792,8 @@ function makeDevelopment() {
       canvas.add(ln); made.push(ln);
     }
     // 横筋: ピッチ指定があれば等間隔グリッド+左に寸法、無ければ断面の横筋○の高さに引く
-    const Ph = parseFloat((document.getElementById('dev-hpitch')||{}).value) || 0;
+    // 鉄筋だけ選択時は横筋を実位置(断面の○の高さ)で反映。それ以外は横筋ピッチ入力で等間隔グリッド。
+    const Ph = rebarOnly ? 0 : (parseFloat((document.getElementById('dev-hpitch')||{}).value) || 0);
     const hColor = (dots[0] && dots[0].stroke) || '#c00';
     const hWidth = Math.max(2, (dots[0] && dots[0].strokeWidth) || 2);
     const hDia = (dots[0] && dots[0]._dia) || 'D13';
