@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.47 (修正: 展開図横筋表示/重複頂点/連続複製/まとめて3D種別)</title>
+<title>yoheki-cad v0.48 (パース: カーソル位置ズーム・鉄筋透過)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.47 (修正: 展開図横筋表示/重複頂点/連続複製/まとめて3D種別)</span>
+  <span class="ver">v0.48 (パース: カーソル位置ズーム・鉄筋透過)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -830,6 +830,12 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.48 パース操作:</b></p>
+      <ul>
+        <li><b>マウスホイールでカーソル位置に寄せてズーム</b>(見たい所を拡大しやすく)</li>
+        <li><b>「鉄筋透過(中身を見る)」</b>ON: 構造体を半透明にして、中の鉄筋を赤く表示。擁壁内の配筋が見えます</li>
+        <li>奥行きは図形ごとに「個別奥行(mm)」で変えられます(右パネル)。階段は段差として立体化されます</li>
+      </ul>
       <p><b>🆕 v0.47 まとめて修正:</b></p>
       <ul>
         <li>展開図の<b>正面図に横筋が出ない不具合を修正</b>(径ベースの太さ・色に)</li>
@@ -1353,6 +1359,7 @@
       <label>奥行/高さ(mm)</label>
       <input type="number" id="persp-depth" value="3000" min="100" max="50000" step="100" onchange="rebuildPerspective()" style="width:90px;">
       <label><input type="checkbox" id="persp-ground" checked onchange="rebuildPerspective()"> 地面</label>
+      <label><input type="checkbox" id="persp-xray" onchange="rebuildPerspective()"> 鉄筋透過(中身を見る)</label>
     </div>
     <div class="prop-row" style="font-size:11px; color:#888;">
       <span id="persp-info">対象: 選択中の図形(無選択なら全図形)から立体化。図形ごとに右パネルで種別(擁壁/U字溝/階段/家/地盤)と個別奥行を設定できます。線・折れ線(コの字等)も立体化されます。</span>
@@ -5903,7 +5910,23 @@ function initPerspective() {
     });
     cv.addEventListener('wheel', e => {
       e.preventDefault();
-      perspState.dist *= (1 + (e.deltaY>0?0.1:-0.1));
+      // カーソル位置の3D点へ寄せながらズーム
+      const rect = cv.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+      if (perspState.camera && perspState.group) {
+        const ray = new THREE.Raycaster();
+        ray.setFromCamera(ndc, perspState.camera);
+        const its = ray.intersectObjects(perspState.group.children, true);
+        if (its.length && perspState.target) {
+          const f = (e.deltaY < 0) ? 0.35 : 0.15;   // 拡大時に強めに寄せる
+          perspState.target.lerp(its[0].point, f);
+        }
+      }
+      perspState.dist *= (1 + (e.deltaY>0 ? 0.12 : -0.12));
+      perspState.dist = Math.max(50, perspState.dist);
     }, {passive:false});
     perspState._bound = true;
   }
@@ -6014,6 +6037,7 @@ function rebuildPerspective() {
 
   const mode = document.getElementById('persp-mode').value;
   const globalDepth = parseFloat(document.getElementById('persp-depth').value) || 3000;
+  const xray = !!(document.getElementById('persp-xray') || {}).checked;  // 鉄筋透過(中身を見る)
   const srcs = perspSourceObjects();
   const edgeMat = new THREE.LineBasicMaterial({color:0x222222});
 
@@ -6028,8 +6052,17 @@ function rebuildPerspective() {
     if (mm.length < 2) return;
     kindCount[kind] = (kindCount[kind]||0)+1;
     const depth = (obj._depth && obj._depth>0) ? obj._depth : globalDepth;
-    const color = KIND_COLOR[kind] || 0xcfcabd;
-    const mat = new THREE.MeshLambertMaterial({color, side:THREE.DoubleSide});
+    const isRebar = (obj._type === 'rebar' || obj._type === 'rebardot' || kind === 'rebar3d');
+    const color = isRebar ? 0xcc2222 : (KIND_COLOR[kind] || 0xcfcabd);
+    // 鉄筋透過ON時: 構造体は半透明、鉄筋は赤く不透明で前面に。
+    let mat;
+    if (xray && isRebar) {
+      mat = new THREE.MeshLambertMaterial({color:0xcc2222, side:THREE.DoubleSide});
+    } else if (xray) {
+      mat = new THREE.MeshLambertMaterial({color, side:THREE.DoubleSide, transparent:true, opacity:0.3, depthWrite:false});
+    } else {
+      mat = new THREE.MeshLambertMaterial({color, side:THREE.DoubleSide});
+    }
 
     // 形状(Shape)を作る: 閉じていればそのまま、開いていれば帯(リボン)化
     let shapePts;
@@ -6125,21 +6158,23 @@ function animatePerspective() {
   perspState.raf = requestAnimationFrame(animatePerspective);
   const s = perspState;
   if (!s.camera || !s.renderer) return;
-  // 球面座標でカメラ配置
+  // 球面座標でカメラ配置(注視点 target を中心に)
   const d = s.dist || 8000;
   const cosx = Math.cos(s.rot.x);
+  const t = s.target || new THREE.Vector3(0,0,0);
   s.camera.position.set(
-    Math.sin(s.rot.y)*cosx*d,
-    Math.sin(s.rot.x)*d,
-    Math.cos(s.rot.y)*cosx*d
+    t.x + Math.sin(s.rot.y)*cosx*d,
+    t.y + Math.sin(s.rot.x)*d,
+    t.z + Math.cos(s.rot.y)*cosx*d
   );
-  s.camera.lookAt(0,0,0);
+  s.camera.lookAt(t);
   s.renderer.render(s.scene, s.camera);
 }
 
 function perspResetView() {
   perspState.rot = {x:-0.5, y:0.6};
   perspState.dist = null;
+  perspState.target = new THREE.Vector3(0,0,0);
   rebuildPerspective();
 }
 
