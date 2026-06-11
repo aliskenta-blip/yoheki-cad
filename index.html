@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.19.1 (移動方向: 角度45°刻みで全方位)</title>
+<title>yoheki-cad v0.20 (選択: 線ごと選択＋ピンク強調)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.19.1 (移動方向: 角度45°刻みで全方位)</span>
+  <span class="ver">v0.20 (選択: 線ごと選択＋ピンク強調)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -708,6 +708,13 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.20 選択の改善:</b></p>
+      <ul>
+        <li><b>重なっていても線・図形ごとに選べる</b>ように(クリックした線の上で正確に判定)</li>
+        <li><b>選択中の線・図形がピンク色</b>になり、選択枠・ハンドルもピンクに。何を選んでいるか一目で分かります</li>
+        <li>ピンクは画面表示だけ。<b>保存・印刷・画像書き出しには元の色</b>で出ます</li>
+        <li>複数選択は枠ドラッグ または Shift+クリック。塗りのない図形は「線」の上をクリックして選択してください</li>
+      </ul>
       <p><b>🆕 v0.19 移動方向の制限:</b></p>
       <ul>
         <li>左パネル「表示設定」の<b>「移動方向」</b>で、選択(S)した図形をドラッグするとき動かせる向きを制限できます</li>
@@ -1112,6 +1119,20 @@ const canvas = new fabric.Canvas('canvas-container', {
   fireRightClick: true,
   stopContextMenu: true
 });
+
+// 重なっていても線・図形ごとに正確に選べるように(実際に描かれた線の上をクリック判定)
+canvas.perPixelTargetFind = true;
+canvas.targetFindTolerance = 8;   // 細い線でも少しの余裕で掴める
+// 選択枠・ハンドルをピンクに
+canvas.selectionColor = 'rgba(255,45,135,0.10)';
+canvas.selectionBorderColor = '#ff2d87';
+canvas.selectionLineWidth = 1.5;
+fabric.Object.prototype.borderColor = '#ff2d87';
+fabric.Object.prototype.cornerColor = '#ff2d87';
+fabric.Object.prototype.cornerStrokeColor = '#c2185b';
+fabric.Object.prototype.cornerSize = 9;
+fabric.Object.prototype.transparentCorners = false;
+fabric.Object.prototype.borderScaleFactor = 1.5;
 
 // グローバル状態
 let state = {
@@ -2340,9 +2361,38 @@ canvas.on('before:render', drawGridLayer);
 })();
 
 // オブジェクト選択
-canvas.on('selection:created', updateSelectedProps);
-canvas.on('selection:updated', updateSelectedProps);
+// --- 選択中の線・図形をピンクで強調(保存/印刷/書き出しには残さない) ---
+const SEL_PINK = '#ff2d87';
+let _selHi = [];   // [{obj, stroke}] 元の線色を退避
+// 通常の線/図形は線色をピンクに。グループ(寸法/引出/十字○)は枠の色で示す。
+function applySelHighlight() {
+  clearSelHighlight();
+  canvas.getActiveObjects().forEach(o => {
+    if (o._isGrid || o._isFrame || o._objects) return;   // グループは対象外(枠で示す)
+    if (!o.stroke) return;                                // 線色のない図形は枠で示す
+    _selHi.push({ obj: o, stroke: o.stroke });
+    o.set('stroke', SEL_PINK);
+  });
+  canvas.requestRenderAll();
+}
+// 解除時に元色へ戻す。ただしユーザーがパネル等で色を変えていたら(=ピンク以外)その色を尊重。
+function clearSelHighlight() {
+  _selHi.forEach(h => { if (h.obj.stroke === SEL_PINK) h.obj.set('stroke', h.stroke); });
+  _selHi = [];
+}
+// シリアライズ/書き出し中だけ一時的に元色へ戻す(ピンクのままの物だけ)
+function withoutSelHighlight(fn) {
+  const saved = _selHi.filter(h => h.obj.stroke === SEL_PINK);
+  saved.forEach(h => h.obj.set('stroke', h.stroke));
+  try { return fn(); }
+  finally { saved.forEach(h => h.obj.set('stroke', SEL_PINK)); }
+}
+
+canvas.on('selection:created', () => { updateSelectedProps(); applySelHighlight(); });
+canvas.on('selection:updated', () => { updateSelectedProps(); applySelHighlight(); });
 canvas.on('selection:cleared', () => {
+  clearSelHighlight();
+  canvas.requestRenderAll();
   document.getElementById('prop-content').innerHTML = 'オブジェクトを選択してください';
 });
 
@@ -2689,7 +2739,7 @@ function saveHistory() {
   if (state.isLoadingHistory) return;
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
-  const snap = JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']));
+  const snap = withoutSelHighlight(() => JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end'])));
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex++;
@@ -2738,7 +2788,8 @@ function deleteSelected() {
 function duplicateSelected() {
   const active = canvas.getActiveObject();
   if (!active) return;
-  active.clone((cloned) => {
+  // 複製元がピンク強調中でも元の線色で複製する
+  withoutSelHighlight(() => active.clone((cloned) => {
     cloned.set({
       left: cloned.left + 30,
       top: cloned.top + 30
@@ -2748,7 +2799,7 @@ function duplicateSelected() {
     canvas.renderAll();
     saveHistory();
     updateStats();
-  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']);
+  }, ['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']));
 }
 
 function selectAll() {
@@ -3261,7 +3312,7 @@ function saveJSON() {
     version: '0.8',
     created: new Date().toISOString(),
     layers: state.layers,
-    canvas: canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end'])
+    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end']))
   };
   // グリッドは除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame);
@@ -3306,14 +3357,14 @@ function openJSON() {
 }
 
 function exportSVG() {
-  // グリッドを除外したSVG出力
-  const svg = canvas.toSVG({
+  // グリッドを除外したSVG出力(選択ハイライトは元色に戻して出力)
+  const svg = withoutSelHighlight(() => canvas.toSVG({
     suppressPreamble: false
   }, function(o) {
     // グリッドはスキップ
     if (o._isGrid || o._isFrame) return false;
     return o;
-  });
+  }));
   const blob = new Blob([svg], {type: 'image/svg+xml'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -3367,14 +3418,14 @@ function renderRegionPNG(multiplier) {
   let dataURL = null;
   state.exporting = true;   // フックでグリッドを描かない(背景塗りは残す)
   try {
-    dataURL = canvas.toDataURL({
+    dataURL = withoutSelHighlight(() => canvas.toDataURL({
       format: 'png',
       multiplier: mult,
       left: 0,
       top: 0,
       width: reg.width,
       height: reg.height
-    });
+    }));
   } catch (e) {
     console.error('PNG生成エラー', e);
     dataURL = null;
