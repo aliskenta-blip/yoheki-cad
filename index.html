@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.48 (パース: カーソル位置ズーム・鉄筋透過)</title>
+<title>yoheki-cad v0.49 (パース: テクスチャ・パン移動・拡大表示)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.48 (パース: カーソル位置ズーム・鉄筋透過)</span>
+  <span class="ver">v0.49 (パース: テクスチャ・パン移動・拡大表示)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -830,6 +830,12 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.49 パースの見た目・操作:</b></p>
+      <ul>
+        <li><b>模様(テクスチャ)</b>: 種別ごとに質感を表示(擁壁=コンクリ斑、間知=石積み、舗装=アスファルト、土・芝・砕石・屋根 など)。チェックでON/OFF</li>
+        <li><b>パン移動</b>: 右ドラッグ or Shift+ドラッグで視点を平行移動</li>
+        <li><b>拡大/標準</b>ボタンで3D画面を大きく表示</li>
+      </ul>
       <p><b>🆕 v0.48 パース操作:</b></p>
       <ul>
         <li><b>マウスホイールでカーソル位置に寄せてズーム</b>(見たい所を拡大しやすく)</li>
@@ -1359,7 +1365,11 @@
       <label>奥行/高さ(mm)</label>
       <input type="number" id="persp-depth" value="3000" min="100" max="50000" step="100" onchange="rebuildPerspective()" style="width:90px;">
       <label><input type="checkbox" id="persp-ground" checked onchange="rebuildPerspective()"> 地面</label>
+      <label><input type="checkbox" id="persp-tex" checked onchange="rebuildPerspective()"> 模様(テクスチャ)</label>
       <label><input type="checkbox" id="persp-xray" onchange="rebuildPerspective()"> 鉄筋透過(中身を見る)</label>
+    </div>
+    <div class="prop-row" style="font-size:10px; color:#9cf;">
+      <span>ドラッグ=回転 / 右ドラッグ・Shift+ドラッグ=移動 / ホイール=カーソル位置にズーム</span>
     </div>
     <div class="prop-row" style="font-size:11px; color:#888;">
       <span id="persp-info">対象: 選択中の図形(無選択なら全図形)から立体化。図形ごとに右パネルで種別(擁壁/U字溝/階段/家/地盤)と個別奥行を設定できます。線・折れ線(コの字等)も立体化されます。</span>
@@ -1370,6 +1380,7 @@
     <div class="modal-actions" style="justify-content:space-between;">
       <div>
         <button class="btn" onclick="perspResetView()">視点リセット</button>
+        <button class="btn" onclick="perspToggleBig()">⤢ 拡大/標準</button>
         <button class="btn" onclick="perspExportPNG()">PNG保存</button>
       </div>
       <button class="btn" onclick="closePerspective()">閉じる</button>
@@ -5876,6 +5887,26 @@ function closePerspective() {
   closeModal('modal-persp');
 }
 
+// パース表示を拡大/標準に切替(モーダルと3Dキャンバスを大きく)
+let _perspBig = false;
+function perspToggleBig() {
+  _perspBig = !_perspBig;
+  const modal = document.querySelector('#modal-persp .modal');
+  const wrap = document.getElementById('persp-canvas-wrap');
+  if (_perspBig) {
+    modal.style.maxWidth = '96vw'; modal.style.width = '96vw';
+    wrap.style.height = '78vh';
+  } else {
+    modal.style.maxWidth = '760px'; modal.style.width = '';
+    wrap.style.height = '440px';
+  }
+  // レンダラ/カメラのサイズを更新
+  const cv = document.getElementById('persp-canvas');
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  if (perspState.renderer) perspState.renderer.setSize(w, h, false);
+  if (perspState.camera) { perspState.camera.aspect = w/h; perspState.camera.updateProjectionMatrix(); }
+}
+
 function initPerspective() {
   const wrap = document.getElementById('persp-canvas-wrap');
   const cv = document.getElementById('persp-canvas');
@@ -5897,15 +5928,30 @@ function initPerspective() {
   const dir = new THREE.DirectionalLight(0xffffff, 0.8); dir.position.set(1,2,1.5); perspState.scene.add(dir);
   const dir2 = new THREE.DirectionalLight(0xffffff, 0.3); dir2.position.set(-1,1,-1); perspState.scene.add(dir2);
 
-  // マウス操作(自前オービット)
+  // マウス操作(自前オービット)。左=回転 / 右・Shift+左=移動(パン)。
   if (!perspState._bound) {
-    cv.addEventListener('mousedown', e => { perspState.dragging=true; perspState.last={x:e.clientX,y:e.clientY}; });
+    cv.addEventListener('mousedown', e => {
+      perspState.dragging=true;
+      perspState.panning = (e.button===2 || e.shiftKey);
+      perspState.last={x:e.clientX,y:e.clientY};
+      e.preventDefault();
+    });
+    cv.addEventListener('contextmenu', e => e.preventDefault());   // 右ドラッグでパンするため
     window.addEventListener('mouseup', () => perspState.dragging=false);
     window.addEventListener('mousemove', e => {
       if (!perspState.dragging) return;
       const dx=e.clientX-perspState.last.x, dy=e.clientY-perspState.last.y;
-      perspState.rot.y += dx*0.01; perspState.rot.x += dy*0.01;
-      perspState.rot.x = Math.max(-1.5, Math.min(1.5, perspState.rot.x));
+      if (perspState.panning && perspState.camera && perspState.target) {
+        // 画面平面で注視点を移動(パン)
+        const right=new THREE.Vector3(), up=new THREE.Vector3(), fwd=new THREE.Vector3();
+        perspState.camera.matrixWorld.extractBasis(right, up, fwd);
+        const k = (perspState.dist||8000) * 0.0014;
+        perspState.target.addScaledVector(right, -dx*k);
+        perspState.target.addScaledVector(up, dy*k);
+      } else {
+        perspState.rot.y += dx*0.01; perspState.rot.x += dy*0.01;
+        perspState.rot.x = Math.max(-1.5, Math.min(1.5, perspState.rot.x));
+      }
       perspState.last={x:e.clientX,y:e.clientY};
     });
     cv.addEventListener('wheel', e => {
@@ -6029,6 +6075,57 @@ const KIND_LABEL = {
 const KIND_GROUND = new Set(['ground','grass','pavement','crushed','leveling']);
 const KIND_STAIRS = new Set(['stairs','stairs_in','stairs_other']);
 
+// 種別ごとのテクスチャ(キャンバスで模様を描く)。1タイル=tileMm。
+const _kindTexCache = {};
+function hex6(n){ return '#' + (n>>>0).toString(16).padStart(6,'0').slice(-6); }
+function shade(hex, amt){ // amt -1..1
+  const n=parseInt(hex.slice(1),16); let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  const f=v=>Math.max(0,Math.min(255,Math.round(v+amt*255)));
+  return `rgb(${f(r)},${f(g)},${f(b)})`;
+}
+function kindTexture(kind) {
+  if (_kindTexCache[kind]) return _kindTexCache[kind];
+  const S = 128, c = document.createElement('canvas'); c.width=c.height=S;
+  const ctx = c.getContext('2d');
+  const base = hex6(KIND_COLOR[kind] || 0xcfcabd);
+  ctx.fillStyle = base; ctx.fillRect(0,0,S,S);
+  const speckle = (n, sz, dark) => { for(let i=0;i<n;i++){ ctx.fillStyle=shade(base, (Math.random()-0.5)*dark); const x=Math.random()*S,y=Math.random()*S,r=sz*(0.5+Math.random()); ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); } };
+  if (kind==='kenchi') {                 // 間知ブロック=石積み(菱形)
+    ctx.strokeStyle=shade(base,-0.25); ctx.lineWidth=3;
+    for(let y=0;y<=S;y+=32){ for(let x=0;x<=S;x+=32){ const o=((y/32)%2)*16; ctx.strokeRect(x-16+o,y,32,32); } }
+    speckle(60,2,0.18);
+  } else if (kind==='block'||kind==='leveling'||kind==='foundation'){ // ブロック/コンクリ=目地グリッド
+    ctx.strokeStyle=shade(base,-0.2); ctx.lineWidth=2;
+    for(let y=0;y<=S;y+=42){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(S,y); ctx.stroke(); }
+    for(let x=0;x<=S;x+=64){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,S); ctx.stroke(); }
+    speckle(40,1.5,0.12);
+  } else if (kind==='wall'){              // 擁壁=コンクリ斑+細目地
+    speckle(140,1.6,0.16);
+    ctx.strokeStyle=shade(base,-0.15); ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(0,S/2); ctx.lineTo(S,S/2); ctx.stroke();
+  } else if (kind==='pavement'){          // 舗装=アスファルト粒
+    speckle(260,1.4,0.5);
+  } else if (kind==='crushed'){           // 砕石=粗い粒
+    speckle(120,3,0.5);
+  } else if (kind==='ground'){            // 土
+    speckle(160,2.2,0.4);
+  } else if (kind==='grass'){             // 芝=草の線
+    speckle(60,2,0.25);
+    ctx.strokeStyle=shade(base,-0.3); ctx.lineWidth=1.5;
+    for(let i=0;i<120;i++){ const x=Math.random()*S,y=Math.random()*S; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+(Math.random()-0.5)*6,y-6-Math.random()*6); ctx.stroke(); }
+  } else if (kind==='roof'){              // 屋根=瓦の横線
+    ctx.strokeStyle=shade(base,-0.3); ctx.lineWidth=3;
+    for(let y=0;y<=S;y+=22){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(S,y); ctx.stroke(); }
+  } else {                               // 汎用/家/その他=軽い斑
+    speckle(60,1.6,0.1);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  const tileMm = (kind==='kenchi'||kind==='block') ? 500 : (KIND_GROUND.has(kind) ? 1500 : 700);
+  tex.repeat.set(1/tileMm, 1/tileMm);
+  _kindTexCache[kind] = tex;
+  return tex;
+}
+
 function rebuildPerspective() {
   if (!perspState.scene) return;
   if (perspState.group) { perspState.scene.remove(perspState.group); }
@@ -6038,6 +6135,7 @@ function rebuildPerspective() {
   const mode = document.getElementById('persp-mode').value;
   const globalDepth = parseFloat(document.getElementById('persp-depth').value) || 3000;
   const xray = !!(document.getElementById('persp-xray') || {}).checked;  // 鉄筋透過(中身を見る)
+  const useTex = !((document.getElementById('persp-tex')||{}).checked === false);  // 模様(既定ON)
   const srcs = perspSourceObjects();
   const edgeMat = new THREE.LineBasicMaterial({color:0x222222});
 
@@ -6060,6 +6158,8 @@ function rebuildPerspective() {
       mat = new THREE.MeshLambertMaterial({color:0xcc2222, side:THREE.DoubleSide});
     } else if (xray) {
       mat = new THREE.MeshLambertMaterial({color, side:THREE.DoubleSide, transparent:true, opacity:0.3, depthWrite:false});
+    } else if (useTex && !isRebar) {
+      mat = new THREE.MeshLambertMaterial({map: kindTexture(kind), color:0xffffff, side:THREE.DoubleSide});
     } else {
       mat = new THREE.MeshLambertMaterial({color, side:THREE.DoubleSide});
     }
