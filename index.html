@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.51 (DXF: LWPOLYLINE対応・実寸mm・部品として取込)</title>
+<title>yoheki-cad v0.52 (L形側溝 正面: 1段斜/3段斜/切下げ追加)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.51 (DXF: LWPOLYLINE対応・実寸mm・部品として取込)</span>
+  <span class="ver">v0.52 (L形側溝 正面: 1段斜/3段斜/切下げ追加)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -833,6 +833,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.52 L形側溝の正面バリエーション:</b> 組み込み部品(側溝)に <b>L形側溝 正面(基本/1段斜/3段斜/切下げ)</b> を追加(長さ可変)。寸法は標準的な目安なので、配置後に頂点を調整してください。</p>
       <p><b>🆕 v0.51 DXF読込の改良:</b></p>
       <ul>
         <li><b>LWPOLYLINE（軽量ポリライン）に対応</b>(対応図形が増え、欠けが減りました)</li>
@@ -5625,6 +5626,14 @@ const BUILTIN_PARTS = [
     build:()=>[{closed:true,pts:[[0,0],[80,0],[100,5],[114,20],[120,40],[120,200],[500,200],[500,300],[0,300]]}]},
   { key:'lgutter_plan', name:'L形側溝 平面(長さ可変)', category:'側溝', lengthVar:true, defLen:1000,
     build:(L)=>[{closed:true,pts:[[0,0],[500,0],[500,L],[0,L]]},{pts:[[120,0],[120,L]]},{pts:[[80,0],[80,L]]}]},
+  { key:'lgutter_front_base', name:'L形側溝 正面(基本)', category:'側溝', lengthVar:true, defLen:2000,
+    build:(L)=>[{closed:true,pts:[[0,0],[0,300],[L,300],[L,0]]},{pts:[[0,200],[L,200]]}]},
+  { key:'lgutter_front_1', name:'L形側溝 正面(1段斜)', category:'側溝', lengthVar:true, defLen:2000,
+    build:(L)=>[{closed:true,pts:[[0,0],[0,300],[L*0.4,300],[L*0.6,200],[L,200],[L,0]]},{pts:[[0,200],[L*0.4,200]]}]},
+  { key:'lgutter_front_3', name:'L形側溝 正面(3段斜)', category:'側溝', lengthVar:true, defLen:3000,
+    build:(L)=>[{closed:true,pts:[[0,0],[0,300],[L*0.16,300],[L*0.28,250],[L*0.44,250],[L*0.56,200],[L*0.72,200],[L*0.84,150],[L,150],[L,0]]}]},
+  { key:'lgutter_front_cut', name:'L形側溝 正面(切下げ)', category:'側溝', lengthVar:true, defLen:3000,
+    build:(L)=>[{closed:true,pts:[[0,0],[0,300],[L*0.3,300],[L*0.4,150],[L*0.6,150],[L*0.7,300],[L,300],[L,0]]},{pts:[[0,200],[L*0.3,200]]},{pts:[[L*0.7,200],[L,200]]}]},
   { key:'curb_sec', name:'地先境界ブロック 断面', category:'縁石',
     build:()=>[{closed:true,pts:[[15,0],[135,0],[150,250],[0,250]]}]},
   { key:'catchbasin_plan', name:'集水桝 平面(500角)', category:'桝',
