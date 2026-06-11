@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.60 (展開図: 縦横の格子を合わせ・底面図も格子に統一)</title>
+<title>yoheki-cad v0.61 (展開図を投影方式に: 縦筋実長×横筋を軸へ射影)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.60 (展開図: 縦横の格子を合わせ・底面図も格子に統一)</span>
+  <span class="ver">v0.61 (展開図を投影方式に: 縦筋実長×横筋を軸へ射影)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -843,6 +843,12 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.61 展開図を投影方式に(パースの2D版):</b></p>
+      <ul>
+        <li><b>縦筋の実長をそのまま縦線</b>に(向き不問。縦壁＝縦向き/底版＝横向きでも実長で)</li>
+        <li><b>横筋は「縦筋のどこに付いているか」を軸へ射影</b>して、その位置に横線</li>
+        <li>これで<b>底面図(底版)は上から見下ろした図</b>に。底版主筋を「🖊縦筋」、配力筋を「🖊横筋」に指定して作成</li>
       </ul>
       <p><b>🆕 v0.60 展開図 縦横の格子・底面図:</b></p>
       <ul>
@@ -3108,86 +3114,71 @@ function makeDevelopment() {
 
   // 正面図・底面図とも同じ格子(縦筋=ピッチの縦線 × 横筋=位置の横線)。底面図は底版の鉄筋を選んで作る。
   {
-    // 縦向き鉄筋=縦筋(ピッチの縦線)、横向き鉄筋・横筋○=横筋(その高さの横線)
+    // 投影方式: 縦筋の実長を縦線に、横筋は「縦筋のどこに付くか」を軸へ射影して位置決め。
+    //   縦壁(縦筋=縦向き)も底版(縦筋=横向き)も同じロジックで正しく展開できる。
     const _diaW = {'D10':3,'D13':4,'D16':5,'D19':6,'D22':7};
     const _diaC = {'D10':'#888','D13':'#0066cc','D16':'#c00','D19':'#900','D22':'#600'};
-    // 鉄筋を縦筋/横筋に分類。_role指定(縦筋=tate/横筋=yoko)があれば優先、無ければ向きで自動判別。
+    // 縦筋/横筋に分類(role優先、無ければ向き)。横筋○も横筋に含める。
     const vBars=[], hBars=[];
     bars.forEach(bar=>{ const b=bar.getBoundingRect(true,true);
       if (bar._role==='tate') vBars.push({bar,b});
       else if (bar._role==='yoko') hBars.push({bar,b});
       else (b.width > b.height*1.3 ? hBars : vBars).push({bar,b});
     });
-    // 縦筋の高さ範囲(縦向き鉄筋から。無ければ全鉄筋/全体)
-    let vTop0 = Infinity, vBot0 = -Infinity, barDia = 'D13';
+    dots.forEach(d=>{ const b=d.getBoundingRect(true,true); hBars.push({bar:d,b}); });
+    // 代表縦筋(最長)とその実長・軸(向きは問わない)
     const vSrc = vBars.length ? vBars : bars.map(bar=>({bar,b:bar.getBoundingRect(true,true)}));
-    if (vSrc.length){ vSrc.forEach(({b})=>{ vTop0=Math.min(vTop0,b.top); vBot0=Math.max(vBot0,b.top+b.height); }); barDia=vSrc[0].bar._dia||'D13'; }
-    else { vTop0=minY; vBot0=maxY; }
+    let vRep=null, vLen=0;
+    vSrc.forEach(o=>{ const len=Math.max(o.b.width,o.b.height); if(len>vLen){ vLen=len; vRep=o; } });
+    if (!vLen) vLen = (maxY-minY) || 1000;
+    const barDia = (vRep && vRep.bar._dia) || 'D13';
     const barStroke=_diaC[barDia]||'#c00', barWidth=_diaW[barDia]||4;
-    // 横筋の径
-    const hDia = (hBars[0] && hBars[0].bar._dia) || (dots[0] && dots[0]._dia) || 'D13';
-    const hColor = _diaC[hDia] || '#c00';
-    const hWidth = _diaW[hDia] || 4;
-    let hPitchShown = 0;
-    // 横筋の高さ位置を先に確定(縦範囲を合わせるため)
-    let hYs = [];
+    // 縦筋の軸(bboxの長辺方向の始点→方向)
+    let ax0={x:minX,y:minY}, axDir={x:0,y:1};
+    if (vRep){ const b=vRep.b, cx=b.left+b.width/2, cy=b.top+b.height/2;
+      if (b.height >= b.width) { ax0={x:cx, y:b.top}; axDir={x:0,y:1}; }   // 縦向き(縦壁主筋)
+      else { ax0={x:b.left, y:cy}; axDir={x:1,y:0}; }                      // 横向き(底版主筋)
+    }
+    const hDia = (hBars[0] && hBars[0].bar._dia) || 'D13';
+    const hColor=_diaC[hDia]||'#c00', hWidth=_diaW[hDia]||4;
+    // 横筋中心を縦筋軸へ射影 → t(0..1) = 縦筋のどこに付いているか
+    const projT = (cx,cy)=>{ const t=((cx-ax0.x)*axDir.x+(cy-ax0.y)*axDir.y)/(vLen||1); return Math.max(0,Math.min(1,t)); };
+    let hTs=[], hPitchShown=0;
     const Ph = rebarOnly ? 0 : (parseFloat((document.getElementById('dev-hpitch')||{}).value) || 0);
     if (Ph > 0) {
-      const m = Math.max(1, Math.floor((vBot0 - vTop0) / Ph));
-      for (let j = 0; j <= m; j++) hYs.push(vTop0 + j * Ph);
+      const m = Math.max(1, Math.floor(vLen / Ph));
+      for (let j=0;j<=m;j++) hTs.push(Math.min(1, (j*Ph)/vLen));
       hPitchShown = Ph;
     } else {
-      // 横筋位置 = 横筋○の高さ + 横向き鉄筋の中心高さ(重複除去)。断面の実位置を反映。
-      const ys=[];
-      dots.forEach(d=>ys.push(d.top));
-      hBars.forEach(({b})=>ys.push(b.top + b.height/2));
-      ys.sort((a,b)=>a-b);
-      ys.forEach(y=>{ if(!hYs.length || Math.abs(hYs[hYs.length-1]-y) > 5) hYs.push(y); });
-      hPitchShown = hYs.length>=2 ? Math.round((hYs[hYs.length-1]-hYs[0])/(hYs.length-1)) : 0;
-      autoNote = ` 横筋${hYs.length}本(断面の実位置)`;
+      const tt=[];
+      hBars.forEach(o=>{ tt.push(projT(o.b.left+o.b.width/2, o.b.top+o.b.height/2)); });
+      tt.sort((a,b)=>a-b);
+      tt.forEach(t=>{ if(!hTs.length || Math.abs(hTs[hTs.length-1]-t)*vLen > 5) hTs.push(t); });
+      hPitchShown = hTs.length>=2 ? Math.round((hTs[hTs.length-1]-hTs[0])*vLen/(hTs.length-1)) : 0;
+      autoNote = ` 横筋${hTs.length}本(縦筋上の位置)`;
     }
-    // グリッドの縦範囲 = 縦筋の範囲 ∪ 横筋の位置(縦筋と横筋が必ず交差するように)
-    let vTop = vTop0, vBot = vBot0;
-    hYs.forEach(y=>{ vTop=Math.min(vTop,y); vBot=Math.max(vBot,y); });
-    frameTop = vTop; frameH = (vBot - vTop);
-    // 縦筋: ピッチで縦線(全高)
-    for (let k = 0; k <= n; k++) {
-      const x = baseX + k * P;
-      const ln = new fabric.Line([x, vTop, x, vBot], {
-        stroke: barStroke, strokeWidth: barWidth, fill: '',
-        _type:'rebar', _dia:barDia, _grade:'SD345', _hookL:'none', _hookR:'none',
-        _length: Math.round(vBot - vTop), _layer: state.activeLayer, selectable:true, evented:true
-      });
+    // 配置: 上端=断面のminY、縦=実長vLen、横=延長L(ピッチP)
+    const gridTop = minY;
+    frameTop = gridTop; frameH = vLen;
+    // 縦筋: 実長vLenの縦線をピッチで
+    for (let k=0;k<=n;k++){ const x=baseX+k*P;
+      const ln=new fabric.Line([x, gridTop, x, gridTop+vLen], {stroke:barStroke,strokeWidth:barWidth,fill:'',_type:'rebar',_dia:barDia,_grade:'SD345',_hookL:'none',_hookR:'none',_length:Math.round(vLen),_layer:state.activeLayer,selectable:true,evented:true});
       canvas.add(ln); made.push(ln);
     }
-    // 横筋: 確定した高さに横線
-    hYs.forEach(y => {
-      const ln = new fabric.Line([baseX, y, baseX + L, y], {
-        stroke: hColor, strokeWidth: hWidth, fill: '',
-        _type:'rebar', _dia:hDia, _grade:'SD345', _hookL:'none', _hookR:'none',
-        _length: Math.round(L), _layer: state.activeLayer, selectable:true, evented:true
-      });
+    // 横筋: 縦筋上の位置に横線
+    hTs.forEach(t=>{ const y=gridTop+t*vLen;
+      const ln=new fabric.Line([baseX, y, baseX+L, y], {stroke:hColor,strokeWidth:hWidth,fill:'',_type:'rebar',_dia:hDia,_grade:'SD345',_hookL:'none',_hookR:'none',_length:Math.round(L),_layer:state.activeLayer,selectable:true,evented:true});
       canvas.add(ln); made.push(ln);
     });
-
-    // 横筋の継手(定尺)位置を縦の破線で示す(マスタの定尺を参照)
-    const stdLen = rebarStdLenMm(hDia);   // mm
-    let jointTxt = '';
-    if (stdLen > 0 && L > stdLen) {
-      const nJoint = Math.floor((L - 1) / stdLen);
-      for (let k = 1; k <= nJoint; k++) {
-        const x = baseX + k * stdLen;
-        const jl = new fabric.Line([x, vTop, x, vBot], {
-          stroke:'#e67e22', strokeWidth:1, strokeDashArray:[14,8], fill:'',
-          _layer: state.activeLayer, selectable:true, evented:true
-        });
-        canvas.add(jl); made.push(jl);
-      }
-      jointTxt = ` 継手${nJoint}`;
+    // 継手(定尺)
+    const stdLen = rebarStdLenMm(hDia);
+    let jointTxt='';
+    if (stdLen>0 && L>stdLen){ const nJoint=Math.floor((L-1)/stdLen);
+      for(let k=1;k<=nJoint;k++){ const x=baseX+k*stdLen; const jl=new fabric.Line([x,gridTop,x,gridTop+vLen],{stroke:'#e67e22',strokeWidth:1,strokeDashArray:[14,8],fill:'',_layer:state.activeLayer,selectable:true,evented:true}); canvas.add(jl); made.push(jl); }
+      jointTxt=` 継手${nJoint}`;
     }
-    // 引出し注記: 口径 × ピッチ × 全長
-    labelText = `${facePfx}${proj==='top' ? '底面図(底版)' : '正面図(縦壁)'}`;
-    calloutT = `縦筋 ${barDia} @${Math.round(P)} L=${Math.round(vBot - vTop)}`;
+    labelText = `${facePfx}${proj==='top' ? '底面図(底版・上から)' : '正面図(縦壁・正面)'}`;
+    calloutT = `縦筋 ${barDia} @${Math.round(P)} L=${Math.round(vLen)}`;
     calloutY = `横筋 ${hDia}${hPitchShown? ' @'+hPitchShown : ''} L=${Math.round(L)}${jointTxt}`;
   }
 
