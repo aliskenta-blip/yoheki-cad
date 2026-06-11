@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.19 (移動方向の制限: 水平/垂直/角度)</title>
+<title>yoheki-cad v0.19.1 (移動方向: 角度45°刻みで全方位)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.19 (移動方向の制限: 水平/垂直/角度)</span>
+  <span class="ver">v0.19.1 (移動方向: 角度45°刻みで全方位)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -394,12 +394,12 @@
           <option value="free" selected>自由</option>
           <option value="h">水平のみ ↔</option>
           <option value="v">垂直のみ ↕</option>
-          <option value="angle">角度指定 ⟋</option>
+          <option value="angle">角度刻み(全方位) ✳</option>
         </select>
       </div>
       <div class="prop-row" id="move-angle-row" style="display:none">
-        <label>角度(°) <span class="help-tip" data-tip="0=水平, 90=垂直, 45=右下がりの斜め。この向きにだけ動かせます。">?</span></label>
-        <input type="number" id="move-angle" value="45" min="0" max="180" step="5" onchange="updateMoveConstraint()">
+        <label>刻み角(°) <span class="help-tip" data-tip="この角度の倍数の向きにスナップして動かせます。45なら8方向(↔↕と斜め)、90なら水平/垂直の4方向。ドラッグした向きに一番近い角度へ吸着します。">?</span></label>
+        <input type="number" id="move-angle" value="45" min="5" max="90" step="5" onchange="updateMoveConstraint()">
       </div>
       <div class="prop-row">
         <label>表示倍率 <span class="help-tip" data-tip="画面上での図面の見かけの大きさ(px/mm)。図面の実寸は変わりません。拡大して描きやすくする設定です。">?</span></label>
@@ -711,7 +711,8 @@
       <p><b>🆕 v0.19 移動方向の制限:</b></p>
       <ul>
         <li>左パネル「表示設定」の<b>「移動方向」</b>で、選択(S)した図形をドラッグするとき動かせる向きを制限できます</li>
-        <li><b>自由 / 水平のみ↔ / 垂直のみ↕ / 角度指定⟋</b>(0=水平,90=垂直,45=斜め)から選択</li>
+        <li><b>自由 / 水平のみ↔ / 垂直のみ↕ / 角度刻み(全方位)✳</b>から選択</li>
+        <li>「角度刻み」は<b>刻み角の倍数の向きに全方位スナップ</b>。45なら8方向(↔↕＋斜め)、90なら水平/垂直の4方向。ドラッグした向きに一番近い角度へ吸着します</li>
         <li>L形やU字溝をまっすぐ並べる・ずらすときに便利。使い終わったら「自由」に戻してください</li>
       </ul>
       <p><b>🆕 v0.18.2 ズーム・縮尺:</b></p>
@@ -2375,10 +2376,17 @@ canvas.on('object:moving', (opt) => {
   } else if (c === 'v') {
     o.set('left', s.left);
   } else if (c === 'angle') {
-    const a = (state.moveAngle || 0) * Math.PI / 180;
-    const ux = Math.cos(a), uy = Math.sin(a);
-    const proj = (o.left - s.left) * ux + (o.top - s.top) * uy;  // 角度軸への射影
-    o.set({ left: s.left + proj * ux, top: s.top + proj * uy });
+    // 指定角の倍数の向き(45なら8方向)へスナップして移動 — 全方位対応
+    const dx = o.left - s.left, dy = o.top - s.top;
+    const step = (state.moveAngle || 45) * Math.PI / 180;
+    if (step > 0 && (dx || dy)) {
+      const snapped = Math.round(Math.atan2(dy, dx) / step) * step;  // ドラッグ方向を最寄りの倍数角へ
+      const ux = Math.cos(snapped), uy = Math.sin(snapped);
+      const proj = dx * ux + dy * uy;                                 // その向きへの移動量
+      o.set({ left: s.left + proj * ux, top: s.top + proj * uy });
+    } else {
+      o.set({ left: s.left, top: s.top });
+    }
   }
   o.setCoords();
 });
