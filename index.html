@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.55 (展開図正面: 横向き鉄筋からも横筋を反映)</title>
+<title>yoheki-cad v0.56 (鉄筋を縦筋/横筋に指定→展開図が優先)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.55 (展開図正面: 横向き鉄筋からも横筋を反映)</span>
+  <span class="ver">v0.56 (鉄筋を縦筋/横筋に指定→展開図が優先)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -562,6 +562,13 @@
       <div class="prop-row" style="gap:4px;">
         <button class="btn" style="flex:1;" onclick="setTool('facepen')">🖊 クリックで面指定(連続)</button>
       </div>
+      <div class="prop-row" style="gap:4px;">
+        <button class="btn" style="flex:1;" onclick="tagRebarRole('tate')">選択を縦筋に</button>
+        <button class="btn" style="flex:1;" onclick="tagRebarRole('yoko')">選択を横筋に</button>
+      </div>
+      <div class="prop-row" style="font-size:10px;color:#9cf;line-height:1.4;">
+        <span>※断面でどれが縦筋(ピッチ)・横筋(位置)か自分で指定できます。指定すると展開図はそれに従います(未指定は向きで自動判別)。</span>
+      </div>
       <div class="prop-row" style="font-size:10px;color:#9cf;line-height:1.4;">
         <span>① 鉄筋を選択→配置面を選び「この面を指定」でタグ付け ② 後で「面で選択」→「展開図を作成」</span>
       </div>
@@ -833,6 +840,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.56 縦筋/横筋を自分で指定:</b> 「断面図→展開図」に<b>「選択を縦筋に」「選択を横筋に」</b>を追加。断面でどれが縦筋(ピッチで並ぶ)・横筋(位置で引く)かを自分で指定でき、<b>展開図はその指定に従います</b>(未指定の鉄筋は向きで自動判別)。L字主筋など自動判別が難しい場合に。</p>
       <p><b>🆕 v0.55 展開図 正面図の改良:</b> 正面図で、鉄筋を<b>向きで判別</b>(縦向き=縦筋→ピッチの縦線／横向きの鉄筋線・横筋○=横筋→その高さの横線)。横筋を○で置いていなくても、<b>横向きの鉄筋線から横筋の横線を反映</b>するようにしました。これで断面の縦筋×横筋がグリッドの展開図になります。</p>
       <p><b>🆕 v0.54 部品が配置できない不具合を修正:</b> 登録部品(DXF含む)の「配置」を押しても出てこない原因(復元処理の引数誤り)を修正。配置できるようになりました。</p>
       <p><b>🆕 v0.53 部品配置・L形正面:</b></p>
@@ -2816,6 +2824,14 @@ function tagRebarFace() {
   saveHistory();
   document.getElementById('status-mode').textContent = `${objs.length}個の鉄筋を「${face}」に指定しました`;
 }
+// 選択した鉄筋を「縦筋(tate)/横筋(yoko)」に指定。展開図がこの指定を優先する。
+function tagRebarRole(role) {
+  const objs = canvas.getActiveObjects().filter(o => o._type === 'rebar' || o._type === 'rebardot');
+  if (!objs.length) { alert('縦筋/横筋に指定する鉄筋を先に選択してください。'); return; }
+  objs.forEach(o => { o._role = role; });
+  saveHistory();
+  document.getElementById('status-mode').textContent = `${objs.length}本を「${role==='tate'?'縦筋':'横筋'}」に指定しました`;
+}
 // 指定した配置面の鉄筋をまとめて選択
 function selectByFace() {
   const face = document.getElementById('dev-face').value;
@@ -3088,9 +3104,13 @@ function makeDevelopment() {
     // 正面図: 縦向き鉄筋=縦筋(ピッチの縦線)、横向き鉄筋・横筋○=横筋(その高さの横線)
     const _diaW = {'D10':3,'D13':4,'D16':5,'D19':6,'D22':7};
     const _diaC = {'D10':'#888','D13':'#0066cc','D16':'#c00','D19':'#900','D22':'#600'};
-    // 鉄筋を向きで分類(横長=横筋, それ以外=縦筋)
+    // 鉄筋を縦筋/横筋に分類。_role指定(縦筋=tate/横筋=yoko)があれば優先、無ければ向きで自動判別。
     const vBars=[], hBars=[];
-    bars.forEach(bar=>{ const b=bar.getBoundingRect(true,true); (b.width > b.height*1.3 ? hBars : vBars).push({bar,b}); });
+    bars.forEach(bar=>{ const b=bar.getBoundingRect(true,true);
+      if (bar._role==='tate') vBars.push({bar,b});
+      else if (bar._role==='yoko') hBars.push({bar,b});
+      else (b.width > b.height*1.3 ? hBars : vBars).push({bar,b});
+    });
     // 縦筋の高さ範囲(縦向き鉄筋から。無ければ全鉄筋/全体)
     let vTop = Infinity, vBot = -Infinity, barDia = 'D13';
     const vSrc = vBars.length ? vBars : bars.map(bar=>({bar,b:bar.getBoundingRect(true,true)}));
