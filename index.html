@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.22 (コピペ・等間隔連続複製・部品実寸化)</title>
+<title>yoheki-cad v0.23 (折れ線鉄筋・鉄筋テンプレ・横筋スナップ)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.22 (コピペ・等間隔連続複製・部品実寸化)</span>
+  <span class="ver">v0.23 (折れ線鉄筋・鉄筋テンプレ・横筋スナップ)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -535,8 +535,32 @@
           <option value="180">180°フック</option>
         </select>
       </div>
+      <div class="prop-row">
+        <label><input type="checkbox" id="rebar-polyline"> 折れ線で描く <span class="help-tip" data-tip="ONにすると、クリックで頂点を追加して曲がった鉄筋(L字・コ字・U字)を直線でつなげて描けます。ダブルクリックかEnterで確定。OFFは始点→終点のドラッグで1本。">?</span></label>
+      </div>
+      <div class="prop-row" style="font-size:10px;color:#999;">
+        <span>折れ線: クリックで頂点→ダブルクリック/Enterで確定</span>
+      </div>
+      <div class="prop-row" style="margin-top:6px; border-top:1px solid #444; padding-top:6px;">
+        <label>テンプレート <span class="help-tip" data-tip="よく使う形の鉄筋を寸法指定で配置します。例:1200×100のL字筋。配置後は移動・コピー・連続複製できます。">?</span></label>
+        <select id="rebar-tpl-shape">
+          <option value="straight">直線</option>
+          <option value="L" selected>L字</option>
+          <option value="U-top">コ字(下開き)</option>
+          <option value="U">U字(上開き)</option>
+        </select>
+      </div>
+      <div class="prop-row">
+        <label>主筋長(mm)</label>
+        <input type="number" id="rebar-tpl-main" value="1200" min="10" step="10">
+      </div>
+      <div class="prop-row">
+        <label>フック/幅(mm)</label>
+        <input type="number" id="rebar-tpl-foot" value="100" min="10" step="10">
+      </div>
+      <button class="btn" style="width:100%; margin-top:4px;" onclick="placeRebarTemplate()">テンプレートを配置</button>
     </div>
-    
+
     <div class="panel-section" id="eraser-settings" style="display:none">
       <h4>消しゴム</h4>
       <div class="prop-row">
@@ -734,6 +758,12 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.23 鉄筋の強化:</b></p>
+      <ul>
+        <li><b>折れ線鉄筋</b>: 鉄筋(B)設定の「折れ線で描く」をONにすると、クリックで頂点を足してL字・コ字・U字の鉄筋を直線で描けます(ダブルクリック/Enterで確定)</li>
+        <li><b>鉄筋テンプレート</b>: 形(直線/L字/コ字/U字)と寸法(主筋長・フック幅mm)を指定して配置。例:1200×100のL字筋</li>
+        <li><b>横筋○のスナップ</b>: 「オブジェクトスナップ」ON(既定)で、縦筋の<b>端点・交点・垂線</b>に吸着して横筋○を置けます</li>
       </ul>
       <p><b>🆕 v0.22 複製・連続配置・部品:</b></p>
       <ul>
@@ -2021,7 +2051,7 @@ canvas.on('mouse:down', (opt) => {
       ...baseProps, left: pt.x, top: pt.y, radius: 1, originX: 'center', originY: 'center'
     });
     canvas.add(state.tempObject);
-  } else if (state.tool === 'polygon') {
+  } else if (polyDrawing()) {
     state.polygonPoints.push(pt);
     if (state.tempObject) canvas.remove(state.tempObject);
     if (state.polygonPoints.length >= 2) {
@@ -2172,7 +2202,7 @@ canvas.on('mouse:move', (opt) => {
     if (state.tempObject) canvas.remove(state.tempObject);
     state.tempObject = createLeaderLine(state.leaderTip, endPt, {preview:true});
     canvas.add(state.tempObject);
-  } else if (state.tool === 'rebar') {
+  } else if (state.tool === 'rebar' && !rebarPolyMode()) {
     canvas.remove(state.tempObject);
     state.tempObject = createRebar(state.startPoint, endPt);
     canvas.add(state.tempObject);
@@ -2254,8 +2284,8 @@ canvas.on('mouse:up', (opt) => {
 
   if (!state.isDrawing) return;
   
-  if (state.tool === 'polygon') {
-    // 多角形は continue, Enter or 右クリックで完了
+  if (polyDrawing()) {
+    // 多角形・折れ線鉄筋は クリックで頂点追加 → Enter/ダブルクリック/右クリックで完了
     return;
   }
 
@@ -2321,17 +2351,27 @@ canvas.on('mouse:up', (opt) => {
 
 // 多角形の確定
 canvas.on('mouse:dblclick', () => {
-  if (state.tool === 'polygon' && state.polygonPoints.length >= 3) {
+  if (polyDrawing() && state.polygonPoints.length >= polyMinPts()) {
     finishPolygon();
   }
 });
 
+// 折れ線系の描画中か(多角形 or 鉄筋の折れ線モード)。② L字/コ字/U字鉄筋を直線で描く。
+function rebarPolyMode() {
+  const cb = document.getElementById('rebar-polyline');
+  return state.tool === 'rebar' && cb && cb.checked;
+}
+function polyDrawing() { return state.tool === 'polygon' || rebarPolyMode(); }
+function polyMinPts() { return rebarPolyMode() ? 2 : 3; }
+
 function finishPolygon() {
-  if (state.tempObject) canvas.remove(state.tempObject);
+  if (state.polygonPoints.length < polyMinPts()) return;
+  if (state.tempObject) { canvas.remove(state.tempObject); state.tempObject = null; }
+  if (rebarPolyMode()) { finishRebarPoly(); return; }
   const strokeColor = document.getElementById('stroke-color').value;
   const strokeWidth = parseFloat(document.getElementById('stroke-width').value);
   const fillColor = document.getElementById('fill-none').checked ? '' : document.getElementById('fill-color').value;
-  
+
   const poly = new fabric.Polygon(state.polygonPoints.map(p => ({x:p.x, y:p.y})), {
     stroke: strokeColor,
     strokeWidth: strokeWidth,
@@ -2343,6 +2383,72 @@ function finishPolygon() {
   state.tempObject = null;
   saveHistory();
   updateStats();
+}
+
+// ② 折れ線鉄筋を確定(開いた折れ線=L字/コ字/U字)。線色・太さは径から。
+function finishRebarPoly() {
+  const pts = state.polygonPoints.map(p => ({x:p.x, y:p.y}));
+  const dia = document.getElementById('rebar-dia').value;
+  const grade = document.getElementById('rebar-grade').value;
+  const widthMap = {'D10':3,'D13':4,'D16':5,'D19':6,'D22':7};
+  const colorMap = {'D10':'#888','D13':'#0066cc','D16':'#c00','D19':'#900','D22':'#600'};
+  let len = 0;
+  for (let i=0;i<pts.length-1;i++) len += Math.hypot(pts[i+1].x-pts[i].x, pts[i+1].y-pts[i].y);
+  const poly = new fabric.Polyline(pts, {
+    stroke: colorMap[dia]||'#c00', strokeWidth: widthMap[dia]||4, fill:'',
+    _type:'rebar', _dia:dia, _grade:grade, _hookL:'none', _hookR:'none',
+    _length: Math.round(len), _layer: state.activeLayer,
+    selectable: (state.tool === 'select')
+  });
+  canvas.add(poly);
+  state.polygonPoints = [];
+  state.tempObject = null;
+  state.isDrawing = false;
+  hideSnapMarker();
+  saveHistory();
+  updateStats();
+}
+
+// ③ 鉄筋テンプレート: 形と寸法(mm)を指定して曲げ鉄筋を画面中央に配置
+function placeRebarTemplate() {
+  const shape = document.getElementById('rebar-tpl-shape').value;
+  const M = parseFloat(document.getElementById('rebar-tpl-main').value) || 0;   // 主筋長
+  const F = parseFloat(document.getElementById('rebar-tpl-foot').value) || 0;   // フック/幅
+  if (M <= 0) { alert('主筋長(mm)を入力してください'); return; }
+  const dia = document.getElementById('rebar-dia').value;
+  const grade = document.getElementById('rebar-grade').value;
+  const widthMap = {'D10':3,'D13':4,'D16':5,'D19':6,'D22':7};
+  const colorMap = {'D10':'#888','D13':'#0066cc','D16':'#c00','D19':'#900','D22':'#600'};
+  // ローカル座標(mm)で形を作る。yは下向き(画面と同じ)。
+  let local;
+  if (shape === 'straight')      local = [[0,0],[0,M]];
+  else if (shape === 'L')        local = [[0,0],[0,M],[F,M]];
+  else if (shape === 'U-top')    local = [[F,0],[0,0],[0,M],[F,M]];   // コ字(下開き)
+  else                            local = [[0,0],[0,M],[F,M],[F,0]];   // U字(上開き)
+  // 画面中央(ワールド座標)に図心を合わせて配置
+  const z = canvas.getZoom(), vpt = canvas.viewportTransform;
+  const cx = (canvas.getWidth()/2 - vpt[4]) / z;
+  const cy = (canvas.getHeight()/2 - vpt[5]) / z;
+  const minX = Math.min(...local.map(p=>p[0])), maxX = Math.max(...local.map(p=>p[0]));
+  const minY = Math.min(...local.map(p=>p[1])), maxY = Math.max(...local.map(p=>p[1]));
+  const ox = cx - (minX+maxX)/2, oy = cy - (minY+maxY)/2;
+  const pts = local.map(p => ({x: p[0]+ox, y: p[1]+oy}));
+  let len = 0;
+  for (let i=0;i<pts.length-1;i++) len += Math.hypot(pts[i+1].x-pts[i].x, pts[i+1].y-pts[i].y);
+  const poly = new fabric.Polyline(pts, {
+    stroke: colorMap[dia]||'#c00', strokeWidth: widthMap[dia]||4, fill:'',
+    _type:'rebar', _dia:dia, _grade:grade, _hookL:'none', _hookR:'none',
+    _length: Math.round(len), _layer: state.activeLayer,
+    selectable: true, evented: true
+  });
+  canvas.add(poly);
+  canvas.discardActiveObject();
+  // 配置後すぐ動かせるよう選択モードへ
+  setTool('select');
+  poly.selectable = true; poly.evented = true;
+  canvas.setActiveObject(poly);
+  canvas.renderAll();
+  saveHistory(); updateStats();
 }
 
 // マウスホイールでズーム
@@ -3379,14 +3485,18 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); e.preventDefault(); }
   else if (e.key === 'Escape') {
     canvas.discardActiveObject();
-    if (state.tool === 'polygon' && state.polygonPoints.length >= 3) {
+    if (polyDrawing() && state.polygonPoints.length >= polyMinPts()) {
       finishPolygon();
     } else {
+      // 作りかけの頂点を破棄
+      state.polygonPoints = [];
+      if (state.tempObject) { canvas.remove(state.tempObject); state.tempObject = null; }
+      state.isDrawing = false;
       setTool('select');
     }
     canvas.renderAll();
   }
-  else if (e.key === 'Enter' && state.tool === 'polygon' && state.polygonPoints.length >= 3) {
+  else if (e.key === 'Enter' && polyDrawing() && state.polygonPoints.length >= polyMinPts()) {
     finishPolygon();
   }
   // ツールショートカット
