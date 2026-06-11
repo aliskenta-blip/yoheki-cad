@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.30 (展開図: 横筋ピッチでグリッド化＋左右寸法＋径ラベル)</title>
+<title>yoheki-cad v0.31 (鉄筋だけ選択ボタン)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.30 (展開図: 横筋ピッチでグリッド化＋左右寸法＋径ラベル)</span>
+  <span class="ver">v0.31 (鉄筋だけ選択ボタン)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -512,6 +512,10 @@
 
     <div class="panel-section">
       <h4>断面図 → 展開図</h4>
+      <button class="btn" style="width:100%;" onclick="selectRebarOnly()">🔩 鉄筋だけ選択</button>
+      <div class="prop-row" style="font-size:10px;color:#999;line-height:1.4;">
+        <span>押すと図面の<b>鉄筋(縦筋・横筋○)だけ</b>を選択。範囲をドラッグして選んでから押すと、その中の鉄筋だけに絞れます。</span>
+      </div>
       <div class="prop-row">
         <label>延長 L(mm) <span class="help-tip" data-tip="展開図(姿図)の横方向の長さ=壁の延長。横筋はこの長さの線になります。">?</span></label>
         <input type="number" id="dev-length" value="3000" min="100" step="100">
@@ -798,6 +802,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.31 鉄筋だけ選択:</b> 「断面図→展開図」の<b>「🔩 鉄筋だけ選択」</b>ボタンで、図面の鉄筋(縦筋・横筋○)だけをまとめて選択できます。範囲をドラッグで囲んでから押すと、その中の鉄筋だけに絞れます。複数選択は <b>範囲ドラッグ</b> か <b>Shift+クリック</b>、全選択は <kbd>Ctrl</kbd>+<kbd>A</kbd>。</p>
       <p><b>🆕 v0.30 配筋展開図をグリッド化:</b> 正面図に<b>横筋ピッチ</b>を追加。横筋を等間隔グリッドにし、<b>上(縦筋)と左(横筋)の両方にピッチ寸法</b>(n×P=合計)を表示。ラベルに<b>径・ピッチ</b>(縦筋D16@250 横筋D13@250 など)を表示。横筋ピッチを0にすると断面の横筋○の高さに引きます。</p>
       <p><b>🆕 v0.29 配筋展開図にピッチ寸法注記:</b> 展開図の上に <b>n×P=合計</b>(例 16×250=4000)の目盛付き寸法を表示。参考図(ボックスカルバート配筋図)のような表記になります。</p>
       <p><b>🆕 v0.28 配筋展開図 正面/平面:</b> 「断面図→展開図」に<b>投影</b>を追加。<b>正面図</b>(横筋=横線・縦筋=ピッチの縦線)と<b>平面図(上から)</b>(横筋=長さ方向の線・縦筋=ピッチの丸)を選べます。図面内の鉄筋を選択してから作成。</p>
@@ -2549,6 +2554,23 @@ function addPitchDimV(made, x, y0, m, P, ts) {
     _layer: state.activeLayer, selectable:true, evented:true
   });
   canvas.add(txt); made.push(txt);
+}
+
+// 鉄筋(縦筋・横筋○)だけを選択する。現在の選択範囲があればその中の鉄筋に絞り、無ければ図面全体の鉄筋。
+function selectRebarOnly() {
+  const isReb = o => o._type === 'rebar' || o._type === 'rebardot';
+  let pool = canvas.getActiveObjects().filter(isReb);
+  if (!pool.length) pool = canvas.getObjects().filter(o => isReb(o) && o.visible !== false);
+  if (!pool.length) { alert('鉄筋(縦筋・横筋○)が見つかりません。先に配筋を描いてください。'); return; }
+  setTool('select');
+  canvas.discardActiveObject();
+  if (pool.length === 1) {
+    canvas.setActiveObject(pool[0]);
+  } else {
+    canvas.setActiveObject(new fabric.ActiveSelection(pool, {canvas}));
+  }
+  canvas.requestRenderAll();
+  document.getElementById('status-mode').textContent = `鉄筋を ${pool.length} 個選択しました（このまま展開図を作成できます）`;
 }
 
 // ⑤ 配筋断面図 → 配筋展開図(姿図)
