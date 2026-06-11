@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.17 (選択時のみ移動・節間消し矩形対応)</title>
+<title>yoheki-cad v0.18 (縮尺整合: 横筋○・オフセット・図枠を実寸mmに)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.17 (選択時のみ移動・節間消し矩形対応)</span>
+  <span class="ver">v0.18 (縮尺整合: 横筋○・オフセット・図枠を実寸mm)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -691,6 +691,15 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.18 縮尺の整合(1マス=設定mm):</b></p>
+      <ul>
+        <li>キャンバスは<b>1単位=1mm（実寸1:1）</b>。グリッドの「1マス○mm」がそのまま実寸。寸法もmm。</li>
+        <li><b>横筋○の大きさ</b>が径×倍率の実寸(mm)になり、グリッドと比率が合うように修正(以前は約1/6.7に縮小表示)</li>
+        <li><b>横筋オフセット(mm)</b>が入力どおりの距離で動くように修正(以前は約1/6.7)</li>
+        <li><b>図枠</b>が「用紙×縮尺」の実寸(mm)で表示。縮尺を図面の大きさに合わせて選ぶと、その縮尺で印刷できます</li>
+        <li>節間消しで残る線分の長さ表示もmmに統一</li>
+        <li>※組み込みテンプレート・部品の縮尺はこの後の更新で合わせます</li>
       </ul>
       <p><b>🆕 v0.17:</b></p>
       <ul>
@@ -1135,7 +1144,8 @@ function paperFrameDims() {
   const realW = p.w * S;   // 枠が収める実寸幅(mm)
   const realH = p.h * S;
   const sc = state.scale || 0.15;
-  return {paperW:p.w, paperH:p.h, S, realW, realH, pxW:realW*sc, pxH:realH*sc, sc, sizeKey:size};
+  // キャンバス1単位=1mm。図枠は実寸(mm)をそのままキャンバス座標に
+  return {paperW:p.w, paperH:p.h, S, realW, realH, pxW:realW, pxH:realH, sc, sizeKey:size};
 }
 
 // 図枠の線幅・破線をズームに依らず画面上一定(約2px)に保つ
@@ -1562,13 +1572,12 @@ function worldSegsOf(obj) {
 
 // 節間消しで残った直線の一区間を fabric.Line として再生成
 function addTrimLineSeg(p0, p1, props) {
-  const sc = state.scale || 0.15;
   const ln = new fabric.Line([p0.x, p0.y, p1.x, p1.y], {
     stroke: props.stroke, strokeWidth: props.strokeWidth,
     strokeDashArray: props.strokeDashArray, fill: '',
     selectable: (state.tool === 'select'),
     _layer: props._layer ?? 0,
-    _length: Math.round(Math.hypot(p1.x - p0.x, p1.y - p0.y) / sc)
+    _length: Math.round(Math.hypot(p1.x - p0.x, p1.y - p0.y))   // キャンバス1単位=1mm
   });
   canvas.add(ln);
   return ln;
@@ -1688,13 +1697,12 @@ function sharedRebarProps(obj) {
 }
 
 function addTrimResult(worldPts, props, srcObj) {
-  const sc = state.scale || 0.15;
   let len = 0;
   for (let i=0;i<worldPts.length-1;i++)
     len += Math.hypot(worldPts[i+1].x-worldPts[i].x, worldPts[i+1].y-worldPts[i].y);
   const poly = new fabric.Polyline(worldPts.map(p=>({x:p.x,y:p.y})), {
     ...props,
-    _length: Math.round(len / sc),
+    _length: Math.round(len),   // キャンバス1単位=1mm
     selectable: (state.tool === 'select')
   });
   canvas.add(poly);
@@ -2548,8 +2556,7 @@ function applyDotOffset(pts, lineStart, lineEnd) {
   if (dir === 'center') return pts;
   const offMm = parseFloat(document.getElementById('rebardot-offset').value) || 0;
   if (offMm === 0) return pts;
-  const sc = state.scale || 0.15;
-  const offPx = offMm * sc;
+  const offPx = offMm;   // キャンバス1単位=1mm。オフセット(mm)をそのまま使う
   let vx = 0, vy = 0;
   if (dir === 'up') vy = -offPx;
   else if (dir === 'down') vy = offPx;
@@ -2574,11 +2581,9 @@ function createRebarDot(center) {
   const mag = parseFloat(document.getElementById('rebardot-mag').value) || 2.5;
   const diaMap = {'D10':10,'D13':13,'D16':16,'D19':19,'D22':22};
   const colorMap = {'D10':'#888','D13':'#0066cc','D16':'#c00','D19':'#900','D22':'#600'};
-  const sc = state.scale || 0.15;
   const color = colorMap[dia] || '#c00';
-  // 実径(mm) × 表示倍率 × scale = px半径
-  const rPx = (diaMap[dia] * mag / 2) * sc;
-  const r = Math.max(2, rPx);
+  // キャンバス1単位=1mm。半径(mm) = 実径(mm) × 表示倍率mag ÷ 2
+  const r = Math.max(2, diaMap[dia] * mag / 2);
 
   const common = {
     left: center.x, top: center.y, originX:'center', originY:'center',
