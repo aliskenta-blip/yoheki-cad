@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.28 (配筋展開図に正面図/平面図の切替)</title>
+<title>yoheki-cad v0.29 (配筋展開図にピッチ寸法注記 n×P=L)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.28 (配筋展開図に正面図/平面図の切替)</span>
+  <span class="ver">v0.29 (配筋展開図にピッチ寸法注記 n×P=L)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -794,6 +794,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.29 配筋展開図にピッチ寸法注記:</b> 展開図の上に <b>n×P=合計</b>(例 16×250=4000)の目盛付き寸法を表示。参考図(ボックスカルバート配筋図)のような表記になります。</p>
       <p><b>🆕 v0.28 配筋展開図 正面/平面:</b> 「断面図→展開図」に<b>投影</b>を追加。<b>正面図</b>(横筋=横線・縦筋=ピッチの縦線)と<b>平面図(上から)</b>(横筋=長さ方向の線・縦筋=ピッチの丸)を選べます。図面内の鉄筋を選択してから作成。</p>
       <p><b>🆕 v0.27 パース(3D)の強化 ①第1段:</b></p>
       <ul>
@@ -2509,6 +2510,24 @@ function placeRebarTemplate() {
   saveHistory(); updateStats();
 }
 
+// ピッチ寸法注記 "n×P=合計" を横方向に描く(参考図の 16×250=4000 のような表記)
+function addPitchDim(made, x0, y, n, P, ts) {
+  const col = '#444', tick = ts*0.45, total = n*P;
+  const main = new fabric.Line([x0, y, x0 + total, y], {stroke:col, strokeWidth:1, _layer:state.activeLayer, selectable:true, evented:true});
+  canvas.add(main); made.push(main);
+  for (let k=0; k<=n; k++) {
+    const x = x0 + k*P;
+    const t = new fabric.Line([x, y-tick, x, y+tick], {stroke:col, strokeWidth:1, _layer:state.activeLayer, selectable:true, evented:true});
+    canvas.add(t); made.push(t);
+  }
+  const txt = new fabric.IText(`${n}×${P}=${total}`, {
+    left: x0 + total/2, top: y - ts*1.0, originX:'center',
+    fontSize: ts*0.8, fill: col, fontFamily:'Yu Gothic, sans-serif',
+    _layer: state.activeLayer, selectable:true, evented:true
+  });
+  canvas.add(txt); made.push(txt);
+}
+
 // ⑤ 配筋断面図 → 配筋展開図(姿図)
 //   横筋○(点) → その高さの横線(延長L)。 縦筋 → ピッチPで横方向に繰り返す縦線。
 function makeDevelopment() {
@@ -2569,6 +2588,7 @@ function makeDevelopment() {
         canvas.add(c); made.push(c);
       }
     });
+    if (n >= 1) addPitchDim(made, baseX, topY - ts*2.5, n, P, ts);  // 縦筋ピッチ注記
     labelText = `配筋平面図(上から)  L=${Math.round(L)}  縦筋@${Math.round(P)}`;
   } else {
     // 正面図: 横筋○→その高さの横線, 縦筋→ピッチで縦線
@@ -2596,6 +2616,7 @@ function makeDevelopment() {
       });
       canvas.add(ln); made.push(ln);
     });
+    if (n >= 1) addPitchDim(made, baseX, vTop - ts*2.5, n, P, ts);  // 縦筋ピッチ注記
     labelText = `配筋正面図  L=${Math.round(L)}  縦筋@${Math.round(P)}`;
   }
 
