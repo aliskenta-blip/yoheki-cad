@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.32 (連続複製: 方向・隣接(目地)・サイズ応じてズラす)</title>
+<title>yoheki-cad v0.33 (鉄筋フックを実寸表示・折れ線に追従プレビュー)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.32 (連続複製: 方向・隣接(目地)・サイズ応じてズラす)</span>
+  <span class="ver">v0.33 (鉄筋フックを実寸表示・折れ線に追従プレビュー)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -807,6 +807,11 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.33 鉄筋の描画:</b></p>
+      <ul>
+        <li><b>鉄筋のフック(曲げ)が実寸で見える</b>ように修正(以前は約24mmで線に見えていた→約10dに)。端部の曲げ設定が反映されます</li>
+        <li><b>折れ線で描くとき、次の点までの線がカーソルに追従</b>するように(連続線を描く感覚に)。クリックで頂点→ダブルクリック/Enterで確定。多角形・多角形ハッチも同様</li>
       </ul>
       <p><b>🆕 v0.32 複製を使いやすく:</b></p>
       <ul>
@@ -2253,8 +2258,29 @@ canvas.on('mouse:move', (opt) => {
     return;
   }
   
+  // 折れ線/多角形/折れ線鉄筋: 最後に置いた点→カーソルを線でつなぎ、連続線のように見せる
+  if (polyDrawing() && state.polygonPoints.length >= 1) {
+    let ep = pt;
+    const last = state.polygonPoints[state.polygonPoints.length - 1];
+    if (state.orthoMode || window.shiftPressed) ep = orthoPoint(last, pt);
+    if (state.tempObject) canvas.remove(state.tempObject);
+    const pv = state.polygonPoints.concat([ep]);
+    const reb = rebarPolyMode();
+    const diaMap = {'D10':3,'D13':4,'D16':5,'D19':6,'D22':7};
+    const colMap = {'D10':'#888','D13':'#0066cc','D16':'#c00','D19':'#900','D22':'#600'};
+    const dia = reb ? document.getElementById('rebar-dia').value : null;
+    state.tempObject = new fabric.Polyline(pv.map(p => ({x:p.x, y:p.y})), {
+      stroke: reb ? (colMap[dia]||'#c00') : document.getElementById('stroke-color').value,
+      strokeWidth: reb ? (diaMap[dia]||4) : parseFloat(document.getElementById('stroke-width').value),
+      fill: '', selectable:false, evented:false, _layer: state.activeLayer
+    });
+    canvas.add(state.tempObject);
+    canvas.renderAll();
+    return;
+  }
+
   if (!state.isDrawing || !state.tempObject) return;
-  
+
   let endPt = pt;
   if (state.startPoint && (state.orthoMode || window.shiftPressed)) {
     endPt = orthoPoint(state.startPoint, pt);
@@ -3010,8 +3036,8 @@ function createRebar(start, end, opts) {
   const len = Math.sqrt(dx*dx + dy*dy);
   const ang = Math.atan2(dy, dx);
   
-  // 90°曲げの長さ（鉄筋径の40倍 / 縮尺で表示）
-  const bendLen = diaMap[dia] * 1.5;  // 表示上のサイズ
+  // フック(曲げ)の足の長さ。実寸mmなので見える長さに(約10d)。
+  const bendLen = diaMap[dia] * 10;
   
   // フック方向（線に対して垂直、左側）
   const perpAng = ang + Math.PI/2;
