@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.26 (規定値変更・部品複製修正・回転スナップ)</title>
+<title>yoheki-cad v0.27 (パース: 構造種別を大幅追加・色分け・縮尺修正)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.26 (規定値変更・部品複製修正・回転スナップ)</span>
+  <span class="ver">v0.27 (パース: 構造種別を大幅追加・色分け・縮尺修正)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -786,6 +786,14 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.27 パース(3D)の強化 ①第1段:</b></p>
+      <ul>
+        <li><b>構造種別を大幅追加</b>: 擁壁/ブロック/間知ブロック/基礎/捨てコン/砕石/舗装/地面/芝/空間/屋根/家/階段(コンクリ・屋内・その他)/U字溝/L形/鉄筋。図形を選び右の「3D種別」で設定すると<b>種別ごとに色分け・立体化</b>されます</li>
+        <li><b>地面系</b>(舗装・砕石・地面・芝・捨てコン)は地面に薄く敷き、<b>階段</b>は段差、<b>空間</b>は描かない…と種別ごとに表現を変えます</li>
+        <li>パースは<b>図形を選択してから「3D」を開く</b>と、その図形だけを立体化します(未選択なら全図形)</li>
+        <li>3Dの<b>縮尺ズレを修正</b>(実寸mmに統一)し、奥行きと断面の比率が正しくなりました</li>
+        <li>※参考画像のようなテクスチャ表現(石・芝・アスファルト)や手描き風は次段で検討します</li>
       </ul>
       <p><b>🆕 v0.26 規定値・部品・回転:</b></p>
       <ul>
@@ -3325,16 +3333,18 @@ function updateSelectedProps() {
   if (obj._type !== 'rebar' && obj._type !== 'dimension' && obj.type !== 'activeSelection') {
     const kind = obj._kind || 'auto';
     const depthVal = obj._depth || '';
-    html += `<div class="prop-row" style="margin-top:6px; border-top:1px solid #444; padding-top:6px;"><label style="color:#fdc674;">3D種別 <span class="help-tip" data-tip="この図形がパースで何になるか。擁壁/U字溝/階段/家/地盤など。種別ごとに色分け・形状で立体化されます。">?</span></label>
-      <select onchange="updateObjProp('_kind', this.value)">
-        <option value="auto" ${kind==='auto'?'selected':''}>自動(汎用)</option>
-        <option value="wall" ${kind==='wall'?'selected':''}>擁壁</option>
-        <option value="uditch" ${kind==='uditch'?'selected':''}>U字溝</option>
-        <option value="stairs" ${kind==='stairs'?'selected':''}>階段</option>
-        <option value="house" ${kind==='house'?'selected':''}>家・建物</option>
-        <option value="ground" ${kind==='ground'?'selected':''}>地盤・地面</option>
-        <option value="rebar3d" ${kind==='rebar3d'?'selected':''}>鉄筋</option>
-      </select></div>`;
+    const kindOpts = [
+      ['auto','自動(汎用)'],
+      ['wall','擁壁'],['block','ブロック'],['kenchi','間知ブロック'],
+      ['foundation','基礎'],['leveling','捨てコン'],['crushed','砕石'],
+      ['pavement','舗装'],['ground','地面'],['grass','芝・草地'],['space','空間(あけ)'],
+      ['roof','屋根'],['house','家・建物'],
+      ['stairs','階段(コンクリ)'],['stairs_in','階段(屋内)'],['stairs_other','階段(その他)'],
+      ['uditch','U字溝'],['lkata','L形'],['rebar3d','鉄筋']
+    ];
+    const optHtml = kindOpts.map(([v,l]) => `<option value="${v}" ${kind===v?'selected':''}>${l}</option>`).join('');
+    html += `<div class="prop-row" style="margin-top:6px; border-top:1px solid #444; padding-top:6px;"><label style="color:#fdc674;">3D種別 <span class="help-tip" data-tip="この図形がパースで何になるか(色・立体化が変わります)。擁壁/ブロック/間知/基礎/捨てコン/砕石/舗装/地面/屋根/家/階段/U字溝/L形など。地面系は寝かせて敷き、階段は段差、空間は描きません。">?</span></label>
+      <select onchange="updateObjProp('_kind', this.value)">${optHtml}</select></div>`;
     html += `<div class="prop-row"><label>個別奥行(mm) <span class="help-tip" data-tip="この図形だけの押し出し奥行き。空欄ならパース画面の共通値を使います。">?</span></label>
       <input type="number" placeholder="共通値" value="${depthVal}" onchange="updateObjProp('_depth', this.value)"></div>`;
   }
@@ -5213,7 +5223,7 @@ function perspSourceObjects() {
 
 // fabricオブジェクト → ワールド頂点配列(mm単位) + 閉じているか
 function fabricObjToMMPoints(obj) {
-  const sc = state.scale || 0.15;
+  const sc = UNITS_PER_MM;   // キャンバス1単位=1mm(実寸)
   let pts = [];
   let closed = false;
   if (obj.type === 'rect') {
@@ -5261,12 +5271,38 @@ function openPathToRibbon(mmPts, thicknessMm) {
   return left.concat(right.reverse());
 }
 
-// 種別ごとの色
+// 種別ごとの色(土木の見た目に寄せる)
 const KIND_COLOR = {
-  auto: 0xcfcabd, wall: 0xcfcabd, uditch: 0xb8c4cc,
-  stairs: 0xd8c8a8, house: 0xe0d3b8, ground: 0x9caf88, rebar3d: 0xcc3333
+  auto: 0xcfcabd,
+  wall: 0xb3b1a6,        // 擁壁(コンクリ)
+  block: 0xc8c6bc,       // ブロック
+  kenchi: 0xb29a72,      // 間知ブロック(石)
+  foundation: 0x8d8b82,  // 基礎
+  leveling: 0xd7d5cb,    // 捨てコン
+  crushed: 0x9a8e78,     // 砕石
+  pavement: 0x55595d,    // 舗装(アスファルト)
+  ground: 0x8a6f4a,      // 地面(土)
+  grass: 0x7fa05a,       // 芝・草地
+  space: 0x88aadd,       // 空間(描画スキップ)
+  roof: 0x9b4a3a,        // 屋根
+  house: 0xe2d4b6,       // 家
+  stairs: 0xcbbf9f,      // 階段(コンクリ)
+  stairs_in: 0xb5853f,   // 階段(屋内・木)
+  stairs_other: 0xbdb6a4,// 階段(その他)
+  uditch: 0xb8c4cc,      // U字溝
+  lkata: 0xc0bdb0,       // L形
+  rebar3d: 0xcc3333      // 鉄筋
 };
-const KIND_LABEL = {auto:'汎用', wall:'擁壁', uditch:'U字溝', stairs:'階段', house:'家', ground:'地盤', rebar3d:'鉄筋'};
+const KIND_LABEL = {
+  auto:'汎用', wall:'擁壁', block:'ブロック', kenchi:'間知ブロック',
+  foundation:'基礎', leveling:'捨てコン', crushed:'砕石', pavement:'舗装',
+  ground:'地面', grass:'芝・草地', space:'空間', roof:'屋根', house:'家',
+  stairs:'階段(コンクリ)', stairs_in:'階段(屋内)', stairs_other:'階段(その他)',
+  uditch:'U字溝', lkata:'L形', rebar3d:'鉄筋'
+};
+// 地面に寝かせて薄く敷くもの / 階段として段差を付けるもの
+const KIND_GROUND = new Set(['ground','grass','pavement','crushed','leveling']);
+const KIND_STAIRS = new Set(['stairs','stairs_in','stairs_other']);
 
 function rebuildPerspective() {
   if (!perspState.scene) return;
@@ -5284,9 +5320,10 @@ function rebuildPerspective() {
   const kindCount = {};
 
   srcs.forEach(obj => {
+    const kind = obj._kind || 'auto';
+    if (kind === 'space') return;   // 空間は立体化しない(あけておく)
     const {pts:mm, closed} = fabricObjToMMPoints(obj);
     if (mm.length < 2) return;
-    const kind = obj._kind || 'auto';
     kindCount[kind] = (kindCount[kind]||0)+1;
     const depth = (obj._depth && obj._depth>0) ? obj._depth : globalDepth;
     const color = KIND_COLOR[kind] || 0xcfcabd;
@@ -5297,8 +5334,8 @@ function rebuildPerspective() {
     if (closed && mm.length >= 3) {
       shapePts = mm;
     } else {
-      // 開いた線/折れ線 → 厚み150mmの帯にして立体化(コの字などに対応) ⑤
-      const thick = (kind==='wall'?200 : kind==='uditch'?150 : 150);
+      // 開いた線/折れ線 → 帯にして立体化(コの字などに対応)
+      const thick = (kind==='wall'?200 : (kind==='uditch'||kind==='lkata')?150 : 150);
       shapePts = openPathToRibbon(mm, thick);
     }
     allPts = allPts.concat(shapePts);
@@ -5308,27 +5345,28 @@ function rebuildPerspective() {
     for (let i=1;i<shapePts.length;i++) shape.lineTo(shapePts[i].x, shapePts[i].y);
     shape.closePath();
 
+    // 種別ごとに立体化を切り替え:
+    //  階段→段差 / 地面系(舗装・砕石・地面・芝・捨てコン)→地面に寝かせて薄く / それ以外→立てて押し出し
     let geo, mesh;
-    if (mode === 'extrude') {
-      // 断面を奥行きZへ押し出し。階段は段差を付ける簡易処理
-      if (kind === 'stairs') {
-        mesh = buildStairs(shapePts, depth, mat); 
-      } else {
-        geo = new THREE.ExtrudeGeometry(shape, {depth, bevelEnabled:false});
-        mesh = new THREE.Mesh(geo, mat);
-      }
+    const layFlat = KIND_GROUND.has(kind) || (mode === 'plane');
+    if (KIND_STAIRS.has(kind)) {
+      mesh = buildStairs(shapePts, depth, mat);
       group.add(mesh);
-      if (geo) group.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
       minZ = Math.min(minZ, 0); maxZ = Math.max(maxZ, depth);
-    } else {
-      // 平面立ち上げ: 図形を地面(XZ)へ寝かせ厚みを与える(家・地盤向き)
-      const th = (kind==='house'? depth : 100);
+    } else if (layFlat) {
+      const th = (kind==='house' ? depth : (KIND_GROUND.has(kind) ? 60 : 100));
       geo = new THREE.ExtrudeGeometry(shape, {depth: th, bevelEnabled:false});
       mesh = new THREE.Mesh(geo, mat);
       mesh.rotation.x = -Math.PI/2;
       group.add(mesh);
       const ls = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
       ls.rotation.x = -Math.PI/2; group.add(ls);
+    } else {
+      geo = new THREE.ExtrudeGeometry(shape, {depth, bevelEnabled:false});
+      mesh = new THREE.Mesh(geo, mat);
+      group.add(mesh);
+      group.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
+      minZ = Math.min(minZ, 0); maxZ = Math.max(maxZ, depth);
     }
   });
 
