@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.27 (パース: 構造種別を大幅追加・色分け・縮尺修正)</title>
+<title>yoheki-cad v0.28 (配筋展開図に正面図/平面図の切替)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.27 (パース: 構造種別を大幅追加・色分け・縮尺修正)</span>
+  <span class="ver">v0.28 (配筋展開図に正面図/平面図の切替)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -517,8 +517,15 @@
         <input type="number" id="dev-length" value="3000" min="100" step="100">
       </div>
       <div class="prop-row">
-        <label>縦筋ピッチ(mm) <span class="help-tip" data-tip="縦筋を横方向に繰り返す間隔。展開図ではこのピッチで縦線が並びます。">?</span></label>
+        <label>縦筋ピッチ(mm) <span class="help-tip" data-tip="縦筋を横方向に繰り返す間隔。展開図ではこのピッチで縦線(正面)/丸(平面)が並びます。">?</span></label>
         <input type="number" id="dev-pitch" value="250" min="10" step="10">
+      </div>
+      <div class="prop-row">
+        <label>投影 <span class="help-tip" data-tip="正面図=壁を正面から見た姿(横筋=横線・縦筋=ピッチの縦線)。平面図=上から見た図(横筋=長さ方向の線・縦筋=ピッチの丸)。">?</span></label>
+        <select id="dev-proj">
+          <option value="front" selected>正面図(正面から)</option>
+          <option value="top">平面図(上から)</option>
+        </select>
       </div>
       <button class="btn" style="width:100%; margin-top:4px;" onclick="makeDevelopment()">展開図を作成</button>
       <div class="prop-row" style="font-size:10px;color:#999;line-height:1.4;">
@@ -787,6 +794,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.28 配筋展開図 正面/平面:</b> 「断面図→展開図」に<b>投影</b>を追加。<b>正面図</b>(横筋=横線・縦筋=ピッチの縦線)と<b>平面図(上から)</b>(横筋=長さ方向の線・縦筋=ピッチの丸)を選べます。図面内の鉄筋を選択してから作成。</p>
       <p><b>🆕 v0.27 パース(3D)の強化 ①第1段:</b></p>
       <ul>
         <li><b>構造種別を大幅追加</b>: 擁壁/ブロック/間知ブロック/基礎/捨てコン/砕石/舗装/地面/芝/空間/屋根/家/階段(コンクリ・屋内・その他)/U字溝/L形/鉄筋。図形を選び右の「3D種別」で設定すると<b>種別ごとに色分け・立体化</b>されます</li>
@@ -2523,55 +2531,83 @@ function makeDevelopment() {
     minX=Math.min(minX,b.left); minY=Math.min(minY,b.top);
     maxX=Math.max(maxX,b.left+b.width); maxY=Math.max(maxY,b.top+b.height);
   });
+  const proj = (document.getElementById('dev-proj')||{}).value || 'front';
   const gap = 800;                 // 断面図との間隔(mm)
   const baseX = maxX + gap;        // 展開図の左端X
   const made = [];
+  const n = Math.floor(L / P);
+  const ts = defaultTextSize();
+  let frameTop, frameH, labelText;
 
-  // 縦筋の高さ範囲(展開図の縦線の上下)。縦筋が無ければ全体範囲。
-  let vTop = Infinity, vBot = -Infinity, barStroke = '#c00', barWidth = 4, barDia = 'D16';
-  if (bars.length) {
+  if (proj === 'top') {
+    // 平面図(上から): 横軸=延長L, 縦軸=断面の厚み(X)。
+    //   横筋○ → 長さ方向の線(厚み位置=断面X)。 縦筋 → ピッチPで丸(上から見た点)。
+    const topY = minY;                       // 平面図の上端
+    const mapY = sx => topY + (sx - minX);   // 断面Xを厚み方向の縦位置へ
+    frameTop = topY; frameH = (maxX - minX) || 200;
+    // 横筋○ → 横線
+    dots.forEach(d => {
+      const y = mapY(d.left);
+      const ln = new fabric.Line([baseX, y, baseX + L, y], {
+        stroke: d.stroke || '#c00', strokeWidth: Math.max(2, d.strokeWidth || 2), fill: '',
+        _type:'rebar', _dia:d._dia||'D13', _grade:'SD345', _hookL:'none', _hookR:'none',
+        _length: Math.round(L), _layer: state.activeLayer, selectable:true, evented:true
+      });
+      canvas.add(ln); made.push(ln);
+    });
+    // 縦筋 → ピッチで丸(点)
     bars.forEach(bar => {
       const b = bar.getBoundingRect(true, true);
-      vTop = Math.min(vTop, b.top); vBot = Math.max(vBot, b.top + b.height);
+      const y = mapY(b.left + b.width/2);
+      const r = Math.max(8, (bar.strokeWidth||4) * 1.5);
+      for (let k=0; k<=n; k++) {
+        const c = new fabric.Circle({
+          left: baseX + k*P, top: y, radius: r, originX:'center', originY:'center',
+          fill: bar.stroke || '#c00', stroke: bar.stroke || '#c00', strokeWidth: 0.5,
+          _type:'rebardot', _dia: bar._dia||'D16', _layer: state.activeLayer, selectable:true, evented:true
+        });
+        canvas.add(c); made.push(c);
+      }
     });
-    barStroke = bars[0].stroke || '#c00';
-    barWidth = bars[0].strokeWidth || 4;
-    barDia = bars[0]._dia || 'D16';
-  } else { vTop = minY; vBot = maxY; }
-
-  // 縦筋 → ピッチPで縦線を反復
-  const n = Math.floor(L / P);
-  for (let k = 0; k <= n; k++) {
-    const x = baseX + k * P;
-    const ln = new fabric.Line([x, vTop, x, vBot], {
-      stroke: barStroke, strokeWidth: barWidth, fill: '',
-      _type: 'rebar', _dia: barDia, _grade: 'SD345', _hookL:'none', _hookR:'none',
-      _length: Math.round(vBot - vTop), _layer: state.activeLayer, selectable: true, evented: true
+    labelText = `配筋平面図(上から)  L=${Math.round(L)}  縦筋@${Math.round(P)}`;
+  } else {
+    // 正面図: 横筋○→その高さの横線, 縦筋→ピッチで縦線
+    let vTop = Infinity, vBot = -Infinity, barStroke = '#c00', barWidth = 4, barDia = 'D16';
+    if (bars.length) {
+      bars.forEach(bar => { const b = bar.getBoundingRect(true, true); vTop = Math.min(vTop, b.top); vBot = Math.max(vBot, b.top + b.height); });
+      barStroke = bars[0].stroke || '#c00'; barWidth = bars[0].strokeWidth || 4; barDia = bars[0]._dia || 'D16';
+    } else { vTop = minY; vBot = maxY; }
+    frameTop = vTop; frameH = (vBot - vTop);
+    for (let k = 0; k <= n; k++) {
+      const x = baseX + k * P;
+      const ln = new fabric.Line([x, vTop, x, vBot], {
+        stroke: barStroke, strokeWidth: barWidth, fill: '',
+        _type:'rebar', _dia:barDia, _grade:'SD345', _hookL:'none', _hookR:'none',
+        _length: Math.round(vBot - vTop), _layer: state.activeLayer, selectable:true, evented:true
+      });
+      canvas.add(ln); made.push(ln);
+    }
+    dots.forEach(d => {
+      const cy = d.top;
+      const ln = new fabric.Line([baseX, cy, baseX + L, cy], {
+        stroke: d.stroke || '#c00', strokeWidth: Math.max(2, d.strokeWidth || 2), fill: '',
+        _type:'rebar', _dia:d._dia||'D13', _grade:'SD345', _hookL:'none', _hookR:'none',
+        _length: Math.round(L), _layer: state.activeLayer, selectable:true, evented:true
+      });
+      canvas.add(ln); made.push(ln);
     });
-    canvas.add(ln); made.push(ln);
+    labelText = `配筋正面図  L=${Math.round(L)}  縦筋@${Math.round(P)}`;
   }
 
-  // 横筋○ → その高さ(中心Y)で延長Lの横線
-  dots.forEach(d => {
-    const cy = d.top;   // rebardotは中心原点なのでtop=中心Y
-    const ln = new fabric.Line([baseX, cy, baseX + L, cy], {
-      stroke: d.stroke || '#c00', strokeWidth: Math.max(2, d.strokeWidth || 2), fill: '',
-      _type: 'rebar', _dia: d._dia || 'D13', _grade: 'SD345', _hookL:'none', _hookR:'none',
-      _length: Math.round(L), _layer: state.activeLayer, selectable: true, evented: true
-    });
-    canvas.add(ln); made.push(ln);
-  });
-
-  // 外形枠 + ラベル
+  // 外形枠 + ラベル(共通)
   const frame = new fabric.Rect({
-    left: baseX, top: vTop, width: L, height: (vBot - vTop),
+    left: baseX, top: frameTop, width: L, height: frameH,
     fill: '', stroke: '#888', strokeWidth: 1, strokeDashArray: [10,5],
     _layer: state.activeLayer, selectable: true, evented: true
   });
   canvas.add(frame); made.push(frame);
-  const ts = defaultTextSize();
-  const label = new fabric.IText(`配筋展開図  L=${Math.round(L)}  縦筋@${Math.round(P)}`, {
-    left: baseX, top: vTop - ts * 1.6,
+  const label = new fabric.IText(labelText, {
+    left: baseX, top: frameTop - ts * 1.6,
     fontSize: ts, fill: '#333', fontFamily: 'Yu Gothic, sans-serif',
     _layer: state.activeLayer, selectable: true, evented: true
   });
@@ -2583,7 +2619,7 @@ function makeDevelopment() {
   canvas.renderAll();
   saveHistory(); updateStats();
   document.getElementById('status-mode').textContent =
-    `展開図を作成しました(横筋 ${dots.length}本 / 縦筋ピッチ ${n+1}本)。Fで全体表示`;
+    `${proj==='top'?'平面図':'正面図'}を作成しました(横筋 ${dots.length} / 縦筋 ${bars.length})。Fで全体表示`;
 }
 
 // マウスホイールでズーム
