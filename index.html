@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.56 (鉄筋を縦筋/横筋に指定→展開図が優先)</title>
+<title>yoheki-cad v0.57 (縦筋/横筋をクリックで連続指定)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.56 (鉄筋を縦筋/横筋に指定→展開図が優先)</span>
+  <span class="ver">v0.57 (縦筋/横筋をクリックで連続指定)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -566,8 +566,12 @@
         <button class="btn" style="flex:1;" onclick="tagRebarRole('tate')">選択を縦筋に</button>
         <button class="btn" style="flex:1;" onclick="tagRebarRole('yoko')">選択を横筋に</button>
       </div>
+      <div class="prop-row" style="gap:4px;">
+        <button class="btn" style="flex:1;" onclick="startRolePen('tate')">🖊縦筋(連続)</button>
+        <button class="btn" style="flex:1;" onclick="startRolePen('yoko')">🖊横筋(連続)</button>
+      </div>
       <div class="prop-row" style="font-size:10px;color:#9cf;line-height:1.4;">
-        <span>※断面でどれが縦筋(ピッチ)・横筋(位置)か自分で指定できます。指定すると展開図はそれに従います(未指定は向きで自動判別)。</span>
+        <span>※「🖊連続」は鉄筋を次々クリックで指定(横筋など複数を一気に)。選択(S)で終了。指定すると展開図はそれに従います(未指定は向きで自動判別)。</span>
       </div>
       <div class="prop-row" style="font-size:10px;color:#9cf;line-height:1.4;">
         <span>① 鉄筋を選択→配置面を選び「この面を指定」でタグ付け ② 後で「面で選択」→「展開図を作成」</span>
@@ -840,6 +844,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.57 縦筋/横筋を連続クリック指定:</b> 「🖊縦筋(連続)」「🖊横筋(連続)」を追加。横筋など<b>複数の鉄筋を次々クリックして一気に指定</b>できます(枠選択しづらい時に便利)。選択(S)で終了。</p>
       <p><b>🆕 v0.56 縦筋/横筋を自分で指定:</b> 「断面図→展開図」に<b>「選択を縦筋に」「選択を横筋に」</b>を追加。断面でどれが縦筋(ピッチで並ぶ)・横筋(位置で引く)かを自分で指定でき、<b>展開図はその指定に従います</b>(未指定の鉄筋は向きで自動判別)。L字主筋など自動判別が難しい場合に。</p>
       <p><b>🆕 v0.55 展開図 正面図の改良:</b> 正面図で、鉄筋を<b>向きで判別</b>(縦向き=縦筋→ピッチの縦線／横向きの鉄筋線・横筋○=横筋→その高さの横線)。横筋を○で置いていなくても、<b>横向きの鉄筋線から横筋の横線を反映</b>するようにしました。これで断面の縦筋×横筋がグリッドの展開図になります。</p>
       <p><b>🆕 v0.54 部品が配置できない不具合を修正:</b> 登録部品(DXF含む)の「配置」を押しても出てこない原因(復元処理の引数誤り)を修正。配置できるようになりました。</p>
@@ -2183,7 +2188,7 @@ function setTool(tool) {
   });
   
   // カーソル
-  if (tool === 'eraser' || tool === 'trim' || tool === 'facepen') {
+  if (tool === 'eraser' || tool === 'trim' || tool === 'facepen' || tool === 'rolepen') {
     canvas.defaultCursor = 'cell';
   } else {
     canvas.defaultCursor = (tool === 'select') ? 'default' : 'crosshair';
@@ -2200,10 +2205,11 @@ function setTool(tool) {
     'select': '選択', 'line': '直線', 'rect': '矩形', 'circle': '円',
     'polygon': '多角形', 'freehand': 'フリーハンド', 'dim': '寸法線',
     'rebar': '鉄筋', 'text': 'テキスト', 'eraser': '消しゴム', 'trim': '節間消し',
-    'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線', 'facepen': '面指定ペン'
+    'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線', 'facepen': '面指定ペン', 'rolepen': '縦横指定ペン'
   };
   document.getElementById('status-mode').textContent = 'モード: ' + (labels[tool] || tool) +
-    (tool === 'facepen' ? `（配置面「${document.getElementById('dev-face').value||'未選択'}」を鉄筋クリックで指定。Sキー/選択で終了）` : '');
+    (tool === 'facepen' ? `（配置面「${document.getElementById('dev-face').value||'未選択'}」を鉄筋クリックで指定。Sキー/選択で終了）` : '') +
+    (tool === 'rolepen' ? `（${state.rolePenRole==='tate'?'縦筋':'横筋'}を鉄筋クリックで連続指定。Sキー/選択で終了）` : '');
   
   canvas.renderAll();
 }
@@ -2301,6 +2307,21 @@ canvas.on('mouse:down', (opt) => {
       canvas.setActiveObject(cur.length > 1 ? new fabric.ActiveSelection(cur, {canvas}) : cur[0]);
       canvas.requestRenderAll(); saveHistory();
       document.getElementById('status-mode').textContent = `「${face||'面未選択'}」に指定 計${cur.length}本（続けてクリック / 選択(S)で終了）`;
+    }
+    return;
+  }
+  // 役割ペン: クリックした鉄筋を縦筋/横筋に指定しながら選択に追加(横筋など複数を連続指定)
+  if (state.tool === 'rolepen') {
+    const hit = pickObjectAt(canvas.getPointer(opt.e));
+    if (hit && (hit.obj._type === 'rebar' || hit.obj._type === 'rebardot')) {
+      hit.obj._role = state.rolePenRole || 'yoko';
+      let cur = canvas.getActiveObjects().slice();
+      if (!cur.includes(hit.obj)) cur.push(hit.obj);
+      canvas.discardActiveObject();
+      canvas.setActiveObject(cur.length > 1 ? new fabric.ActiveSelection(cur, {canvas}) : cur[0]);
+      canvas.requestRenderAll(); saveHistory();
+      const rl = state.rolePenRole==='tate'?'縦筋':'横筋';
+      document.getElementById('status-mode').textContent = `${rl}に指定 計${cur.length}本（続けてクリック / 選択(S)で終了）`;
     }
     return;
   }
@@ -2831,6 +2852,12 @@ function tagRebarRole(role) {
   objs.forEach(o => { o._role = role; });
   saveHistory();
   document.getElementById('status-mode').textContent = `${objs.length}本を「${role==='tate'?'縦筋':'横筋'}」に指定しました`;
+}
+// クリックで連続して縦筋/横筋を指定するモード
+function startRolePen(role) {
+  state.rolePenRole = role;
+  canvas.discardActiveObject();
+  setTool('rolepen');
 }
 // 指定した配置面の鉄筋をまとめて選択
 function selectByFace() {
