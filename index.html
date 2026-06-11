@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.18.1 (印刷修正: 白画面/縮尺1:S出力)</title>
+<title>yoheki-cad v0.18.2 (ズーム範囲拡大・縮尺1/5〜追加)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.18.1 (印刷修正: 白画面/縮尺1:S出力)</span>
+  <span class="ver">v0.18.2 (ズーム範囲拡大・縮尺1/5〜追加)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -417,6 +417,9 @@
       <div class="prop-row">
         <label>縮尺 1/ <span class="help-tip" data-tip="図面の縮尺。1/50なら実寸50mmが図面上1mm。用紙に収まる実寸範囲が下に表示されます。">?</span></label>
         <select id="paper-scale" onchange="updatePaperFrame()">
+          <option value="5">5</option>
+          <option value="10">10</option>
+          <option value="15">15</option>
           <option value="20">20</option>
           <option value="30">30</option>
           <option value="50" selected>50</option>
@@ -691,6 +694,12 @@
         <li>直線(L)を節間消しすると、<b>他の線との交点(接点)で区切り、クリックした区間だけ削除</b>（交点が無ければ線ごと削除）。例: 十字に交差した2本の線で上側を押すと <b>T字</b> になる</li>
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
+      </ul>
+      <p><b>🆕 v0.18.2 ズーム・縮尺:</b></p>
+      <ul>
+        <li><b>マウスホイールで縮小できない不具合を修正</b>。ズーム範囲を大幅に拡大(約0.3%〜4000%)。現場全体も細部も自在に</li>
+        <li>縮尺に <b>1/5・1/10・1/15</b> を追加。擁壁の厚み200mm・高さ1200mmのような小さい部材はA4でも 1/5〜1/10 を選ぶと大きく描けます</li>
+        <li>ヒント: 「縮尺」を変えると左の「枠内実寸」が変わります。<b>枠内実寸が描きたい物より少し大きい縮尺</b>を選ぶのがコツ(例:高さ1.2mの壁→1/5でA4縦なら枠内1485mm)</li>
       </ul>
       <p><b>🆕 v0.18.1 印刷の修正:</b></p>
       <ul>
@@ -2256,12 +2265,15 @@ function finishPolygon() {
 }
 
 // マウスホイールでズーム
+// ズーム範囲(キャンバス1単位=1mm。実寸が大きいので広めに)
+const ZOOM_MIN = 0.003;   // 1px≒333mm → 数十mの現場全体も表示可
+const ZOOM_MAX = 40;      // 1mm≒40px → 鉄筋など細部も拡大可
 canvas.on('mouse:wheel', (opt) => {
   const delta = opt.e.deltaY;
   let z = canvas.getZoom();
   z *= 0.999 ** delta;
-  if (z > 20) z = 20;
-  if (z < 0.1) z = 0.1;
+  if (z > ZOOM_MAX) z = ZOOM_MAX;
+  if (z < ZOOM_MIN) z = ZOOM_MIN;
   canvas.zoomToPoint({x: opt.e.offsetX, y: opt.e.offsetY}, z);
   opt.e.preventDefault();
   opt.e.stopPropagation();
@@ -2692,8 +2704,11 @@ function scheduleGridRedraw() {
 }
 
 function zoom(factor) {
-  const z = canvas.getZoom() * factor;
-  canvas.setZoom(z);
+  let z = canvas.getZoom() * factor;
+  if (z > ZOOM_MAX) z = ZOOM_MAX;
+  if (z < ZOOM_MIN) z = ZOOM_MIN;
+  // 画面中心を基準に拡大縮小(端に寄らないように)
+  canvas.zoomToPoint({x: canvas.getWidth()/2, y: canvas.getHeight()/2}, z);
   document.getElementById('status-zoom').textContent = Math.round(z*100) + '%';
   drawGrid();
   canvas.renderAll();
