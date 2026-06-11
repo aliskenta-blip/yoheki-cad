@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.57 (縦筋/横筋をクリックで連続指定)</title>
+<title>yoheki-cad v0.58 (縦横指定ペンの連続選択を修正)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.57 (縦筋/横筋をクリックで連続指定)</span>
+  <span class="ver">v0.58 (縦横指定ペンの連続選択を修正)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -844,6 +844,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.58 連続指定の修正:</b> 「🖊横筋(連続)」などで<b>複数の鉄筋が溜まっていかない不具合を修正</b>(専用リストで確実に蓄積)。クリックするたびにピンクで増えていきます。</p>
       <p><b>🆕 v0.57 縦筋/横筋を連続クリック指定:</b> 「🖊縦筋(連続)」「🖊横筋(連続)」を追加。横筋など<b>複数の鉄筋を次々クリックして一気に指定</b>できます(枠選択しづらい時に便利)。選択(S)で終了。</p>
       <p><b>🆕 v0.56 縦筋/横筋を自分で指定:</b> 「断面図→展開図」に<b>「選択を縦筋に」「選択を横筋に」</b>を追加。断面でどれが縦筋(ピッチで並ぶ)・横筋(位置で引く)かを自分で指定でき、<b>展開図はその指定に従います</b>(未指定の鉄筋は向きで自動判別)。L字主筋など自動判別が難しい場合に。</p>
       <p><b>🆕 v0.55 展開図 正面図の改良:</b> 正面図で、鉄筋を<b>向きで判別</b>(縦向き=縦筋→ピッチの縦線／横向きの鉄筋線・横筋○=横筋→その高さの横線)。横筋を○で置いていなくても、<b>横向きの鉄筋線から横筋の横線を反映</b>するようにしました。これで断面の縦筋×横筋がグリッドの展開図になります。</p>
@@ -2310,18 +2311,20 @@ canvas.on('mouse:down', (opt) => {
     }
     return;
   }
-  // 役割ペン: クリックした鉄筋を縦筋/横筋に指定しながら選択に追加(横筋など複数を連続指定)
+  // 役割ペン: クリックした鉄筋を縦筋/横筋に指定しながら蓄積選択(横筋など複数を連続指定)
   if (state.tool === 'rolepen') {
     const hit = pickObjectAt(canvas.getPointer(opt.e));
     if (hit && (hit.obj._type === 'rebar' || hit.obj._type === 'rebardot')) {
       hit.obj._role = state.rolePenRole || 'yoko';
-      let cur = canvas.getActiveObjects().slice();
-      if (!cur.includes(hit.obj)) cur.push(hit.obj);
+      hit.obj.selectable = true; hit.obj.evented = true;   // 選択を保持できるように
+      if (!state.rolePenList) state.rolePenList = [];
+      if (!state.rolePenList.includes(hit.obj)) state.rolePenList.push(hit.obj);
+      const objs = state.rolePenList.filter(o => o.canvas);   // 残っているものだけ
       canvas.discardActiveObject();
-      canvas.setActiveObject(cur.length > 1 ? new fabric.ActiveSelection(cur, {canvas}) : cur[0]);
+      if (objs.length) canvas.setActiveObject(objs.length > 1 ? new fabric.ActiveSelection(objs, {canvas}) : objs[0]);
       canvas.requestRenderAll(); saveHistory();
       const rl = state.rolePenRole==='tate'?'縦筋':'横筋';
-      document.getElementById('status-mode').textContent = `${rl}に指定 計${cur.length}本（続けてクリック / 選択(S)で終了）`;
+      document.getElementById('status-mode').textContent = `${rl}に指定 計${objs.length}本（続けてクリック / 選択(S)で終了）`;
     }
     return;
   }
@@ -2856,6 +2859,7 @@ function tagRebarRole(role) {
 // クリックで連続して縦筋/横筋を指定するモード
 function startRolePen(role) {
   state.rolePenRole = role;
+  state.rolePenList = [];   // 蓄積リストをリセット
   canvas.discardActiveObject();
   setTool('rolepen');
 }
