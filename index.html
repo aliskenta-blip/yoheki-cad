@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.24 (多角形ハッチ: 斜め・多角形の範囲を塗る)</title>
+<title>yoheki-cad v0.25 (配筋断面図→展開図を作成)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.24 (多角形ハッチ: 斜め・多角形の範囲を塗る)</span>
+  <span class="ver">v0.25 (配筋断面図→展開図を作成)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -500,6 +500,22 @@
         <input type="number" id="array-count" value="3" min="1" max="200">
       </div>
       <button class="btn" style="width:100%; margin-top:4px;" onclick="arrayDuplicate()">選択を等間隔で複製</button>
+    </div>
+
+    <div class="panel-section">
+      <h4>断面図 → 展開図</h4>
+      <div class="prop-row">
+        <label>延長 L(mm) <span class="help-tip" data-tip="展開図(姿図)の横方向の長さ=壁の延長。横筋はこの長さの線になります。">?</span></label>
+        <input type="number" id="dev-length" value="3000" min="100" step="100">
+      </div>
+      <div class="prop-row">
+        <label>縦筋ピッチ(mm) <span class="help-tip" data-tip="縦筋を横方向に繰り返す間隔。展開図ではこのピッチで縦線が並びます。">?</span></label>
+        <input type="number" id="dev-pitch" value="250" min="10" step="10">
+      </div>
+      <button class="btn" style="width:100%; margin-top:4px;" onclick="makeDevelopment()">展開図を作成</button>
+      <div class="prop-row" style="font-size:10px;color:#999;line-height:1.4;">
+        <span>配筋断面図の<b>横筋○→横線</b>・<b>縦筋→ピッチ反復の縦線</b>で右側に作成。選択中の配筋が対象(未選択なら全鉄筋)。</span>
+      </div>
     </div>
 
     <div class="panel-section" id="rebar-settings" style="display:none">
@@ -759,6 +775,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.25 配筋断面図→展開図:</b> 左パネル「断面図→展開図」で延長L・縦筋ピッチを入れ、配筋(縦筋・横筋○)を選択して「展開図を作成」。横筋○→横線、縦筋→ピッチ反復の縦線で右側に姿図を作ります(Fで全体表示)。</p>
       <p><b>🆕 v0.24 多角形ハッチ:</b> ハッチ(▦)モーダルの「▰ 多角形で囲んで塗る」で、斜め・多角形の範囲をクリックして囲み、ダブルクリック/Enterで塗れます。</p>
       <p><b>🆕 v0.23 鉄筋の強化:</b></p>
       <ul>
@@ -2456,6 +2473,91 @@ function placeRebarTemplate() {
   canvas.setActiveObject(poly);
   canvas.renderAll();
   saveHistory(); updateStats();
+}
+
+// ⑤ 配筋断面図 → 配筋展開図(姿図)
+//   横筋○(点) → その高さの横線(延長L)。 縦筋 → ピッチPで横方向に繰り返す縦線。
+function makeDevelopment() {
+  const L = parseFloat(document.getElementById('dev-length').value) || 0;
+  const P = parseFloat(document.getElementById('dev-pitch').value) || 0;
+  if (L <= 0 || P <= 0) { alert('延長Lと縦筋ピッチ(mm)を入力してください'); return; }
+
+  // 対象: 選択中の配筋(縦筋・横筋○)。無ければ全鉄筋系。
+  let targets = canvas.getActiveObjects().filter(o => o._type === 'rebar' || o._type === 'rebardot');
+  if (!targets.length) targets = canvas.getObjects().filter(o => o._type === 'rebar' || o._type === 'rebardot');
+  if (!targets.length) { alert('配筋(縦筋・横筋○)が見つかりません。先に断面図を描いてください。'); return; }
+
+  const dots = targets.filter(o => o._type === 'rebardot');
+  const bars = targets.filter(o => o._type === 'rebar');
+
+  // 断面図の範囲
+  let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+  targets.forEach(o => {
+    const b = o.getBoundingRect(true, true);
+    minX=Math.min(minX,b.left); minY=Math.min(minY,b.top);
+    maxX=Math.max(maxX,b.left+b.width); maxY=Math.max(maxY,b.top+b.height);
+  });
+  const gap = 800;                 // 断面図との間隔(mm)
+  const baseX = maxX + gap;        // 展開図の左端X
+  const made = [];
+
+  // 縦筋の高さ範囲(展開図の縦線の上下)。縦筋が無ければ全体範囲。
+  let vTop = Infinity, vBot = -Infinity, barStroke = '#c00', barWidth = 4, barDia = 'D16';
+  if (bars.length) {
+    bars.forEach(bar => {
+      const b = bar.getBoundingRect(true, true);
+      vTop = Math.min(vTop, b.top); vBot = Math.max(vBot, b.top + b.height);
+    });
+    barStroke = bars[0].stroke || '#c00';
+    barWidth = bars[0].strokeWidth || 4;
+    barDia = bars[0]._dia || 'D16';
+  } else { vTop = minY; vBot = maxY; }
+
+  // 縦筋 → ピッチPで縦線を反復
+  const n = Math.floor(L / P);
+  for (let k = 0; k <= n; k++) {
+    const x = baseX + k * P;
+    const ln = new fabric.Line([x, vTop, x, vBot], {
+      stroke: barStroke, strokeWidth: barWidth, fill: '',
+      _type: 'rebar', _dia: barDia, _grade: 'SD345', _hookL:'none', _hookR:'none',
+      _length: Math.round(vBot - vTop), _layer: state.activeLayer, selectable: true, evented: true
+    });
+    canvas.add(ln); made.push(ln);
+  }
+
+  // 横筋○ → その高さ(中心Y)で延長Lの横線
+  dots.forEach(d => {
+    const cy = d.top;   // rebardotは中心原点なのでtop=中心Y
+    const ln = new fabric.Line([baseX, cy, baseX + L, cy], {
+      stroke: d.stroke || '#c00', strokeWidth: Math.max(2, d.strokeWidth || 2), fill: '',
+      _type: 'rebar', _dia: d._dia || 'D13', _grade: 'SD345', _hookL:'none', _hookR:'none',
+      _length: Math.round(L), _layer: state.activeLayer, selectable: true, evented: true
+    });
+    canvas.add(ln); made.push(ln);
+  });
+
+  // 外形枠 + ラベル
+  const frame = new fabric.Rect({
+    left: baseX, top: vTop, width: L, height: (vBot - vTop),
+    fill: '', stroke: '#888', strokeWidth: 1, strokeDashArray: [10,5],
+    _layer: state.activeLayer, selectable: true, evented: true
+  });
+  canvas.add(frame); made.push(frame);
+  const ts = defaultTextSize();
+  const label = new fabric.IText(`配筋展開図  L=${Math.round(L)}  縦筋@${Math.round(P)}`, {
+    left: baseX, top: vTop - ts * 1.6,
+    fontSize: ts, fill: '#333', fontFamily: 'Yu Gothic, sans-serif',
+    _layer: state.activeLayer, selectable: true, evented: true
+  });
+  canvas.add(label); made.push(label);
+
+  canvas.discardActiveObject();
+  setTool('select');
+  canvas.setActiveObject(new fabric.ActiveSelection(made, { canvas }));
+  canvas.renderAll();
+  saveHistory(); updateStats();
+  document.getElementById('status-mode').textContent =
+    `展開図を作成しました(横筋 ${dots.length}本 / 縦筋ピッチ ${n+1}本)。Fで全体表示`;
 }
 
 // マウスホイールでズーム
