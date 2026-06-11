@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.62 (縦筋=青/横筋=赤の色タグ方式・展開図はタグを使用)</title>
+<title>yoheki-cad v0.63 (役割色を緑/橙に: 径色とかぶらない)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.62 (縦筋=青/横筋=赤の色タグ方式・展開図はタグを使用)</span>
+  <span class="ver">v0.63 (役割色を緑/橙に: 径色とかぶらない)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -567,12 +567,12 @@
         <button class="btn" style="flex:1;" onclick="tagRebarRole('yoko')">選択を横筋に</button>
       </div>
       <div class="prop-row" style="gap:4px;">
-        <button class="btn" style="flex:1;" onclick="startRolePen('tate')">🖊縦筋(青)</button>
-        <button class="btn" style="flex:1;" onclick="startRolePen('yoko')">🖊横筋(赤)</button>
+        <button class="btn" style="flex:1;" onclick="startRolePen('tate')">🖊縦筋(緑)</button>
+        <button class="btn" style="flex:1;" onclick="startRolePen('yoko')">🖊横筋(橙)</button>
         <button class="btn" style="flex:0; min-width:32px;" onclick="clearRebarRoles()" title="縦横の指定(色)をクリア">↺</button>
       </div>
       <div class="prop-row" style="font-size:10px;color:#9cf;line-height:1.4;">
-        <span>※「🖊縦筋(青)/横筋(赤)」で鉄筋を次々クリック→<b>色が変わってタグ付け</b>(縦筋=青/横筋=赤)。選択は不要。<b>展開図はこの色タグの鉄筋だけ</b>を使います。↺でクリア。</span>
+        <span>※「🖊縦筋(緑)/横筋(橙)」で鉄筋を次々クリック→<b>色が変わってタグ付け</b>(縦筋=緑/横筋=橙)。選択は不要。<b>展開図はこの色タグの鉄筋だけ</b>を使います。↺でクリア。</span>
       </div>
       <div class="prop-row" style="font-size:10px;color:#9cf;line-height:1.4;">
         <span>① 鉄筋を選択→配置面を選び「この面を指定」でタグ付け ② 後で「面で選択」→「展開図を作成」</span>
@@ -845,10 +845,10 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
-      <p><b>🆕 v0.62 縦筋=青/横筋=赤の色タグ:</b></p>
+      <p><b>🆕 v0.62 縦筋=緑/横筋=橙の色タグ:</b></p>
       <ul>
-        <li>「🖊縦筋(青)/横筋(赤)」で鉄筋をクリック→<b>色が変わってタグ付け</b>。選択を使わないので混ざりません</li>
-        <li><b>展開図はこの色タグの鉄筋だけ</b>を使います(縦筋=青の実長を縦線、横筋=赤を縦筋上の位置に)。↺でクリア</li>
+        <li>「🖊縦筋(緑)/横筋(橙)」で鉄筋をクリック→<b>色が変わってタグ付け</b>(径の色とかぶらない緑・橙)。選択を使わないので混ざりません</li>
+        <li><b>展開図はこの色タグの鉄筋だけ</b>を使います(縦筋=緑の実長を縦線、横筋=橙を縦筋上の位置に)。↺でクリア</li>
         <li>狙い違いは色で一目で分かるので、間違えたら別の色で塗り直すだけ</li>
       </ul>
       <p><b>🆕 v0.61 展開図を投影方式に(パースの2D版):</b></p>
@@ -2336,7 +2336,7 @@ canvas.on('mouse:down', (opt) => {
     if (hit && (hit.obj._type === 'rebar' || hit.obj._type === 'rebardot')) {
       setRebarRole(hit.obj, state.rolePenRole || 'yoko');
       canvas.requestRenderAll(); saveHistory();
-      const rl = state.rolePenRole==='tate'?'縦筋(青)':'横筋(赤)';
+      const rl = state.rolePenRole==='tate'?'縦筋(緑)':'横筋(橙)';
       document.getElementById('status-mode').textContent = `${rl}に指定（続けてクリック / 選択(S)で終了）。展開図はこの色タグを使います`;
     }
     return;
@@ -2862,8 +2862,8 @@ function tagRebarFace() {
   document.getElementById('status-mode').textContent = `${objs.length}個の鉄筋を「${face}」に指定しました`;
 }
 // 選択した鉄筋を「縦筋(tate)/横筋(yoko)」に指定。展開図がこの指定を優先する。
-// 役割の色: 縦筋=青 / 横筋=赤。色で見分け＋展開図のタグに使う。
-const ROLE_COLOR = { tate:'#0066cc', yoko:'#cc0000' };
+// 役割の色: 径の色(灰/青/赤系)とかぶらない目立つ色に。縦筋=緑 / 横筋=オレンジ。
+const ROLE_COLOR = { tate:'#12b886', yoko:'#ff7a00' };
 function setRebarRole(o, role) {
   if (o._origStroke === undefined) o._origStroke = o.stroke;   // 元の色を退避
   o._role = role;
@@ -2881,7 +2881,7 @@ function tagRebarRole(role) {
   if (!objs.length) { alert('縦筋/横筋に指定する鉄筋を先に選択してください。'); return; }
   objs.forEach(o => setRebarRole(o, role));
   canvas.renderAll(); saveHistory();
-  document.getElementById('status-mode').textContent = `${objs.length}本を「${role==='tate'?'縦筋(青)':'横筋(赤)'}」に指定しました`;
+  document.getElementById('status-mode').textContent = `${objs.length}本を「${role==='tate'?'縦筋(緑)':'横筋(橙)'}」に指定しました`;
 }
 // クリックで連続して縦筋/横筋を指定するモード
 function startRolePen(role) {
