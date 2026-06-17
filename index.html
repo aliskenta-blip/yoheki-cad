@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.67 (画像トリミング・図枠に並べて1枚に)</title>
+<title>yoheki-cad v0.68 (斜線/塗りつぶしハッチ・円領域・色スウォッチ)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -245,6 +245,12 @@
     #print-title { text-align: center; font-size: 14px; margin: 4px 0 10px; color:#000; }
     .menubar, .toolbar, .main, .modal-bg { display: none !important; }
   }
+  /* 色スウォッチ(代表色・最近使った色) v0.68 */
+  .swatches { display:flex; flex-wrap:wrap; gap:3px; margin:3px 0 2px; align-items:center; }
+  .swatches .sw-label { font-size:9px; color:#888; width:100%; margin-top:2px; }
+  .swatch { width:16px; height:16px; border-radius:3px; border:1px solid #888; cursor:pointer; box-sizing:border-box; }
+  .swatch:hover { outline:2px solid #f97316; outline-offset:0; }
+  .swatch.sw-white { border-color:#bbb; }
 </style>
 </head>
 <body>
@@ -252,7 +258,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.67 (画像トリミング・図枠に並べて1枚に)</span>
+  <span class="ver">v0.68 (斜線/塗りつぶしハッチ・円領域・色スウォッチ)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -482,8 +488,9 @@
       <h4>線の設定</h4>
       <div class="prop-row">
         <label>色</label>
-        <input type="color" id="stroke-color" value="#000000">
+        <input type="color" id="stroke-color" value="#000000" onchange="pushRecentColor(this.value)">
       </div>
+      <div class="swatches" id="stroke-swatches"></div>
       <div class="prop-row">
         <label>太さ</label>
         <input type="number" id="stroke-width" value="20" min="0.5" max="500" step="1">
@@ -499,8 +506,9 @@
       </div>
       <div class="prop-row">
         <label>塗り</label>
-        <input type="color" id="fill-color" value="#ffffff">
+        <input type="color" id="fill-color" value="#ffffff" onchange="pushRecentColor(this.value)">
       </div>
+      <div class="swatches" id="fill-swatches"></div>
       <div class="prop-row">
         <label><input type="checkbox" id="fill-none" checked> 塗りなし</label>
         <span></span>
@@ -861,6 +869,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.68 斜線/塗りつぶしハッチ・色スウォッチ:</b> ハッチ(H)で<b>「斜線(設定)」</b>=色・向き(角度)・間隔・太さ・透過率を指定して斜線、<b>「塗りつぶし」</b>=色・透過率で単色塗りができます。領域は<b>矩形・円・多角形</b>から選べ、選択図形にも適用可。線・塗りの色は<b>代表色＋最近使った色</b>のスウォッチからワンタップで選べます。</p>
       <p><b>🆕 v0.67 トリミング・図枠に並べる:</b> 取り込んだ地図/画像を<b>選択</b>し、左パネル「画像・地図(PDF)」→<b>「✂トリミング」</b>で残す範囲をドラッグすると不要な周りを切り取れます。<b>「🗂画像を図枠に並べる」</b>で複数の地図を図枠に格子状に配置→<b>🖨️印刷→PDFに保存</b>で<b>2枚の地図を1枚のPDF</b>にまとめられます。</p>
       <p><b>🆕 v0.66 PDF・地図取込:</b> 上部メニュー<b>「📄 PDF・地図取込」</b>でPDFを選び、ページと濃さを決めて<b>取り込む</b>と、図面の<b>下敷き</b>として貼り付きます。<b>その上から線をなぞって作図</b>でき、選択(S)モードで移動・拡大縮小も可。地図の<b>縮尺バー</b>などを使い「縮尺補正」で実寸に合わせられます。</p>
       <p><b>🆕 v0.65 縮尺補正:</b> 左パネル「縮尺補正」→<b>「📐 2点で実距離を指定」</b>。実寸のわかる1辺の<b>端→端をドラッグ</b>し、実距離(m/mm)を入力すると<b>図面全体がその比率で拡大・縮小</b>されます。取り込んだ図やラフ図の大きさ合わせに。最初にクリックした点は動きません。</p>
@@ -1371,24 +1380,57 @@
 
 <!-- ハッチ(模様)モーダル (v0.5) -->
 <div class="modal-bg" id="modal-hatch">
-  <div class="modal" style="max-width:520px;">
-    <h3>▦ ハッチ・模様で塗る</h3>
-    <p style="font-size:12px; color:#aaa;">模様を選び、「領域を描く」で矩形/多角形を描くか、選択中の閉じた図形に適用します。</p>
+  <div class="modal" style="max-width:560px;">
+    <h3>▦ ハッチ・塗りで領域を塗る</h3>
+    <p style="font-size:12px; color:#aaa;">塗り方を選び、設定を決めて、下のボタンで領域を描く(矩形/円/多角形)か、選択中の閉じた図形に適用します。</p>
     <div id="hatch-palette" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin-top:10px;"></div>
-    <div class="prop-row" style="margin-top:10px;">
-      <label>密度</label>
-      <input type="range" id="hatch-density" min="6" max="30" value="14" style="flex:1;" oninput="renderHatchPalette()">
-      <span id="hatch-density-val" style="min-width:30px; text-align:right;">14</span>
+
+    <!-- 斜線・塗りつぶし共通: 色 -->
+    <div id="hatch-color-opts" style="display:none;">
+      <div class="prop-row" style="margin-top:10px;">
+        <label>色</label>
+        <input type="color" id="hatch-color" value="#666666" onchange="pushRecentColor(this.value); renderHatchPalette();">
+      </div>
+      <div class="swatches" id="hatch-swatches"></div>
     </div>
+
+    <!-- 斜線専用: 向き・間隔・太さ -->
+    <div id="hatch-line-opts" style="display:none;">
+      <div class="prop-row">
+        <label>向き(角度°)</label>
+        <input type="range" id="hatch-angle" min="0" max="180" value="45" style="flex:1;" oninput="document.getElementById('hatch-angle-val').textContent=this.value+'°'; renderHatchPalette();">
+        <span id="hatch-angle-val" style="min-width:34px; text-align:right;">45°</span>
+      </div>
+      <div class="prop-row">
+        <label>間隔(mm) <span class="help-tip" data-tip="斜線どうしの間隔(mm)。小さくすると線が増えて密に、大きくすると線が減ってまばらになります。">?</span></label>
+        <input type="number" id="hatch-line-gap" value="100" min="5" max="2000" step="5">
+      </div>
+      <div class="prop-row">
+        <label>太さ(mm)</label>
+        <input type="number" id="hatch-line-width" value="5" min="0.5" max="100" step="0.5" oninput="renderHatchPalette()">
+      </div>
+    </div>
+
+    <!-- 材料模様専用: 密度 -->
+    <div id="hatch-density-opts" style="display:none;">
+      <div class="prop-row" style="margin-top:10px;">
+        <label>密度</label>
+        <input type="range" id="hatch-density" min="6" max="30" value="14" style="flex:1;" oninput="renderHatchPalette()">
+        <span id="hatch-density-val" style="min-width:30px; text-align:right;">14</span>
+      </div>
+    </div>
+
     <div class="prop-row">
       <label>透過率</label>
       <input type="range" id="hatch-opacity" min="10" max="100" value="100" style="flex:1;" oninput="document.getElementById('hatch-opacity-val').textContent=this.value+'%'">
       <span id="hatch-opacity-val" style="min-width:40px; text-align:right;">100%</span>
     </div>
-    <div class="modal-actions" style="justify-content:space-between;">
-      <div>
-        <button class="btn primary" onclick="startHatchDraw()">▭ 矩形で塗る</button>
-        <button class="btn primary" onclick="startHatchPolyDraw()">▰ 多角形で囲んで塗る</button>
+
+    <div class="modal-actions" style="justify-content:space-between; flex-wrap:wrap; gap:6px;">
+      <div style="display:flex; flex-wrap:wrap; gap:6px;">
+        <button class="btn primary" onclick="startHatchDraw('rect')">▭ 矩形で塗る</button>
+        <button class="btn primary" onclick="startHatchDraw('ellipse')">⬭ 円で塗る</button>
+        <button class="btn primary" onclick="startHatchPolyDraw()">▰ 多角形で塗る</button>
         <button class="btn" onclick="applyHatchToSelected()">選択図形に適用</button>
       </div>
       <button class="btn" onclick="closeModal('modal-hatch')">閉じる</button>
@@ -1560,6 +1602,7 @@ let state = {
   moveConstraint: 'free',   // 移動方向の制限: free/h/v/angle
   moveAngle: 45,            // angle時の角度(度)
   hatchPoly: false,        // 多角形ハッチ描画中か
+  hatchShape: 'rect',      // ハッチ領域の形 'rect' | 'ellipse'
   spacePressed: false,
   isPanning: false,
   isErasing: false,
@@ -2498,14 +2541,15 @@ canvas.on('mouse:down', (opt) => {
     state.tempObject = createRebarDot(op);
     canvas.add(state.tempObject);
   } else if (state.tool === 'hatch') {
-    const hop = (parseFloat(document.getElementById('hatch-opacity').value)||100)/100;
-    state.tempObject = new fabric.Rect({
-      left: pt.x, top: pt.y, width: 1, height: 1,
-      fill: makeHatchPattern(), stroke: '#666', strokeWidth: 0.5,
-      _hatch: state.pendingHatch || hatchSelected, _hatchOpacity: hop,
-      opacity: hop,
-      _layer: state.activeLayer, selectable:false
-    });
+    // 領域プレビュー(矩形 or 円)。確定はmouse:upで applyHatchRegion。
+    const prevCommon = { left:pt.x, top:pt.y, fill:'rgba(33,150,243,0.10)', stroke:'#2196f3',
+      strokeWidth:1/(canvas.getZoom()||1), strokeDashArray:[6,4], strokeUniform:true,
+      selectable:false, evented:false, _layer:state.activeLayer };
+    if (state.hatchShape === 'ellipse') {
+      state.tempObject = new fabric.Ellipse({ ...prevCommon, rx:1, ry:1, originX:'left', originY:'top' });
+    } else {
+      state.tempObject = new fabric.Rect({ ...prevCommon, width:1, height:1 });
+    }
     canvas.add(state.tempObject);
   } else if (state.tool === 'text') {
     const text = prompt('テキストを入力:', '注記');
@@ -2672,12 +2716,13 @@ canvas.on('mouse:move', (opt) => {
     const pts = applyDotOffset(dotRowPoints(state.dotStart, endPt), state.dotStart, endPt);
     pts.forEach(p => { const d = createRebarDot(p); canvas.add(d); state.dotPreview.push(d); });
   } else if (state.tool === 'hatch' && !hatchPolyMode() && state.tempObject) {
-    state.tempObject.set({
-      width: Math.abs(endPt.x - state.startPoint.x),
-      height: Math.abs(endPt.y - state.startPoint.y),
-      left: Math.min(state.startPoint.x, endPt.x),
-      top: Math.min(state.startPoint.y, endPt.y)
-    });
+    const w = Math.abs(endPt.x - state.startPoint.x), h = Math.abs(endPt.y - state.startPoint.y);
+    const lx = Math.min(state.startPoint.x, endPt.x), ty = Math.min(state.startPoint.y, endPt.y);
+    if (state.hatchShape === 'ellipse') {
+      state.tempObject.set({ left:lx, top:ty, rx:w/2, ry:h/2 });
+    } else {
+      state.tempObject.set({ left:lx, top:ty, width:w, height:h });
+    }
   }
   
   canvas.renderAll();
@@ -2813,6 +2858,24 @@ canvas.on('mouse:up', (opt) => {
   }
   
   // 縮尺補正: 2点間の現在距離を測り、実距離入力モーダルを開く
+  // ハッチ領域(矩形/円)の確定 → 塗り方に応じて適用
+  if (state.tool === 'hatch' && !hatchPolyMode()) {
+    const prev = state.tempObject;
+    state.tempObject = null; state.isDrawing = false; hideSnapMarker();
+    if (!prev) return;
+    let shape = null;
+    if (state.hatchShape === 'ellipse') {
+      if (prev.rx < 3 || prev.ry < 3) { canvas.remove(prev); canvas.renderAll(); return; }
+      shape = new fabric.Ellipse({ left:prev.left, top:prev.top, rx:prev.rx, ry:prev.ry, originX:'left', originY:'top' });
+    } else {
+      if (prev.width < 3 || prev.height < 3) { canvas.remove(prev); canvas.renderAll(); return; }
+      shape = new fabric.Rect({ left:prev.left, top:prev.top, width:prev.width, height:prev.height });
+    }
+    canvas.remove(prev);
+    applyHatchRegion(shape);
+    return;
+  }
+
   if (state.tool === 'calib') {
     if (state.tempObject) { canvas.remove(state.tempObject); state.tempObject = null; }
     const s = state.startPoint;
@@ -5273,6 +5336,8 @@ function runValidation(keepOpen) {
 // ============================================================
 
 const HATCH_TYPES = [
+  {key:'lines',  name:'斜線(設定)', bg:'rgba(0,0,0,0)', fg:'#666666', param:'line'},
+  {key:'fill',   name:'塗りつぶし', bg:'#cccccc', fg:'#cccccc', param:'fill'},
   {key:'soil',   name:'土',        bg:'#f3ede2', fg:'#9b7d4e'},
   {key:'gravel', name:'砕石',      bg:'#eeeeee', fg:'#555555'},
   {key:'sand',   name:'砂',        bg:'#f7f1e0', fg:'#b89b5e'},
@@ -5283,7 +5348,7 @@ const HATCH_TYPES = [
   {key:'cross',  name:'格子',      bg:'rgba(0,0,0,0)', fg:'#666666'},
   {key:'solid',  name:'無地(薄)',  bg:'#eeeeee', fg:'#eeeeee'},
 ];
-let hatchSelected = 'soil';
+let hatchSelected = 'lines';
 
 // パターンタイルを生成して返す(HTMLCanvasElement)
 function makeHatchTile(type, density) {
@@ -5336,18 +5401,85 @@ function makeHatchTile(type, density) {
     for (let y=0;y<=size;y+=gap){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(size,y); ctx.stroke(); }
   } else if (type === 'solid') {
     ctx.fillStyle = def.bg; ctx.fillRect(0,0,size,size);
+  } else if (type === 'fill') {
+    // 塗りつぶし: 現在の色で全面
+    const col = (document.getElementById('hatch-color') && document.getElementById('hatch-color').value) || '#cccccc';
+    ctx.fillStyle = col; ctx.fillRect(0,0,size,size);
+  } else if (type === 'lines') {
+    // 斜線(設定): 現在の色・角度・太さで斜線プレビュー
+    const col = (document.getElementById('hatch-color') && document.getElementById('hatch-color').value) || '#666666';
+    const ang = parseFloat((document.getElementById('hatch-angle')||{}).value) || 45;
+    const lw  = Math.max(1, Math.min(6, parseFloat((document.getElementById('hatch-line-width')||{}).value) || 2));
+    ctx.strokeStyle = col; ctx.lineWidth = lw;
+    const a = ang*Math.PI/180, dir={x:Math.cos(a),y:Math.sin(a)}, nrm={x:-Math.sin(a),y:Math.cos(a)};
+    const gap = 10, half = size;
+    for (let o=-half; o<=half; o+=gap){
+      const cx=size/2+nrm.x*o, cy=size/2+nrm.y*o;
+      ctx.beginPath(); ctx.moveTo(cx-dir.x*half, cy-dir.y*half); ctx.lineTo(cx+dir.x*half, cy+dir.y*half); ctx.stroke();
+    }
   }
   return c;
 }
 
+// ===== 色スウォッチ(代表色・最近使った色) v0.68 =====
+const PRESET_COLORS = ['#000000','#ffffff','#7f7f7f','#e53935','#fb8c00','#fdd835','#43a047','#1e88e5','#3949ab','#8e24aa','#6d4c41','#00897b'];
+const SWATCH_TARGETS = [
+  {container:'stroke-swatches', input:'stroke-color'},
+  {container:'fill-swatches',   input:'fill-color'},
+  {container:'hatch-swatches',  input:'hatch-color', onpick:()=>{ if(typeof renderHatchPalette==='function') renderHatchPalette(); }}
+];
+function getRecentColors(){ try{ return JSON.parse(localStorage.getItem('yoheki_recent_colors')||'[]'); }catch(_){ return []; } }
+function saveRecentColor(hex){
+  hex = String(hex||'').toLowerCase(); if(!hex) return;
+  let arr = getRecentColors().filter(c=>c!==hex); arr.unshift(hex); arr = arr.slice(0,8);
+  try{ localStorage.setItem('yoheki_recent_colors', JSON.stringify(arr)); }catch(_){}
+}
+function pushRecentColor(hex){ saveRecentColor(hex); renderAllSwatches(); }
+function makeSwatch(hex, inputId, onpick){
+  const b = document.createElement('div');
+  b.className = 'swatch' + (String(hex).toLowerCase()==='#ffffff' ? ' sw-white' : '');
+  b.style.background = hex; b.title = hex;
+  b.onclick = () => {
+    const inp = document.getElementById(inputId); if (inp) inp.value = hex;
+    saveRecentColor(hex); renderAllSwatches();
+    if (onpick) onpick(hex);
+  };
+  return b;
+}
+function renderAllSwatches(){
+  const recent = getRecentColors();
+  SWATCH_TARGETS.forEach(t => {
+    const c = document.getElementById(t.container); if (!c) return;
+    c.innerHTML = '';
+    PRESET_COLORS.forEach(hex => c.appendChild(makeSwatch(hex, t.input, t.onpick)));
+    if (recent.length){
+      const lab = document.createElement('div'); lab.className='sw-label'; lab.textContent='最近使った色';
+      c.appendChild(lab);
+      recent.forEach(hex => c.appendChild(makeSwatch(hex, t.input, t.onpick)));
+    }
+  });
+}
+function setupSwatches(){ renderAllSwatches(); }
+
 function openHatchTool() {
   renderHatchPalette();
+  renderAllSwatches();
   document.getElementById('modal-hatch').classList.add('show');
 }
 
+function hatchParamOf(key){ return (HATCH_TYPES.find(t=>t.key===key)||{}).param || 'material'; }
+
 function renderHatchPalette() {
-  const d = parseInt(document.getElementById('hatch-density').value);
-  document.getElementById('hatch-density-val').textContent = d;
+  const dEl = document.getElementById('hatch-density');
+  const d = dEl ? parseInt(dEl.value) : 14;
+  const dv = document.getElementById('hatch-density-val'); if (dv) dv.textContent = d;
+  const param = hatchParamOf(hatchSelected);
+  // 設定パネルの出し分け
+  const show = (id, on) => { const e = document.getElementById(id); if (e) e.style.display = on ? 'block' : 'none'; };
+  show('hatch-color-opts',   param === 'line' || param === 'fill');
+  show('hatch-line-opts',    param === 'line');
+  show('hatch-density-opts', param === 'material');
+
   const pal = document.getElementById('hatch-palette');
   pal.innerHTML = '';
   HATCH_TYPES.forEach(t => {
@@ -5363,40 +5495,119 @@ function renderHatchPalette() {
   });
 }
 
-// fabric.Pattern を生成
+// fabric.Pattern を生成(材料模様用)
 function makeHatchPattern() {
-  const d = parseInt(document.getElementById('hatch-density').value);
+  const dEl = document.getElementById('hatch-density');
+  const d = dEl ? parseInt(dEl.value) : 14;
   const tile = makeHatchTile(hatchSelected, d);
   return new fabric.Pattern({ source: tile, repeat: 'repeat' });
 }
 
-// 選択中の閉じた図形にハッチ適用
+// ハッチ設定値をまとめて読む
+function readHatchParams() {
+  const g = id => document.getElementById(id);
+  return {
+    opacity: (parseFloat((g('hatch-opacity')||{}).value)||100)/100,
+    color:   (g('hatch-color')||{}).value || '#666666',
+    angle:   parseFloat((g('hatch-angle')||{}).value) || 0,
+    gap:     Math.max(2, parseFloat((g('hatch-line-gap')||{}).value) || 100),
+    lineW:   Math.max(0.2, parseFloat((g('hatch-line-width')||{}).value) || 5)
+  };
+}
+
+// 斜線(設定)を、領域shapeでクリップした線のグループとして生成
+function makeLineHatchGroup(regionShape, p) {
+  const bb = regionShape.getBoundingRect(true, true);
+  const cx = bb.left + bb.width/2, cy = bb.top + bb.height/2;
+  const half = Math.hypot(bb.width, bb.height)/2 + p.gap;
+  const a = p.angle*Math.PI/180;
+  const dir = {x:Math.cos(a), y:Math.sin(a)};
+  const nrm = {x:-Math.sin(a), y:Math.cos(a)};
+  const lines = [];
+  for (let o = -half; o <= half; o += p.gap) {
+    const ox = cx + nrm.x*o, oy = cy + nrm.y*o;
+    lines.push(new fabric.Line(
+      [ox - dir.x*half, oy - dir.y*half, ox + dir.x*half, oy + dir.y*half],
+      { stroke:p.color, strokeWidth:p.lineW, strokeUniform:true, selectable:false, evented:false }
+    ));
+  }
+  const grp = new fabric.Group(lines, {
+    opacity: p.opacity, _layer: state.activeLayer,
+    _hatch: 'lines', _hatchOpacity: p.opacity,
+    selectable: (state.tool === 'select')
+  });
+  regionShape.absolutePositioned = true;
+  grp.clipPath = regionShape;
+  return grp;
+}
+
+// 領域shape(rect/ellipse/polygon, キャンバス座標)に、選んだ塗り方を適用してキャンバスに追加
+function applyHatchRegion(shape) {
+  const param = hatchParamOf(hatchSelected);
+  const p = readHatchParams();
+  if (param === 'line') {
+    const grp = makeLineHatchGroup(shape, p);
+    canvas.add(grp);
+    canvas.setActiveObject(grp);
+  } else if (param === 'fill') {
+    shape.set({ fill: p.color, stroke: '', strokeWidth: 0, opacity: p.opacity });
+    shape._hatch = 'fill'; shape._hatchOpacity = p.opacity;
+    shape.selectable = (state.tool === 'select'); shape.evented = true;
+    canvas.add(shape);
+    canvas.setActiveObject(shape);
+  } else {
+    shape.set({ fill: makeHatchPattern(), stroke: '#666', strokeWidth: 0.5, opacity: p.opacity });
+    shape._hatch = hatchSelected; shape._hatchOpacity = p.opacity;
+    shape.selectable = (state.tool === 'select'); shape.evented = true;
+    canvas.add(shape);
+    canvas.setActiveObject(shape);
+  }
+  canvas.renderAll();
+  saveHistory(); updateStats();
+}
+
+// 選択中の閉じた図形にハッチ適用(矩形/円/多角形)
 function applyHatchToSelected() {
   const obj = canvas.getActiveObject();
-  if (!obj) { alert('塗る図形(矩形/多角形)を選択してください'); return; }
-  if (!(obj.type === 'rect' || obj.type === 'polygon')) {
-    alert('矩形か多角形を選択してください(線・折れ線は塗れません)'); return;
+  if (!obj) { alert('塗る図形(矩形・円・多角形)を選択してください'); return; }
+  if (!(obj.type === 'rect' || obj.type === 'polygon' || obj.type === 'ellipse' || obj.type === 'circle')) {
+    alert('矩形・円・多角形を選択してください(線・折れ線は塗れません)'); return;
   }
-  const hop = (parseFloat(document.getElementById('hatch-opacity').value)||100)/100;
-  obj.set('fill', makeHatchPattern());
-  obj.set('opacity', hop);
-  obj._hatch = hatchSelected;
-  obj._hatchOpacity = hop;
-  canvas.renderAll();
-  saveHistory();
+  const param = hatchParamOf(hatchSelected);
+  const p = readHatchParams();
+  if (param === 'line') {
+    // 選択図形を複製してクリップに使い、斜線グループを上に重ねる
+    obj.clone(clip => {
+      const grp = makeLineHatchGroup(clip, p);
+      canvas.add(grp);
+      canvas.setActiveObject(grp);
+      canvas.renderAll(); saveHistory(); updateStats();
+      closeModal('modal-hatch');
+    });
+    return;
+  } else if (param === 'fill') {
+    obj.set({ fill: p.color, opacity: p.opacity });
+    obj._hatch = 'fill'; obj._hatchOpacity = p.opacity;
+  } else {
+    obj.set({ fill: makeHatchPattern(), opacity: p.opacity });
+    obj._hatch = hatchSelected; obj._hatchOpacity = p.opacity;
+  }
+  canvas.renderAll(); saveHistory();
   closeModal('modal-hatch');
 }
 
-// 領域を矩形で描いて塗るモード
-function startHatchDraw() {
+// 領域を 矩形/円 で描いて塗るモード
+function startHatchDraw(shape) {
   state.pendingHatch = hatchSelected;
   setTool('hatch');
   state.hatchPoly = false;
+  state.hatchShape = (shape === 'ellipse') ? 'ellipse' : 'rect';
   closeModal('modal-hatch');
-  document.getElementById('status-mode').textContent = 'モード: ハッチ領域 (ドラッグで矩形を描く)';
+  document.getElementById('status-mode').textContent =
+    (state.hatchShape === 'ellipse') ? 'モード: ハッチ領域 (ドラッグで円・楕円を描く)' : 'モード: ハッチ領域 (ドラッグで矩形を描く)';
 }
 
-// ④ 領域を多角形(斜め・多角形)で囲んで塗るモード
+// 領域を多角形で囲んで塗るモード
 function startHatchPolyDraw() {
   state.pendingHatch = hatchSelected;
   setTool('hatch');
@@ -5408,20 +5619,13 @@ function startHatchPolyDraw() {
 // 多角形ハッチを確定
 function finishHatchPoly() {
   const pts = state.polygonPoints.map(p => ({x:p.x, y:p.y}));
-  const hop = (parseFloat(document.getElementById('hatch-opacity').value)||100)/100;
-  const poly = new fabric.Polygon(pts, {
-    fill: makeHatchPattern(), stroke: '#666', strokeWidth: 0.5,
-    _hatch: state.pendingHatch || hatchSelected, _hatchOpacity: hop, opacity: hop,
-    _layer: state.activeLayer, selectable: (state.tool === 'select')
-  });
-  canvas.add(poly);
+  const shape = new fabric.Polygon(pts, { _layer: state.activeLayer });
   state.polygonPoints = [];
   state.tempObject = null;
   state.isDrawing = false;
   state.hatchPoly = false;
   hideSnapMarker();
-  saveHistory();
-  updateStats();
+  applyHatchRegion(shape);
 }
 
 // ============================================================
@@ -6867,6 +7071,7 @@ updatePaperFrame();
 saveHistory();
 updateStats();
 setTool('select');
+setupSwatches();   // 色スウォッチ(代表色・最近使った色)を初期描画
 
 // 初回ガイド
 setTimeout(() => {
