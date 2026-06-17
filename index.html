@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.69 (PDF下地を固定して上から作図)</title>
+<title>yoheki-cad v0.70 (図枠を移動できる)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -258,7 +258,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.69 (PDF下地を固定して上から作図)</span>
+  <span class="ver">v0.70 (図枠を移動できる)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -465,6 +465,7 @@
         <span id="frame-info">枠内に収まる実寸が表示されます</span>
       </div>
       <button class="btn" style="width:100%; margin-top:4px;" onclick="fitToFrame()">図枠を画面にフィット</button>
+      <button class="btn" style="width:100%; margin-top:4px;" onclick="startMoveFrame()">✥ 図枠を移動</button>
     </div>
 
     <div class="panel-section">
@@ -871,6 +872,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.70 図枠を移動:</b> 左パネル「図枠(用紙・縮尺)」→<b>「✥ 図枠を移動」</b>を押し、画面を<b>ドラッグ</b>すると図枠を動かせます。地図や図面の<b>印刷したい範囲に枠を合わせる</b>のに便利。「選択(S)」に戻すと終了。枠の位置は保存されます。</p>
       <p><b>🆕 v0.69 PDF下地を固定:</b> 取り込んだPDF・地図の上から線やハッチを描けます。位置が決まったら 左パネル「画像・地図(PDF)」→<b>「🔒下地として固定」</b>を押すと、下地は<b>掴めない・動かない・選べない</b>状態になり、上から安心して作図できます。再配置したいときは<b>「🔓下地のロック解除」</b>。固定状態は保存されます。</p>
       <p><b>🆕 v0.68 斜線/塗りつぶしハッチ・色スウォッチ:</b> ハッチ(H)で<b>「斜線(設定)」</b>=色・向き(角度)・間隔・太さ・透過率を指定して斜線、<b>「塗りつぶし」</b>=色・透過率で単色塗りができます。領域は<b>矩形・円・多角形</b>から選べ、選択図形にも適用可。線・塗りの色は<b>代表色＋最近使った色</b>のスウォッチからワンタップで選べます。</p>
       <p><b>🆕 v0.67 トリミング・図枠に並べる:</b> 取り込んだ地図/画像を<b>選択</b>し、左パネル「画像・地図(PDF)」→<b>「✂トリミング」</b>で残す範囲をドラッグすると不要な周りを切り取れます。<b>「🗂画像を図枠に並べる」</b>で複数の地図を図枠に格子状に配置→<b>🖨️印刷→PDFに保存</b>で<b>2枚の地図を1枚のPDF</b>にまとめられます。</p>
@@ -1619,6 +1621,7 @@ let state = {
     {name: '補助線', color: '#cccccc', visible: true, locked: false},
   ],
   activeLayer: 0,
+  framePos: {x:40, y:40},   // 図枠の左上位置(移動可能) v0.70
   scale: 0.15  // 1mm = 0.15px (描画・mm換算の共通基準)
 };
 
@@ -1685,8 +1688,8 @@ function updatePaperFrame() {
     `枠内実寸: ${Math.round(d.realW)}×${Math.round(d.realH)}mm (1/${d.S})`;
   if (!show) { canvas.renderAll(); return; }
 
-  // 枠は原点(0,0)を左上として配置
-  const ox = 40, oy = 40;
+  // 枠は state.framePos を左上として配置(移動可能)
+  const ox = state.framePos.x, oy = state.framePos.y;
   const rect = new fabric.Rect({
     left: ox, top: oy, width: d.pxW, height: d.pxH,
     fill: 'rgba(255,255,255,0.0)', stroke: '#0d47a1', strokeWidth: 2,
@@ -1709,11 +1712,31 @@ function updatePaperFrame() {
   canvas.renderAll();
 }
 
+// 図枠を state.framePos に再配置(作り直さず座標だけ更新=ドラッグ用)
+function positionFrame() {
+  if (!paperFrame || !paperFrame.rect) return;
+  const d = paperFrameDims();
+  const ox = state.framePos.x, oy = state.framePos.y;
+  paperFrame.rect.set({ left: ox, top: oy }); paperFrame.rect.setCoords();
+  if (paperFrame.labels[0]) { paperFrame.labels[0].set({ left: ox, top: oy - 22 }); paperFrame.labels[0].setCoords(); }
+  if (paperFrame.labels[1]) { paperFrame.labels[1].set({ left: ox, top: oy + d.pxH + 6 }); paperFrame.labels[1].setCoords(); }
+  canvas.renderAll();
+}
+
+// 図枠の移動モード(ドラッグで図枠を動かす)
+function startMoveFrame() {
+  if (!document.getElementById('frame-show').checked) {
+    document.getElementById('frame-show').checked = true; updatePaperFrame();
+  }
+  if (!paperFrame || !paperFrame.rect) { alert('図枠が表示されていません'); return; }
+  setTool('moveframe');
+}
+
 // 図枠を画面にフィット
 function fitToFrame() {
   if (!paperFrame) { alert('先に「図枠を表示」をONにしてください'); return; }
   const d = paperFrameDims();
-  const ox = 40, oy = 40;
+  const ox = state.framePos.x, oy = state.framePos.y;
   const margin = 60;
   const availW = canvas.getWidth() - margin*2;
   const availH = canvas.getHeight() - margin*2;
@@ -2330,6 +2353,8 @@ function setTool(tool) {
   // カーソル
   if (tool === 'eraser' || tool === 'trim' || tool === 'facepen' || tool === 'rolepen') {
     canvas.defaultCursor = 'cell';
+  } else if (tool === 'moveframe') {
+    canvas.defaultCursor = 'move';
   } else {
     canvas.defaultCursor = (tool === 'select') ? 'default' : 'crosshair';
   }
@@ -2347,7 +2372,8 @@ function setTool(tool) {
     'rebar': '鉄筋', 'text': 'テキスト', 'eraser': '消しゴム', 'trim': '節間消し',
     'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線', 'facepen': '面指定ペン', 'rolepen': '縦横指定ペン',
     'calib': '縮尺補正（実距離のわかる2点をドラッグ）',
-    'cropimg': '画像トリミング（残したい範囲をドラッグ）'
+    'cropimg': '画像トリミング（残したい範囲をドラッグ）',
+    'moveframe': '図枠の移動（ドラッグで図枠を動かす／「選択」で終了）'
   };
   document.getElementById('status-mode').textContent = 'モード: ' + (labels[tool] || tool) +
     (tool === 'facepen' ? `（配置面「${document.getElementById('dev-face').value||'未選択'}」を鉄筋クリックで指定。Sキー/選択で終了）` : '') +
@@ -2370,7 +2396,15 @@ canvas.on('mouse:down', (opt) => {
     canvas.defaultCursor = 'grabbing';
     return;
   }
-  
+
+  // 図枠の移動(ドラッグで図枠を動かす)
+  if (state.tool === 'moveframe') {
+    if (!paperFrame || !paperFrame.rect) { alert('先に「図枠を表示」をONにしてください'); setTool('select'); return; }
+    const p = canvas.getPointer(opt.e);
+    state.frameDrag = { start:p, orig:{x:state.framePos.x, y:state.framePos.y} };
+    return;
+  }
+
   if (state.tool === 'select') {
     // 寸法線の上でドラッグ → 端点に近ければ端点を、それ以外は数字(引き出し)を動かす
     const tgt = canvas.findTarget(opt.e);
@@ -2575,6 +2609,14 @@ canvas.on('mouse:down', (opt) => {
 
 canvas.on('mouse:move', (opt) => {
   const e = opt.e;
+  // 図枠のドラッグ中
+  if (state.frameDrag) {
+    const p = canvas.getPointer(opt.e);
+    state.framePos.x = state.frameDrag.orig.x + (p.x - state.frameDrag.start.x);
+    state.framePos.y = state.frameDrag.orig.y + (p.y - state.frameDrag.start.y);
+    positionFrame();
+    return;
+  }
   // 寸法のドラッグ中(端点 or 数字)
   if (state.dimDrag) {
     const dim = state.dimDrag;
@@ -2733,6 +2775,12 @@ canvas.on('mouse:move', (opt) => {
 });
 
 canvas.on('mouse:up', (opt) => {
+  // 図枠のドラッグ終了
+  if (state.frameDrag) {
+    state.frameDrag = null;
+    document.getElementById('status-mode').textContent = 'モード: 図枠の移動 (ドラッグで移動／「選択」に戻すと終了)';
+    return;
+  }
   // 寸法のドラッグ終了
   if (state.dimDrag) {
     const moved = state.dimDragMoved;
@@ -3983,6 +4031,8 @@ function loadFromHistory() {
   canvas.loadFromJSON(state.history[state.historyIndex], () => {
     canvas.backgroundColor = '';
     drawGrid();
+    paperFrame = null;
+    updatePaperFrame();   // 図枠を復元(移動位置 state.framePos のまま)
     canvas.renderAll();
     state.isLoadingHistory = false;
     updateStats();
@@ -4645,7 +4695,10 @@ function newDrawing() {
   if (!confirm('現在の図面をクリアしますか?')) return;
   canvas.clear();
   canvas.setBackgroundColor('#fafafa', canvas.renderAll.bind(canvas));
+  state.framePos = {x:40, y:40};   // 図枠位置をリセット
+  paperFrame = null;
   drawGrid();
+  updatePaperFrame();
   state.history = [];
   state.historyIndex = -1;
   saveHistory();
@@ -4658,6 +4711,12 @@ function saveJSON() {
     version: '0.8',
     created: new Date().toISOString(),
     layers: state.layers,
+    framePos: state.framePos,
+    paper: {
+      size: document.getElementById('paper-size').value,
+      scale: document.getElementById('paper-scale').value,
+      show: document.getElementById('frame-show').checked
+    },
     canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked']))
   };
   // グリッドは除外
@@ -4685,10 +4744,17 @@ function openJSON() {
         const data = JSON.parse(ev.target.result);
         if (data.canvas) {
           if (data.layers) state.layers = data.layers;
+          if (data.framePos) state.framePos = data.framePos;
+          if (data.paper) {
+            if (data.paper.size) document.getElementById('paper-size').value = data.paper.size;
+            if (data.paper.scale) document.getElementById('paper-scale').value = data.paper.scale;
+            document.getElementById('frame-show').checked = (data.paper.show !== false);
+          }
           canvas.loadFromJSON(data.canvas, () => {
             canvas.backgroundColor = '';   // 保存ファイルの背景色でグリッドが隠れないように
             drawGrid();
             renderLayerList();
+            updatePaperFrame();   // 図枠を保存位置・用紙設定で再描画
             canvas.renderAll();
             updateStats();
           });
