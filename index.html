@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.64 (横筋○も色付け・紛らわしい役割ボタン削除)</title>
+<title>yoheki-cad v0.65 (縮尺補正: 2点の実距離で図面全体を拡大縮小)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
@@ -250,7 +250,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.64 (横筋○も色付け・紛らわしい役割ボタン削除)</span>
+  <span class="ver">v0.65 (縮尺補正: 2点の実距離で図面全体を拡大縮小)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -456,6 +456,14 @@
         <span id="frame-info">枠内に収まる実寸が表示されます</span>
       </div>
       <button class="btn" style="width:100%; margin-top:4px;" onclick="fitToFrame()">図枠を画面にフィット</button>
+    </div>
+
+    <div class="panel-section">
+      <h4>縮尺補正 <span class="help-tip" data-tip="実寸がわかっている1辺を使って図面全体の大きさを合わせます。例: 取り込んだ図やラフ図で長さが合っていないとき、実際に1mとわかる箇所の2点をドラッグして「1m」と入れると、図面全体がその比率で拡大・縮小されます。">?</span></h4>
+      <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
+        <span>実寸のわかる1辺の<b>端→端</b>をドラッグし、その実距離を入力すると、図面全体がその縮尺に合わせて拡大・縮小されます。</span>
+      </div>
+      <button class="btn primary" style="width:100%; margin-top:4px;" onclick="setTool('calib')">📐 2点で実距離を指定</button>
     </div>
     
     <div class="panel-section">
@@ -841,6 +849,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.65 縮尺補正:</b> 左パネル「縮尺補正」→<b>「📐 2点で実距離を指定」</b>。実寸のわかる1辺の<b>端→端をドラッグ</b>し、実距離(m/mm)を入力すると<b>図面全体がその比率で拡大・縮小</b>されます。取り込んだ図やラフ図の大きさ合わせに。最初にクリックした点は動きません。</p>
       <p><b>🆕 v0.64 役割タグを分かりやすく:</b> <b>横筋○(丸)も塗りを色付け</b>(輪郭だけだと分かりにくかった)。紛らわしい「選択を縦筋に/横筋に」ボタンを削除し、<b>🖊ペンで塗るだけ</b>に統一(「選択してください」が出る問題を解消)。</p>
       <p><b>🆕 v0.62 縦筋=緑/横筋=橙の色タグ:</b></p>
       <ul>
@@ -1322,6 +1331,26 @@
     <div class="modal-actions">
       <button class="btn primary" onclick="applyShapeDims()">実寸化して作り直す</button>
       <button class="btn" onclick="closeShapeDims()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 縮尺補正モーダル -->
+<div class="modal-bg" id="modal-calib">
+  <div class="modal" style="max-width:400px;">
+    <h3>📐 縮尺補正</h3>
+    <p style="font-size:12px;color:#aaa;">ドラッグした2点の<b>実際の距離</b>を入力すると、図面全体がその比率で拡大・縮小されます。クリックした<b>最初の点は動きません</b>。</p>
+    <div class="prop-row" style="margin-top:6px;"><span id="calib-cur" style="color:#9cf;font-size:12px;"></span></div>
+    <div class="prop-row" style="margin-top:8px;">
+      <label>実距離</label>
+      <input type="number" id="calib-len" value="1" step="0.01" min="0" style="flex:1;"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();applyCalib();}">
+      <select id="calib-unit"><option value="m" selected>m</option><option value="mm">mm</option></select>
+    </div>
+    <p style="font-size:10px;color:#888;margin-top:6px;">※注記の文字や寸法線の数字は形に合わせて拡大されますが、表示中の数値そのものは再計算されません。寸法は補正後に引き直してください。</p>
+    <div class="modal-actions">
+      <button class="btn primary" onclick="applyCalib()">この長さに補正</button>
+      <button class="btn" onclick="closeCalib()">キャンセル</button>
     </div>
   </div>
 </div>
@@ -2222,7 +2251,8 @@ function setTool(tool) {
     'select': '選択', 'line': '直線', 'rect': '矩形', 'circle': '円',
     'polygon': '多角形', 'freehand': 'フリーハンド', 'dim': '寸法線',
     'rebar': '鉄筋', 'text': 'テキスト', 'eraser': '消しゴム', 'trim': '節間消し',
-    'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線', 'facepen': '面指定ペン', 'rolepen': '縦横指定ペン'
+    'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線', 'facepen': '面指定ペン', 'rolepen': '縦横指定ペン',
+    'calib': '縮尺補正（実距離のわかる2点をドラッグ）'
   };
   document.getElementById('status-mode').textContent = 'モード: ' + (labels[tool] || tool) +
     (tool === 'facepen' ? `（配置面「${document.getElementById('dev-face').value||'未選択'}」を鉄筋クリックで指定。Sキー/選択で終了）` : '') +
@@ -2383,6 +2413,14 @@ canvas.on('mouse:down', (opt) => {
   } else if (state.tool === 'dim') {
     state.tempObject = createDimensionLine(pt, pt);
     canvas.add(state.tempObject);
+  } else if (state.tool === 'calib') {
+    // 縮尺補正: 実距離のわかる2点をドラッグ。プレビュー線(赤の破線)。
+    state.tempObject = new fabric.Line([pt.x, pt.y, pt.x, pt.y], {
+      stroke: '#e91e63', strokeWidth: 3 / (canvas.getZoom() || 1),
+      strokeDashArray: [12, 8], strokeUniform: true,
+      selectable: false, evented: false, excludeFromExport: true, _isSnapMarker: true
+    });
+    canvas.add(state.tempObject);
   } else if (state.tool === 'leader') {
     // 始点=指す点(snap適用)。ドラッグ先が文字位置。
     state.leaderTip = pt;
@@ -2539,6 +2577,8 @@ canvas.on('mouse:move', (opt) => {
     canvas.remove(state.tempObject);
     state.tempObject = createDimensionLine(state.startPoint, endPt);
     canvas.add(state.tempObject);
+  } else if (state.tool === 'calib') {
+    state.tempObject.set({ x2: endPt.x, y2: endPt.y });
   } else if (state.tool === 'leader') {
     if (state.tempObject) canvas.remove(state.tempObject);
     state.tempObject = createLeaderLine(state.leaderTip, endPt, {preview:true});
@@ -2679,6 +2719,24 @@ canvas.on('mouse:up', (opt) => {
     return;
   }
   
+  // 縮尺補正: 2点間の現在距離を測り、実距離入力モーダルを開く
+  if (state.tool === 'calib') {
+    if (state.tempObject) { canvas.remove(state.tempObject); state.tempObject = null; }
+    const s = state.startPoint;
+    let ep = snapPoint(canvas.getPointer(opt.e));
+    if (s && (state.orthoMode || window.shiftPressed)) ep = orthoPoint(s, ep);
+    hideSnapMarker();
+    state.isDrawing = false;
+    const distMM = s ? Math.hypot(ep.x - s.x, ep.y - s.y) : 0;
+    if (distMM < 1) {
+      document.getElementById('status-mode').textContent = '2点が近すぎます。離れた2点をドラッグしてください。';
+      canvas.renderAll();
+      return;
+    }
+    openCalib(distMM, s);
+    return;
+  }
+
   if (state.tempObject) {
     state.tempObject.selectable = (state.tool === 'select');
     state.tempObject.evented = true;
@@ -3061,6 +3119,58 @@ function applyShapeDims() {
   canvas.setActiveObject(shape);
   canvas.renderAll(); saveHistory(); updateStats();
   document.getElementById('status-mode').textContent = '形を入力距離で実寸化しました。';
+}
+
+// 縮尺補正: ドラッグした2点の実距離を入力 → 図面全体を比率で拡大縮小
+let _calibDist = 0, _calibPivot = null;
+function openCalib(distMM, pivot) {
+  _calibDist = distMM; _calibPivot = pivot;
+  document.getElementById('calib-cur').textContent =
+    `今の長さ: ${(distMM/1000).toFixed(3)} m （${Math.round(distMM)} mm）`;
+  const inp = document.getElementById('calib-len');
+  inp.value = (distMM/1000).toFixed(2);
+  document.getElementById('calib-unit').value = 'm';
+  document.getElementById('modal-calib').classList.add('show');
+  setTimeout(() => { inp.focus(); inp.select(); }, 50);
+}
+function closeCalib() {
+  closeModal('modal-calib');
+  setTool('select');
+  document.getElementById('status-mode').textContent = 'モード: 選択';
+}
+function applyCalib() {
+  const unitMul = (document.getElementById('calib-unit').value === 'm') ? 1000 : 1;
+  const realMM = (parseFloat(document.getElementById('calib-len').value) || 0) * unitMul;
+  if (realMM <= 0) { alert('実距離を入力してください。'); return; }
+  if (!_calibDist || !_calibPivot) { closeModal('modal-calib'); return; }
+  const factor = realMM / _calibDist;
+  if (!isFinite(factor) || factor <= 0) { alert('補正できません。'); return; }
+  scaleAllObjects(factor, _calibPivot);
+  closeModal('modal-calib');
+  // 補正後の全体を図枠に収める
+  const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame && !o._isSnapMarker);
+  if (objs.length) {
+    let L=Infinity, T=Infinity, R=-Infinity, B=-Infinity;
+    objs.forEach(o => { const r = o.getBoundingRect(true, true);
+      L=Math.min(L,r.left); T=Math.min(T,r.top); R=Math.max(R,r.left+r.width); B=Math.max(B,r.top+r.height); });
+    autoScaleToFit({ left:L, top:T, width:R-L, height:B-T });
+  }
+  setTool('select');
+  canvas.renderAll(); saveHistory(); updateStats();
+  document.getElementById('status-mode').textContent =
+    `図面全体を ${factor >= 1 ? factor.toFixed(3)+'倍に拡大' : factor.toFixed(3)+'倍に縮小'}しました（${(realMM/1000).toFixed(3)}m に補正）。`;
+}
+// 全図形(グリッド/図枠/マーカーを除く)を pivot 基準で factor 倍に拡大縮小
+function scaleAllObjects(factor, pivot) {
+  canvas.discardActiveObject();
+  const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame && !o._isSnapMarker);
+  objs.forEach(o => {
+    o.scaleX = (o.scaleX || 1) * factor;
+    o.scaleY = (o.scaleY || 1) * factor;
+    o.left = pivot.x + (o.left - pivot.x) * factor;
+    o.top  = pivot.y + (o.top  - pivot.y) * factor;
+    o.setCoords();
+  });
 }
 
 // 図形の実寸が図枠に収まる最小の縮尺を選び、図枠を表示してフィット
