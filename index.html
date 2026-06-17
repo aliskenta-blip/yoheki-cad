@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.66 (PDF・地図取込: 下敷きにして上から作図)</title>
+<title>yoheki-cad v0.67 (画像トリミング・図枠に並べて1枚に)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -252,7 +252,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.66 (PDF・地図取込: 下敷きにして上から作図)</span>
+  <span class="ver">v0.67 (画像トリミング・図枠に並べて1枚に)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -468,7 +468,16 @@
       </div>
       <button class="btn primary" style="width:100%; margin-top:4px;" onclick="setTool('calib')">📐 2点で実距離を指定</button>
     </div>
-    
+
+    <div class="panel-section">
+      <h4>画像・地図(PDF) <span class="help-tip" data-tip="「📄 PDF・地図取込」で取り込んだ地図や画像を、必要な範囲だけ切り出したり(トリミング)、図枠の中に並べて1枚にまとめたりします。並べた後に🖨️印刷→PDFに保存で1枚のPDFになります。">?</span></h4>
+      <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
+        <span>画像を<b>選択</b>してから「トリミング」で残す範囲をドラッグ。「図枠に並べる」で複数の地図を1枚にまとめられます。</span>
+      </div>
+      <button class="btn" style="width:100%; margin-top:4px;" onclick="startCropSelected()">✂ 選択した画像をトリミング</button>
+      <button class="btn" style="width:100%; margin-top:4px;" onclick="arrangeImagesInFrame()">🗂 画像を図枠に並べる</button>
+    </div>
+
     <div class="panel-section">
       <h4>線の設定</h4>
       <div class="prop-row">
@@ -852,6 +861,7 @@
         <li>多角形・<b>矩形(四角)</b>は1辺を抜くと開いた折れ線に再構成。例: 四角の左辺を押すと <b>コの字</b> になる</li>
         <li>ロックレイヤーの図形は消去対象外</li>
       </ul>
+      <p><b>🆕 v0.67 トリミング・図枠に並べる:</b> 取り込んだ地図/画像を<b>選択</b>し、左パネル「画像・地図(PDF)」→<b>「✂トリミング」</b>で残す範囲をドラッグすると不要な周りを切り取れます。<b>「🗂画像を図枠に並べる」</b>で複数の地図を図枠に格子状に配置→<b>🖨️印刷→PDFに保存</b>で<b>2枚の地図を1枚のPDF</b>にまとめられます。</p>
       <p><b>🆕 v0.66 PDF・地図取込:</b> 上部メニュー<b>「📄 PDF・地図取込」</b>でPDFを選び、ページと濃さを決めて<b>取り込む</b>と、図面の<b>下敷き</b>として貼り付きます。<b>その上から線をなぞって作図</b>でき、選択(S)モードで移動・拡大縮小も可。地図の<b>縮尺バー</b>などを使い「縮尺補正」で実寸に合わせられます。</p>
       <p><b>🆕 v0.65 縮尺補正:</b> 左パネル「縮尺補正」→<b>「📐 2点で実距離を指定」</b>。実寸のわかる1辺の<b>端→端をドラッグ</b>し、実距離(m/mm)を入力すると<b>図面全体がその比率で拡大・縮小</b>されます。取り込んだ図やラフ図の大きさ合わせに。最初にクリックした点は動きません。</p>
       <p><b>🆕 v0.64 役割タグを分かりやすく:</b> <b>横筋○(丸)も塗りを色付け</b>(輪郭だけだと分かりにくかった)。紛らわしい「選択を縦筋に/横筋に」ボタンを削除し、<b>🖊ペンで塗るだけ</b>に統一(「選択してください」が出る問題を解消)。</p>
@@ -2289,7 +2299,8 @@ function setTool(tool) {
     'polygon': '多角形', 'freehand': 'フリーハンド', 'dim': '寸法線',
     'rebar': '鉄筋', 'text': 'テキスト', 'eraser': '消しゴム', 'trim': '節間消し',
     'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線', 'facepen': '面指定ペン', 'rolepen': '縦横指定ペン',
-    'calib': '縮尺補正（実距離のわかる2点をドラッグ）'
+    'calib': '縮尺補正（実距離のわかる2点をドラッグ）',
+    'cropimg': '画像トリミング（残したい範囲をドラッグ）'
   };
   document.getElementById('status-mode').textContent = 'モード: ' + (labels[tool] || tool) +
     (tool === 'facepen' ? `（配置面「${document.getElementById('dev-face').value||'未選択'}」を鉄筋クリックで指定。Sキー/選択で終了）` : '') +
@@ -2377,6 +2388,20 @@ canvas.on('mouse:down', (opt) => {
   }
   if (state.tool === 'trim') {
     trimAt(canvas.getPointer(opt.e));
+    return;
+  }
+  // 画像トリミング: 残す範囲を矩形ドラッグ
+  if (state.tool === 'cropimg') {
+    if (!state.cropTarget) { alert('トリミングする画像(PDF・地図)を先に選択してください'); setTool('select'); return; }
+    const p = canvas.getPointer(opt.e);
+    state.startPoint = p; state.isDrawing = true;
+    state.cropRect = new fabric.Rect({
+      left:p.x, top:p.y, width:1, height:1,
+      fill:'rgba(33,150,243,0.15)', stroke:'#2196f3', strokeWidth:2/(canvas.getZoom()||1),
+      strokeDashArray:[8,4], strokeUniform:true,
+      selectable:false, evented:false, excludeFromExport:true, _isSnapMarker:true
+    });
+    canvas.add(state.cropRect); canvas.bringToFront(state.cropRect);
     return;
   }
   // 面指定ペン: クリックした鉄筋に配置面をタグ付けし、選択(ピンク)に追加していく
@@ -2549,6 +2574,21 @@ canvas.on('mouse:move', (opt) => {
     hideSnapMarker();
     return;
   }
+  // 画像トリミング: ドラッグ中の範囲矩形を更新
+  if (state.tool === 'cropimg') {
+    hideSnapMarker();
+    if (state.isDrawing && state.cropRect) {
+      const p = canvas.getPointer(opt.e);
+      const s = state.startPoint;
+      state.cropRect.set({
+        left: Math.min(s.x, p.x), top: Math.min(s.y, p.y),
+        width: Math.abs(p.x - s.x), height: Math.abs(p.y - s.y)
+      });
+      canvas.bringToFront(state.cropRect);
+      canvas.renderAll();
+    }
+    return;
+  }
 
   // スナップマーカー表示 (描画系ツールのみ)
   if (state.tool !== 'select' && state.tool !== 'freehand' && !state.spacePressed) {
@@ -2700,8 +2740,24 @@ canvas.on('mouse:up', (opt) => {
     return;
   }
 
+  // 画像トリミング 確定
+  if (state.tool === 'cropimg') {
+    state.isDrawing = false;
+    const r = state.cropRect, img = state.cropTarget;
+    let geom = null;
+    if (r) { geom = {x1:r.left, y1:r.top, x2:r.left+r.width, y2:r.top+r.height}; canvas.remove(r); state.cropRect = null; }
+    if (!img || !geom) { setTool('select'); return; }
+    if (Math.abs(geom.x2-geom.x1) < 5 || Math.abs(geom.y2-geom.y1) < 5) {
+      setTool('select'); canvas.setActiveObject(img); canvas.renderAll(); return;
+    }
+    applyCropToImage(img, geom.x1, geom.y1, geom.x2, geom.y2);
+    state.cropTarget = null;
+    setTool('select'); canvas.setActiveObject(img); canvas.renderAll();
+    return;
+  }
+
   if (!state.isDrawing) return;
-  
+
   if (polyDrawing()) {
     // 多角形・折れ線鉄筋は クリックで頂点追加 → Enter/ダブルクリック/右クリックで完了
     return;
@@ -6094,6 +6150,82 @@ async function importPDF(){
     });
   }catch(err){ alert('PDF取り込みエラー: ' + (err.message||err)); }
   finally{ btn.disabled=false; btn.textContent=oldLabel; }
+}
+
+// ----- 画像トリミング (v0.67) -----
+// 選択中の画像(PDF・地図)の「残す範囲」をドラッグ指定して切り出す。
+function startCropSelected(){
+  const obj = canvas.getActiveObject();
+  if (!obj || obj.type !== 'image'){
+    alert('トリミングする画像(PDF・地図)を、まず「選択」モードでクリックして選んでください。');
+    return;
+  }
+  if (Math.abs(((obj.angle||0)%360)) > 0.5){
+    if (!confirm('画像が回転しています。トリミングは回転を考慮しません。続けますか？\n(きれいに切るには先に回転を0°に戻すのがおすすめです)')) return;
+  }
+  state.cropTarget = obj;
+  setTool('cropimg');
+  document.getElementById('status-mode').textContent = 'モード: 画像トリミング（残したい範囲を四角くドラッグ）';
+}
+
+// 画像にクロップ(切り出し)を適用。rx1..ry2 はキャンバス座標(原点左上・回転0前提)。
+function applyCropToImage(img, rx1, ry1, rx2, ry2){
+  const sX = img.scaleX || 1, sY = img.scaleY || 1;
+  const dx1 = img.left, dy1 = img.top;
+  const dx2 = img.left + img.width * sX, dy2 = img.top + img.height * sY;
+  const ix1 = Math.max(rx1, dx1), iy1 = Math.max(ry1, dy1);
+  const ix2 = Math.min(rx2, dx2), iy2 = Math.min(ry2, dy2);
+  if (ix2 - ix1 < 1 || iy2 - iy1 < 1){ alert('画像の上で、残したい範囲をドラッグしてください'); return; }
+  const newCropX = (img.cropX || 0) + (ix1 - dx1) / sX;
+  const newCropY = (img.cropY || 0) + (iy1 - dy1) / sY;
+  img.set({
+    cropX: newCropX, cropY: newCropY,
+    width: (ix2 - ix1) / sX, height: (iy2 - iy1) / sY,
+    left: ix1, top: iy1
+  });
+  img.setCoords();
+  canvas.renderAll(); saveHistory(); if (typeof updateStats==='function') updateStats();
+}
+
+// ----- 複数画像を図枠に並べる (v0.67) -----
+// 取り込んだ地図/画像を図枠の中に格子状に敷き詰める。2枚→1枚の地図に繋ぐイメージ。
+// 並べたあと 🖨️印刷 で「PDFに保存」すれば1枚のPDFになる。
+function arrangeImagesInFrame(){
+  if (!paperFrame || !paperFrame.rect){
+    document.getElementById('frame-show').checked = true; updatePaperFrame();
+    if (!paperFrame || !paperFrame.rect){ alert('先に左パネル「用紙・縮尺」で「図枠を表示」をONにしてください'); return; }
+  }
+  const imgs = canvas.getObjects().filter(o => o.type === 'image');
+  if (imgs.length === 0){ alert('図枠に並べる画像(PDF・地図)がありません。\n先に「📄 PDF・地図取込」で取り込んでください。'); return; }
+
+  const fr = paperFrame.rect;
+  const FX = fr.left, FY = fr.top, FW = fr.width, FH = fr.height;
+  const n = imgs.length;
+  // 枠が横長なら横優先、縦長なら縦優先で格子を決める
+  let cols, rows;
+  if (FW >= FH){ cols = Math.ceil(Math.sqrt(n)); rows = Math.ceil(n / cols); }
+  else { rows = Math.ceil(Math.sqrt(n)); cols = Math.ceil(n / rows); }
+  const cellW = FW / cols, cellH = FH / rows;
+
+  // 現在の位置(左→右, 上→下)の順に並べると直感的
+  const ordered = imgs.slice().sort((a,b)=> (a.top - b.top) || (a.left - b.left));
+  ordered.forEach((img, i) => {
+    const c = i % cols, r = Math.floor(i / cols);
+    const cellX = FX + c * cellW, cellY = FY + r * cellH;
+    const natW = img.width, natH = img.height;   // 現在のクロップ後サイズ(元px)
+    const scale = Math.min(cellW / natW, cellH / natH);   // セルに収める(縦横比維持)
+    const dispW = natW * scale, dispH = natH * scale;
+    img.set({
+      angle: 0, scaleX: scale, scaleY: scale,
+      left: cellX + (cellW - dispW) / 2,
+      top:  cellY + (cellH - dispH) / 2
+    });
+    img.setCoords();
+    canvas.sendToBack(img);
+  });
+  canvas.renderAll(); saveHistory(); if (typeof updateStats==='function') updateStats();
+  if (typeof fitToFrame === 'function') fitToFrame();
+  alert(`画像${n}枚を図枠(${cols}列×${rows}行)に並べました。\n\n位置やサイズは「選択(S)」モードで個別に微調整できます。\nこのまま 🖨️印刷 →「PDFに保存」を選べば、1枚のPDFにまとまります。`);
 }
 
 function openDXFImport(){
