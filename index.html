@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v1.03 (部品の長さ既定を部品別に・U字溝寸法修正)</title>
+<title>yoheki-cad v1.04 (斜めカット:目地を確実に・線太さ維持)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.03 (部品の長さ既定を部品別に・U字溝寸法修正)</span>
+  <span class="ver">v1.04 (斜めカット:目地を確実に・線太さ維持)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -3720,32 +3720,37 @@ function clipSegHalf(a, b, P, N, keepPos){
   const da=side(a), db=side(b), t=da/(da-db), m={x:a.x+t*(b.x-a.x), y:a.y+t*(b.y-a.y)};
   return ia ? [a,m] : [m,b];
 }
-function _cutStyle(o){
+function _cutStyle(o, sw){
   return { stroke:(o.stroke===SEL_PINK?(o._preSelStroke||'#000'):o.stroke)||'#000',
-    strokeWidth:o.strokeWidth||1, fill:(o.fill===SEL_PINK?'':o.fill)||'',
+    strokeWidth: sw, fill:(o.fill===SEL_PINK?'':o.fill)||'',
     strokeDashArray:o.strokeDashArray||null, _layer:o._layer ?? state.activeLayer,
     selectable:true, evented:true };
 }
-function _cutChild(child, P, N, keepPos, out){
+function _cutChild(child, P, N, keepPos, gscale, out){
   const t = child.type;
-  if (t === 'polygon'){ const c = clipPolyHalf(objWorldPoints(child), P, N, keepPos); if (c.length>=3) out.push(new fabric.Polygon(c, _cutStyle(child))); }
-  else if (t === 'polyline'){ const pts=objWorldPoints(child); for (let i=0;i<pts.length-1;i++){ const seg=clipSegHalf(pts[i],pts[i+1],P,N,keepPos); if (seg) out.push(new fabric.Line([seg[0].x,seg[0].y,seg[1].x,seg[1].y], _cutStyle(child))); } }
-  else if (t === 'line'){ const e=lineEndsWorld(child); const seg=clipSegHalf(e.A,e.B,P,N,keepPos); if (seg) out.push(new fabric.Line([seg[0].x,seg[0].y,seg[1].x,seg[1].y], _cutStyle(child))); }
-  else if (t === 'circle'){ const cc=objCenterWorld(child); const d=(cc.x-P.x)*N.x+(cc.y-P.y)*N.y; if ((keepPos&&d>=0)||(!keepPos&&d<=0)) out.push(new fabric.Circle({left:cc.x,top:cc.y,radius:child.radius*(child.scaleX||1),originX:'center',originY:'center',..._cutStyle(child)})); }
+  const sw = (child.strokeWidth||1) * gscale;   // グループ倍率込みの実効太さ(線の太さを維持)
+  if (t === 'polygon'){ const c = clipPolyHalf(objWorldPoints(child), P, N, keepPos); if (c.length>=3) out.push(new fabric.Polygon(c, _cutStyle(child, sw))); }
+  else if (t === 'polyline'){ const pts=objWorldPoints(child); for (let i=0;i<pts.length-1;i++){ const seg=clipSegHalf(pts[i],pts[i+1],P,N,keepPos); if (seg) out.push(new fabric.Line([seg[0].x,seg[0].y,seg[1].x,seg[1].y], _cutStyle(child, sw))); } }
+  else if (t === 'line'){ const e=lineEndsWorld(child); const seg=clipSegHalf(e.A,e.B,P,N,keepPos); if (seg) out.push(new fabric.Line([seg[0].x,seg[0].y,seg[1].x,seg[1].y], _cutStyle(child, sw))); }
+  else if (t === 'circle'){ const cc=objCenterWorld(child); const d=(cc.x-P.x)*N.x+(cc.y-P.y)*N.y; if ((keepPos&&d>=0)||(!keepPos&&d<=0)) out.push(new fabric.Circle({left:cc.x,top:cc.y,radius:child.radius*(child.scaleX||1)*gscale,originX:'center',originY:'center',..._cutStyle(child, sw)})); }
 }
 function objCenterXY(obj){ const b=obj.getBoundingRect(true,true); return {x:b.left+b.width/2, y:b.top+b.height/2}; }
-function cutOneObject(obj, P, N, keepPos){
+// inset(mm)=切る位置を残す側へずらす量。これで移動せずに目地(隙間)を作る。
+function cutOneObject(obj, P, N, keepPos, inset){
   if (keepPos === undefined){ const c=objCenterXY(obj); keepPos = ((c.x-P.x)*N.x + (c.y-P.y)*N.y) >= 0; }  // 既定=自分の中心側
+  inset = inset || 0;
+  const dir = keepPos ? 1 : -1;
+  const Peff = { x: P.x + N.x*inset*dir, y: P.y + N.y*inset*dir };   // 切断線を残す側へ inset だけ寄せる
+  const gscale = (obj.type === 'group') ? (obj.scaleX || 1) : 1;
   const out=[];
   const kids = (obj.type === 'group') ? obj.getObjects() : [obj];
-  kids.forEach(k => _cutChild(k, P, N, keepPos, out));
+  kids.forEach(k => _cutChild(k, Peff, N, keepPos, gscale, out));
   if (!out.length) return null;
   let res;
   if (obj.type === 'group' || out.length > 1){
     res = new fabric.Group(out, {_type:obj._type, _partName:obj._partName, _layer:obj._layer ?? state.activeLayer, selectable:true, evented:true});
   } else { res = out[0]; }
   canvas.remove(obj); canvas.add(res);
-  res._cutKeepPos = keepPos;   // 切った側(目地を空ける方向の判定に使う)
   return res;
 }
 function performMiterCut(targets, P1, P2){
@@ -3753,7 +3758,7 @@ function performMiterCut(targets, P1, P2){
   const dx=P2.x-P1.x, dy=P2.y-P1.y, L=Math.hypot(dx,dy);
   if (L < 1){ alert('切る線が短すぎます。2点を離してドラッグしてください。'); return; }
   const N = {x:-dy/L, y:dx/L};
-  const HALF_JOINT = 5;   // 目地10mm → 各図形を切断線から5mmずつ離す
+  const INSET = 5;   // 各図形を切断線から5mm内側で切る → 合計10mmの目地
   // 2つを切るときは「互いに相手から遠い側(=自分の本体側)」を残す→細片化(潰れ)を防止
   let keepArr = [];
   if (targets.length === 2){
@@ -3761,16 +3766,7 @@ function performMiterCut(targets, P1, P2){
     const dA = (cA.x-cB.x)*N.x + (cA.y-cB.y)*N.y;
     keepArr = [dA >= 0, dA < 0];
   }
-  const made = targets.map((o, i) => {
-    const res = cutOneObject(o, P1, N, keepArr.length ? keepArr[i] : undefined);
-    if (res){
-      const sgn = res._cutKeepPos ? 1 : -1;          // 自分の残した側へ少し引く=切り口どうしに隙間
-      res.left += N.x * HALF_JOINT * sgn;
-      res.top  += N.y * HALF_JOINT * sgn;
-      res.setCoords();
-    }
-    return res;
-  }).filter(Boolean);
+  const made = targets.map((o, i) => cutOneObject(o, P1, N, keepArr.length ? keepArr[i] : undefined, INSET)).filter(Boolean);
   if (made.length) canvas.setActiveObject(made.length>1 ? new fabric.ActiveSelection(made, {canvas}) : made[0]);
   canvas.requestRenderAll(); saveHistory(); updateStats();
   document.getElementById('status-mode').textContent = `斜めカット＋目地10mmで仕上げました(${made.length}個)`;
