@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.93 (ブロックハッチを実寸割付390+10/190+10)</title>
+<title>yoheki-cad v0.94 (写真から2tダンプ・中型BH0.28を寸法準拠で追加)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.93 (ブロックハッチを実寸割付390+10/190+10)</span>
+  <span class="ver">v0.94 (写真から2tダンプ・中型BH0.28を寸法準拠で追加)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -7259,7 +7259,15 @@ const BUILTIN_PARTS = [
   { key:'dump_side_raise',name:'ダンプ 荷台上げ (側面)', category:'重機', build:()=>dumpSideShapes(7800,2,true) },
   { key:'bh_side_mini',   name:'ミニバックホウ (側面)', category:'重機', build:()=>backhoeSideShapes(0.7) },
   { key:'bh_side_std',    name:'バックホウ 0.45 (側面)', category:'重機', build:()=>backhoeSideShapes(1.0) },
-  { key:'bh_side_large',  name:'バックホウ 0.7 (側面)',  category:'重機', build:()=>backhoeSideShapes(1.25) }
+  { key:'bh_side_large',  name:'バックホウ 0.7 (側面)',  category:'重機', build:()=>backhoeSideShapes(1.25) },
+
+  // ===== 写真から作成(寸法準拠) 2tダンプ / 中型バックホー0.28 =====
+  { key:'dump2t_side',  name:'2tダンプ 標準 (側面)', category:'重機', build:()=>dump2tSide() },
+  { key:'dump2t_front', name:'2tダンプ 標準 (正面)', category:'重機', build:()=>dump2tFront() },
+  { key:'dump2t_top',   name:'2tダンプ 標準 (上から)', category:'重機', build:()=>dumpTopShapes(4690,1695,1,false) },
+  { key:'bh028_side',   name:'中型バックホー 0.28 (側面)', category:'重機', build:()=>bh028Side() },
+  { key:'bh028_front',  name:'中型バックホー 0.28 (正面)', category:'重機', build:()=>bh028Front() },
+  { key:'bh028_top',    name:'中型バックホー 0.28 (上から)', category:'重機', build:()=>backhoeTopShapes(3300,700,900,4500,0) }
 ];
 
 // 上空から見たダンプの形状(facing +x)。L長さ/W幅/axles後軸数/loaded積載
@@ -7364,6 +7372,68 @@ function backhoeSideShapes(sc){
   // バケット(爪付き)
   s.push(m([[3380,1740],[3760,1700],[3820,2050],[3520,2260],[3360,1980]]));
   for (let k=0;k<4;k++){ const x=3540+k*70; s.push(ln([[x,2230],[x+20,2330]])); }   // 爪
+  return s;
+}
+
+// ===== 写真準拠: 2tダンプ(全長4690/全幅1695) =====
+function dump2tSide(){
+  const s=[], R=360, cy=1690;          // 地面2050, タイヤ径720
+  s.push({pts:[[120,1500],[4690,1500]]});                                   // シャシ
+  s.push({closed:true,pts:[[60,1500],[60,560],[1180,560],[1180,1500]]});    // キャブ
+  s.push({closed:true,pts:[[140,650],[1100,650],[1100,1080],[140,1080]]});  // 窓
+  s.push({pts:[[660,1080],[660,1500]]});                                    // ドア
+  s.push({closed:true,pts:[[60,1330],[150,1330],[150,1470],[60,1470]]});    // 前灯
+  s.push({closed:true,pts:[[1230,700],[4660,700],[4660,1500],[1230,1500]]});// 荷台
+  s.push({pts:[[1230,700],[1230,1500]]});                                   // 鳥居
+  for(let x=1900;x<4500;x+=650) s.push({pts:[[x,700],[x,1500]]});           // あおりリブ
+  [900,3300].forEach(x=>{ s.push({circle:[x,cy,R]}); s.push({circle:[x,cy,130]}); }); // タイヤ
+  s.push({pts:[[640,1500],[660,1330],[1140,1330],[1160,1500]]});            // フェンダー
+  s.push({pts:[[3040,1500],[3060,1330],[3540,1330],[3560,1500]]});
+  return s;
+}
+function dump2tFront(){
+  const s=[], W=1695;
+  s.push({closed:true,pts:[[40,1750],[40,520],[W-40,520],[W-40,1750]]});    // キャブ外形
+  s.push({closed:true,pts:[[130,640],[W-130,640],[W-130,1120],[130,1120]]});// 窓
+  s.push({pts:[[W/2,640],[W/2,1120]]});
+  s.push({closed:true,pts:[[120,1300],[W-120,1300],[W-120,1500],[120,1500]]}); // グリル
+  s.push({closed:true,pts:[[90,1560],[W-90,1560],[W-90,1700],[90,1700]]});     // バンパー
+  s.push({closed:true,pts:[[150,1340],[430,1340],[430,1480],[150,1480]]});     // 左灯
+  s.push({closed:true,pts:[[W-430,1340],[W-150,1340],[W-150,1480],[W-430,1480]]}); // 右灯
+  s.push({closed:true,pts:[[-120,640],[40,640],[40,860],[-120,860]]});         // 左ミラー
+  s.push({closed:true,pts:[[W-40,640],[W+120,640],[W+120,860],[W-40,860]]});    // 右ミラー
+  s.push({closed:true,pts:[[60,1700],[470,1700],[470,2050],[60,2050]]});        // 左タイヤ
+  s.push({closed:true,pts:[[W-470,1700],[W-60,1700],[W-60,2050],[W-470,2050]]});// 右タイヤ
+  return s;
+}
+// ===== 写真準拠: 中型バックホー0.28(履帯長~3000/全幅2300/高~2550) =====
+function bh028Side(){
+  const s=[];
+  s.push({closed:true,pts:[[150,1900],[3150,1900],[3150,2550],[150,2550]]});  // 履帯
+  s.push({circle:[380,2225,300]});s.push({circle:[380,2225,110]});            // 遊動輪
+  s.push({circle:[2920,2225,330]});s.push({circle:[2920,2225,120]});          // 駆動輪
+  for(let x=780;x<2700;x+=360) s.push({circle:[x,2520,95]});                  // 下部転輪
+  s.push({circle:[1150,1900,80]});s.push({circle:[2200,1900,80]});            // 上部転輪
+  // 旋回体(カウンターウェイト左〜エンジン〜キャブ右)
+  s.push({closed:true,pts:[[180,1900],[180,1380],[360,1120],[520,980],[1380,980],[1380,360],[2520,360],[2520,980],[2780,1240],[2780,1900]]});
+  s.push({closed:true,pts:[[1470,470],[2430,470],[2430,930],[1470,930]]});    // キャブ窓
+  s.push({closed:true,pts:[[2600,1450],[3150,1000],[3780,720],[3920,900],[3380,1200],[2900,1650]]}); // ブーム
+  s.push({closed:true,pts:[[3720,800],[4180,760],[4300,1700],[4030,1780],[3800,980]]});             // アーム
+  s.push({closed:true,pts:[[4060,1680],[4460,1640],[4520,2040],[4200,2240],[4040,1940]]});          // バケット
+  for(let k=0;k<4;k++){const x=4230+k*72;s.push({pts:[[x,2200],[x+20,2300]]});}                     // 爪
+  return s;
+}
+function bh028Front(){
+  const s=[], W=2300;
+  s.push({closed:true,pts:[[60,2050],[620,2050],[620,2550],[60,2550]]});       // 左クローラ
+  s.push({closed:true,pts:[[W-620,2050],[W-60,2050],[W-60,2550],[W-620,2550]]});// 右クローラ
+  s.push({closed:true,pts:[[300,2050],[W-300,2050],[W-300,1250],[300,1250]]}); // 旋回体
+  s.push({closed:true,pts:[[260,2050],[W-260,2050],[W-260,1700],[260,1700]]}); // カウンターウェイト
+  s.push({closed:true,pts:[[330,1250],[1050,1250],[1050,450],[330,450]]});     // キャブ(左)
+  s.push({closed:true,pts:[[400,540],[980,540],[980,1150],[400,1150]]});       // 窓
+  s.push({closed:true,pts:[[1100,1250],[W-330,1250],[W-330,650],[1100,650]]}); // エンジンフード(右)
+  s.push({closed:true,pts:[[W/2-120,1250],[W/2+120,1250],[W/2+120,300],[W/2-120,300]]}); // ブーム柱(正面)
+  s.push({closed:true,pts:[[W/2-260,300],[W/2+260,300],[W/2+260,120],[W/2-260,120]]});   // バケット(正面)
   return s;
 }
 
