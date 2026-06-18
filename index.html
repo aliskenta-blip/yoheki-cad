@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.85b (矢印を連続線にも対応)</title>
+<title>yoheki-cad v0.86 (範囲選択で色・太さ・文字・大きさを一括変更)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.85b (矢印を連続線にも対応)</span>
+  <span class="ver">v0.86 (範囲選択で色・太さ・文字・大きさを一括変更)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -4915,8 +4915,14 @@ function updateSelectedProps() {
       html += `<div class="prop-row"><label>文字サイズ(mm)</label><input type="number" min="5" max="5000" step="5" value="${Math.round(obj.fontSize||100)}" onchange="updateObjProp('fontSize', this.value)"></div>`;
       html += `<div class="prop-row"><label>文字色</label><input type="color" value="${obj.fill || '#000000'}" onchange="updateObjProp('fill', this.value)"></div>`;
     } else {
-      html += `<div class="prop-row"><label>色</label><input type="color" value="${obj.stroke || '#000000'}" onchange="updateObjProp('stroke', this.value)"></div>`;
-    html += `<div class="prop-row"><label>太さ</label><input type="number" value="${obj.strokeWidth || 1}" onchange="updateObjProp('strokeWidth', this.value)"></div>`;
+      html += `<div class="prop-row"><label>色${obj.type==='activeSelection'?'(一括)':''}</label><input type="color" value="${obj.stroke || '#000000'}" onchange="updateObjProp('stroke', this.value)"></div>`;
+    html += `<div class="prop-row"><label>太さ${obj.type==='activeSelection'?'(一括)':''}</label><input type="number" value="${obj.strokeWidth || 1}" onchange="updateObjProp('strokeWidth', this.value)"></div>`;
+    if (obj.type === 'activeSelection') {
+      // 複数選択: 文字サイズ・塗り色・大きさ(倍率)を一括変更
+      html += `<div class="prop-row"><label>文字サイズ(一括) <span class="help-tip" data-tip="選択した中の文字すべてに適用します。">?</span></label><input type="number" min="5" max="20000" step="10" value="" placeholder="まとめて変更" onchange="updateObjProp('fontSize', this.value)"></div>`;
+      html += `<div class="prop-row"><label>塗り色(一括)</label><input type="color" value="#ffffff" onchange="updateObjProp('fill', this.value)"></div>`;
+      html += `<div class="prop-row"><label>大きさ(倍率%) <span class="help-tip" data-tip="選択した図形全体をまとめて拡大・縮小します(100で等倍)。配置の間隔も比例して変わります。角のハンドルをドラッグしても拡大縮小できます。">?</span></label><input type="number" min="1" step="5" value="100" onchange="scaleSelection(this.value)"></div>`;
+    }
     if (obj.type === 'line' || obj.type === 'polyline' || obj.type === 'polygon' || obj.type === 'activeSelection') {
       html += `<div class="prop-row"><button class="btn" style="width:100%;" onclick="openShapeDims()">📏 各辺の距離を入力(実寸化)</button></div>`;
     }
@@ -5147,14 +5153,26 @@ function defaultTextSize() {
 function updateObjProp(key, val) {
   const obj = canvas.getActiveObject();
   if (!obj) return;
-  // 複数選択(activeSelection)で3D種別/個別奥行は全図形へ一括適用
-  if (obj.type === 'activeSelection' && (key === '_kind' || key === '_depth')) {
-    canvas.getActiveObjects().forEach(o => {
-      if (key === '_kind') o._kind = val;
-      else o._depth = (val === '' || val == null) ? null : parseFloat(val);
-    });
-    canvas.renderAll(); saveHistory();
-    return;
+  // 複数選択(activeSelection): 見た目の属性は選んだ各図形へ一括適用
+  if (obj.type === 'activeSelection') {
+    const perChild = ['stroke','fill','strokeWidth','fontSize','_kind','_depth'];
+    if (perChild.includes(key)) {
+      canvas.getActiveObjects().forEach(o => {
+        if (key === '_kind') { o._kind = val; }
+        else if (key === '_depth') { o._depth = (val === '' || val == null) ? null : parseFloat(val); }
+        else if (key === 'stroke') { o.set('stroke', val); o._preSelStroke = val; }   // 選択ハイライトの元色も更新
+        else if (key === 'fill') {
+          // 線だけの図形(塗りなし)は塗らない。文字や塗り図形のみ反映。
+          if (o.type === 'i-text' || o.type === 'text' || o.fill) o.set('fill', val);
+        }
+        else if (key === 'fontSize') { const fs = parseFloat(val); if (fs > 0 && (o.type === 'i-text' || o.type === 'text')) o.set('fontSize', fs); }
+        else { const n = parseFloat(val); if (!isNaN(n)) o.set(key, n); }
+        o.setCoords();
+      });
+      canvas.renderAll(); saveHistory();
+      return;
+    }
+    // left/top/angle 等は選択全体に適用(下の通常処理へ)
   }
   if (key === '_kind') {
     obj._kind = val;
@@ -5166,6 +5184,20 @@ function updateObjProp(key, val) {
   obj.setCoords();
   canvas.renderAll();
   saveHistory();
+}
+
+// 複数選択した図形全体を倍率(%)でまとめて拡大・縮小(入力するたび相対的に適用、欄は100に戻す)
+function scaleSelection(pct){
+  const obj = canvas.getActiveObject();
+  if (!obj || obj.type !== 'activeSelection') { alert('まとめて大きさを変える図形を範囲選択してください'); return; }
+  const f = parseFloat(pct) / 100;
+  if (!(f > 0) || Math.abs(f - 1) < 1e-6) return;
+  obj.scaleX = (obj.scaleX || 1) * f;
+  obj.scaleY = (obj.scaleY || 1) * f;
+  obj.setCoords();
+  canvas.renderAll();
+  saveHistory();
+  updateSelectedProps();   // 倍率欄を100に戻す
 }
 
 // ============================================================
