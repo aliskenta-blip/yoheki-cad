@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.78 (寸法の数値後入力・文字向き・縦書き)</title>
+<title>yoheki-cad v0.79 (寸法:矢印任意・連続・補助線50・向き反転)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.78 (寸法の数値後入力・文字向き・縦書き)</span>
+  <span class="ver">v0.79 (寸法:矢印任意・連続・補助線50・向き反転)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -787,6 +787,25 @@
           <option value="mm" selected>mm</option>
           <option value="m">m（現場全体図向け）</option>
           <option value="">無し</option>
+        </select>
+      </div>
+      <div class="prop-row">
+        <label>補助線の長さ(mm) <span class="help-tip" data-tip="端の返し線(足)の長さ。寸法線の両端から伸びる補助線です。既定50。">?</span></label>
+        <input type="number" id="dim-ext" value="50" min="0" max="2000" step="5">
+      </div>
+      <div class="prop-row">
+        <label><input type="checkbox" id="dim-arrows"> 矢印を付ける <span class="help-tip" data-tip="ONで寸法線の両端に矢印を付けます。既定OFF(矢印なし)。後から選択した寸法線でも切り替えられます。">?</span></label>
+        <span></span>
+      </div>
+      <div class="prop-row">
+        <label><input type="checkbox" id="dim-chain"> 連続して測る <span class="help-tip" data-tip="ONにすると、クリックした点を次々つないで寸法線を連続で引けます(端が次の始点に)。ダブルクリックかEscで終了。OFFは始点→終点のドラッグで1本ずつ。">?</span></label>
+        <span></span>
+      </div>
+      <div class="prop-row">
+        <label>出す向き <span class="help-tip" data-tip="寸法線・数値を引き出す側。自動=横線は上・縦線は左。反対=横線は下・縦線は右。描いた後も、選択して『向きを反転』やプロパティで変えられます。">?</span></label>
+        <select id="dim-side">
+          <option value="auto" selected>自動(上 / 左)</option>
+          <option value="flip">反対(下 / 右)</option>
         </select>
       </div>
       <div class="prop-row">
@@ -2375,6 +2394,8 @@ function setTool(tool) {
   state.tool = tool;
   state.hatchPoly = false;                    // 多角形ハッチモードを解除
   state.polygonPoints = [];
+  if (state.dimChainPreview) { canvas.remove(state.dimChainPreview); state.dimChainPreview = null; }
+  state.dimChainPrev = null;                   // 連続寸法を解除
   hideSnapMarker();
   if (state.tempObject) {
     canvas.remove(state.tempObject);
@@ -2572,9 +2593,11 @@ canvas.on('mouse:down', (opt) => {
 
   let pt = canvas.getPointer(opt.e);
   pt = snapPoint(pt);
+  // 連続寸法モード: クリックで点を継いで寸法線を連続作成(ドラッグしない)
+  if (dimChainMode()) { handleDimChainClick(pt); return; }
   state.startPoint = pt;
   state.isDrawing = true;
-  
+
   const strokeColor = document.getElementById('stroke-color').value;
   const strokeWidth = parseFloat(document.getElementById('stroke-width').value);
   const strokeStyle = document.getElementById('stroke-style').value;
@@ -2670,6 +2693,16 @@ canvas.on('mouse:down', (opt) => {
 
 canvas.on('mouse:move', (opt) => {
   const e = opt.e;
+  // 連続寸法モード: 前の点→カーソルのプレビューを出す
+  if (dimChainMode() && state.dimChainPrev) {
+    const p = snapPoint(canvas.getPointer(opt.e));
+    if (state.dimChainPreview) canvas.remove(state.dimChainPreview);
+    state.dimChainPreview = createDimensionLine(state.dimChainPrev, p);
+    state.dimChainPreview.selectable = false; state.dimChainPreview.evented = false;
+    canvas.add(state.dimChainPreview);
+    canvas.renderAll();
+    return;
+  }
   // 図枠のドラッグ中
   if (state.frameDrag) {
     const p = canvas.getPointer(opt.e);
@@ -3024,6 +3057,8 @@ canvas.on('mouse:dblclick', (opt) => {
     finishPolygon();
     return;
   }
+  // 連続寸法を終了
+  if (dimChainMode() && state.dimChainPrev) { endDimChain(); return; }
   // 寸法線をダブルクリック→数値を後から入力・変更
   const t = opt && opt.target;
   if (t && t._type === 'dimension') { editDimensionValue(t); }
@@ -3074,10 +3109,12 @@ function finishPolylineChain(){
   const strokeColor = document.getElementById('stroke-color').value;
   const strokeWidth = parseFloat(document.getElementById('stroke-width').value);
   const strokeStyle = document.getElementById('stroke-style').value;
+  const dash = strokeStyle ? strokeStyle.split(',').map(Number) : null;
   const poly = new fabric.Polyline(pts, {
     stroke: strokeColor, strokeWidth: strokeWidth, fill: '',
-    strokeLineCap: 'round', strokeLineJoin: 'round',
-    strokeDashArray: strokeStyle ? strokeStyle.split(',').map(Number) : null,
+    // 破線のときは round cap だと隙間が潰れて実線に見えるので butt にする
+    strokeLineCap: dash ? 'butt' : 'round', strokeLineJoin: 'round',
+    strokeDashArray: dash,
     _layer: state.activeLayer, selectable: (state.tool === 'select')
   });
   canvas.add(poly);
@@ -3114,10 +3151,11 @@ function finishCurve(){
   const strokeColor = document.getElementById('stroke-color').value;
   const strokeWidth = parseFloat(document.getElementById('stroke-width').value);
   const strokeStyle = document.getElementById('stroke-style').value;
+  const dash = strokeStyle ? strokeStyle.split(',').map(Number) : null;
   const path = new fabric.Path(d, {
     stroke: strokeColor, strokeWidth: strokeWidth, fill: '',
-    strokeLineCap: 'round', strokeLineJoin: 'round',
-    strokeDashArray: strokeStyle ? strokeStyle.split(',').map(Number) : null,
+    strokeLineCap: dash ? 'butt' : 'round', strokeLineJoin: 'round',
+    strokeDashArray: dash,
     _layer: state.activeLayer, selectable: (state.tool === 'select')
   });
   canvas.add(path);
@@ -3979,9 +4017,11 @@ function regenDimension(group, changes){
   const s = group._start, e = group._end;
   if (!s || !e) return group;
   const ng = createDimensionLine(s, e, {
-    size: group._dimSize, width: group._dimWidth, extLen: group._extLen, textOff: group._textOff,
+    size: group._dimSize, width: group._dimWidth, extLen: group._extLen,
+    textOff: (changes.textOff !== undefined) ? changes.textOff : group._textOff,
     orient: (changes.orient != null) ? changes.orient : (group._textOrient || 'auto'),
-    manualText: (changes.manualText !== undefined) ? changes.manualText : group._manualText
+    manualText: (changes.manualText !== undefined) ? changes.manualText : group._manualText,
+    arrows: (changes.arrows != null) ? changes.arrows : group._arrows
   });
   ng._layer = group._layer;
   canvas.remove(group);
@@ -4001,14 +4041,18 @@ function createDimensionLine(start, end, opts) {
   const dimSize = opts.size != null ? opts.size : (parseFloat(document.getElementById('dim-size').value) || 30);
   const dimWEl = document.getElementById('dim-width');
   const lineW = opts.width != null ? opts.width : ((dimWEl && parseFloat(dimWEl.value)) || 3);
-  const ext = opts.extLen != null ? opts.extLen : 10;   // 補助線(返し=足)の長さ
+  const ext = opts.extLen != null ? opts.extLen : (parseFloat((document.getElementById('dim-ext')||{}).value) || 50);   // 補助線(返し=足)の長さ。既定50
+  // 矢印の有無(既定OFF)。出す向き(auto=上/左, flip=下/右)
+  const arrows = opts.arrows != null ? opts.arrows : !!((document.getElementById('dim-arrows')||{}).checked);
+  const side = opts.side || ((document.getElementById('dim-side')||{}).value) || 'auto';
 
-  // 数字の位置オフセット(線中点から)。既定は線に垂直な「上側」。
+  // 数字の位置オフセット(線中点から)。既定は線に垂直な「上側(縦線は左側)」。flipで反対へ。
   const defOff = dimSize/2 + 6;
   let off = opts.textOff;
   if (!off) {
     let onx = Math.cos(perpAngle), ony = Math.sin(perpAngle);
     if (ony > 0) { onx = -onx; ony = -ony; }   // 画面上で常に上側
+    if (side === 'flip') { onx = -onx; ony = -ony; }  // 反対側(下/右)へ
     off = { x: onx*defOff, y: ony*defOff };
   }
   // 補助線(返し)は数字と反対側(=下)へ片側のみ伸ばす
@@ -4050,7 +4094,8 @@ function createDimensionLine(start, end, opts) {
   const textPos = { x: mid.x + off.x, y: mid.y + off.y };
   const offMag = Math.hypot(off.x, off.y);
 
-  const dimParts = [line, ext1, ext2, arrow1, arrow2];
+  const dimParts = [line, ext1, ext2];
+  if (arrows) { dimParts.push(arrow1, arrow2); }   // 矢印は任意(既定OFF)
   // 引き出し線(足): 数字を線から離したとき、中点→数字手前へ細線を引く
   const pulledOut = offMag > defOff + 10;
   if (pulledOut) {
@@ -4101,6 +4146,8 @@ function createDimensionLine(start, end, opts) {
     _textOff: off,
     _textOrient: orient,
     _manualText: manualStored,
+    _arrows: arrows,
+    _side: side,
     _start: {x:start.x, y:start.y},
     _end: {x:end.x, y:end.y},
     _layer: state.activeLayer,
@@ -4293,7 +4340,7 @@ function saveHistory() {
   if (state.isLoadingHistory) return;
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
-  const snap = withoutSelHighlight(() => JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_vertical', '_vtext', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked'])));
+  const snap = withoutSelHighlight(() => JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked'])));
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex++;
@@ -4358,7 +4405,7 @@ function duplicateSelected() {
 }
 
 // クローン時に引き継ぐカスタムプロパティ
-const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_textOrient','_manualText','_vertical','_vtext','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_partName','_face','_origStroke','_origFill'];
+const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_textOrient','_manualText','_arrows','_side','_vertical','_vtext','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_partName','_face','_origStroke','_origFill'];
 let _clipboard = null;
 
 // ⑫ コピー(Ctrl+C)
@@ -4592,6 +4639,10 @@ function updateSelectedProps() {
         </select></div>
       <div class="prop-row"><label>数値(手入力) <span class="help-tip" data-tip="数値を自由に書き換えます(例:全長や記号入り)。空欄にすると実測値に戻ります。寸法線のダブルクリックでも編集できます。">?</span></label>
         <input type="text" value="${obj._manualText != null ? String(obj._manualText).replace(/"/g,'&quot;') : ''}" placeholder="空=実測値" onchange="updateDimManual(this.value)"></div>
+      <div class="prop-row"><label>矢印 <span class="help-tip" data-tip="寸法線の両端の矢印。OFF(既定)で矢印なし。">?</span></label>
+        <label style="font-size:11px;"><input type="checkbox" ${obj._arrows?'checked':''} onchange="updateDimArrows(this.checked)"> 付ける</label></div>
+      <div class="prop-row"><label>出す向き <span class="help-tip" data-tip="寸法線・数値を出す側を反対にします(上⇔下 / 左⇔右)。">?</span></label>
+        <button class="btn" style="padding:3px 8px;" onclick="flipDimSide()">向きを反転</button></div>
       <div class="prop-row"><label>補助線の長さ <span class="help-tip" data-tip="端の返し線(足)の長さ。寸法線の両端から上下に伸びる補助線です。">?</span></label>
         <input type="number" min="0" max="200" step="1" value="${Math.round(obj._extLen != null ? obj._extLen : 10)}" onchange="updateDimExt(this.value)"></div>
       <div class="prop-row"><label>数字の引き出し長さ <span class="help-tip" data-tip="数字を寸法線から引き出す長さ。0で線の上に戻ります。ドラッグでも動かせます。">?</span></label>
@@ -4738,7 +4789,7 @@ function updateDimLength(val) {
   const ang = Math.atan2((e.y - s.y), (e.x - s.x));
   const newEnd = { x: s2.x + Math.cos(ang) * newLen, y: s2.y + Math.sin(ang) * newLen };
   canvas.remove(obj);
-  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize, textOff: obj._textOff, extLen: obj._extLen, orient: obj._textOrient, manualText: obj._manualText});
+  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize, textOff: obj._textOff, extLen: obj._extLen, orient: obj._textOrient, manualText: obj._manualText, arrows: obj._arrows});
   dim.selectable = true; dim.evented = true;
   canvas.add(dim);
   canvas.setActiveObject(dim);
@@ -4761,7 +4812,8 @@ function rebuildDimension(ov) {
     textOff: ov.textOff != null ? ov.textOff : obj._textOff,
     extLen: ov.extLen != null ? ov.extLen : obj._extLen,
     orient: ov.orient != null ? ov.orient : obj._textOrient,
-    manualText: ov.manualText !== undefined ? ov.manualText : obj._manualText
+    manualText: ov.manualText !== undefined ? ov.manualText : obj._manualText,
+    arrows: ov.arrows != null ? ov.arrows : obj._arrows
   };
   canvas.remove(obj);
   const dim = createDimensionLine(s2, e2, opts);
@@ -4774,7 +4826,7 @@ function liveUpdateDimLeader(dim, off) {
   const s = dim._start, e = dim._end;
   if (!s || !e) return;
   canvas.remove(dim);
-  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off, extLen: dim._extLen, orient: dim._textOrient, manualText: dim._manualText});
+  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off, extLen: dim._extLen, orient: dim._textOrient, manualText: dim._manualText, arrows: dim._arrows});
   nd.selectable = true; nd.evented = true;
   nd.lockMovementX = true; nd.lockMovementY = true;
   canvas.add(nd);
@@ -4786,7 +4838,7 @@ function liveUpdateDimLeader(dim, off) {
 function liveUpdateDimEndpoints(dim, s, e) {
   if (!s || !e) return;
   canvas.remove(dim);
-  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: dim._textOff, extLen: dim._extLen, orient: dim._textOrient, manualText: dim._manualText});
+  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: dim._textOff, extLen: dim._extLen, orient: dim._textOrient, manualText: dim._manualText, arrows: dim._arrows});
   nd.selectable = true; nd.evented = true;
   nd.lockMovementX = true; nd.lockMovementY = true;
   canvas.add(nd);
@@ -4799,6 +4851,37 @@ function updateDimSize(val){ const s=parseFloat(val); if(!isNaN(s)) rebuildDimen
 function updateDimExt(val){ const x=parseFloat(val); if(!isNaN(x)) rebuildDimension({extLen: Math.max(0, x)}); }
 function updateDimOrient(val){ rebuildDimension({orient: val}); }
 function updateDimManual(val){ rebuildDimension({manualText: (val||'').trim()}); }
+function updateDimArrows(checked){ rebuildDimension({arrows: !!checked}); }
+function flipDimSide(){
+  const obj = canvas.getActiveObject();
+  if (!obj || obj._type !== 'dimension') { alert('向きを変える寸法線を選択してください'); return; }
+  const off = obj._textOff || {x:0, y:0};
+  rebuildDimension({textOff: {x:-off.x, y:-off.y}});
+}
+
+// ===== 連続寸法(チェーン): クリックで点を継いで寸法線を連続作成 =====
+function dimChainMode(){ return state.tool === 'dim' && !!((document.getElementById('dim-chain')||{}).checked); }
+function handleDimChainClick(pt){
+  if (!state.dimChainPrev) {
+    state.dimChainPrev = {x:pt.x, y:pt.y};
+    document.getElementById('status-mode').textContent = '連続寸法: 次の点をクリック(ダブルクリック/Escで終了)';
+    return;
+  }
+  const s = state.dimChainPrev, e = {x:pt.x, y:pt.y};
+  if (Math.hypot(e.x-s.x, e.y-s.y) < 1) return;   // 同じ点は無視
+  if (state.dimChainPreview) { canvas.remove(state.dimChainPreview); state.dimChainPreview = null; }
+  const dim = createDimensionLine(s, e);
+  dim.selectable = (state.tool === 'select'); dim.evented = true;
+  canvas.add(dim);
+  state.dimChainPrev = e;   // 端が次の始点に
+  canvas.renderAll(); saveHistory(); updateStats();
+  document.getElementById('status-mode').textContent = '連続寸法: 次の点をクリック(ダブルクリック/Escで終了)';
+}
+function endDimChain(){
+  if (state.dimChainPreview) { canvas.remove(state.dimChainPreview); state.dimChainPreview = null; }
+  state.dimChainPrev = null;
+  canvas.renderAll();
+}
 // 数字の引き出し(足): 長さ/角度のどちらかを変更してオフセットを作り直す
 function updateDimLeader(which, val){
   const obj = canvas.getActiveObject();
@@ -4959,7 +5042,9 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); e.preventDefault(); }
   else if (e.key === 'Escape') {
     canvas.discardActiveObject();
-    if (polyDrawing() && state.polygonPoints.length >= polyMinPts()) {
+    if (dimChainMode() && state.dimChainPrev) {
+      endDimChain();
+    } else if (polyDrawing() && state.polygonPoints.length >= polyMinPts()) {
       finishPolygon();
     } else {
       // 作りかけの頂点を破棄
@@ -5026,7 +5111,7 @@ function saveJSON() {
       scale: document.getElementById('paper-scale').value,
       show: document.getElementById('frame-show').checked
     },
-    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_vertical', '_vtext', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked']))
+    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked']))
   };
   // グリッドは除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame);
