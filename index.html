@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.87 (グリッド既定100)</title>
+<title>yoheki-cad v0.88 (寸法を指定長さに・寸法選択で設定を上部へ)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.87 (グリッド既定100)</span>
+  <span class="ver">v0.88 (寸法を指定長さに・寸法選択で設定を上部へ)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -515,7 +515,7 @@
       <button class="btn" style="width:100%; margin-top:4px;" onclick="unlockUnderlays()">🔓 下地のロック解除</button>
     </div>
 
-    <div class="panel-section">
+    <div class="panel-section" id="line-settings">
       <h4>線の設定</h4>
       <div class="prop-row">
         <label>色</label>
@@ -2445,6 +2445,7 @@ function setTool(tool) {
   state.polygonPoints = [];
   if (state.dimChainPreview) { canvas.remove(state.dimChainPreview); state.dimChainPreview = null; }
   state.dimChainPrev = null;                   // 連続寸法を解除
+  if (typeof restorePanelOrder === 'function') restorePanelOrder();   // 左欄の並びを元に戻す
   hideSnapMarker();
   if (state.tempObject) {
     canvas.remove(state.tempObject);
@@ -3907,14 +3908,48 @@ function withoutSelHighlight(fn) {
   finally { restored.forEach(o => o.set('stroke', SEL_PINK)); }
 }
 
-canvas.on('selection:created', () => { updateSelectedProps(); applySelHighlight(); updateDevSectionVisibility(); });
-canvas.on('selection:updated', () => { updateSelectedProps(); applySelHighlight(); updateDevSectionVisibility(); });
+canvas.on('selection:created', () => { updateSelectedProps(); applySelHighlight(); updateDevSectionVisibility(); applyContextPanel(); });
+canvas.on('selection:updated', () => { updateSelectedProps(); applySelHighlight(); updateDevSectionVisibility(); applyContextPanel(); });
 canvas.on('selection:cleared', () => {
   clearSelHighlight();
   canvas.requestRenderAll();
   document.getElementById('prop-content').innerHTML = 'オブジェクトを選択してください';
   updateDevSectionVisibility();
+  applyContextPanel();
 });
+
+// ===== 選択した図形に応じて、関係する設定セクションを左欄の一番上へ持ってくる =====
+let _ctxMovedSec = null, _ctxAnchor = null;
+function restorePanelOrder(){
+  if (_ctxMovedSec && _ctxAnchor && _ctxAnchor.parentNode) {
+    _ctxAnchor.parentNode.insertBefore(_ctxMovedSec, _ctxAnchor);
+    _ctxAnchor.remove();
+  }
+  _ctxMovedSec = null; _ctxAnchor = null;
+}
+function bringSectionTop(id){
+  const sec = document.getElementById(id);
+  const panel = document.querySelector('.panel-left');
+  if (!sec || !panel) return;
+  if (_ctxMovedSec === sec) { sec.classList.remove('collapsed'); return; }
+  restorePanelOrder();
+  _ctxAnchor = document.createComment('ctx-anchor');     // 元の位置を覚えておく
+  sec.parentNode.insertBefore(_ctxAnchor, sec);
+  panel.insertBefore(sec, panel.firstElementChild);
+  sec.classList.remove('collapsed');
+  _ctxMovedSec = sec;
+}
+function applyContextPanel(){
+  const objs = canvas.getActiveObjects();
+  if (objs.some(o => o._type === 'dimension')) {
+    document.getElementById('dim-settings').style.display = 'block';   // 選択中は寸法線設定を出す
+    bringSectionTop('dim-settings');
+    return;
+  }
+  restorePanelOrder();
+  // 寸法を選んでいないときは、寸法線設定はツールに従って表示(選択中だけ出した分を戻す)
+  if (state.tool !== 'dim') document.getElementById('dim-settings').style.display = 'none';
+}
 
 // 「断面図→展開図」は鉄筋を扱っている時だけ表示(左欄をすっきり)。
 // 表示条件: 鉄筋(線・横筋○)を選択中、または鉄筋系ツール(鉄筋/横筋○/縦横ペン/面ペン)使用中。
@@ -4851,7 +4886,7 @@ function updateSelectedProps() {
   } else if (obj._type === 'dimension') {
     html = `
       <div class="prop-row"><label>種別</label><span>寸法線</span></div>
-      <div class="prop-row"><label>寸法値(mm) <span class="help-tip" data-tip="この値を変えると寸法線の長さ(線)も実際に伸縮します。角度は保持されます。">?</span></label>
+      <div class="prop-row"><label>この長さにする(mm) <span class="help-tip" data-tip="入力した実寸の長さに、寸法線を角度はそのままで伸縮します。表示の数値もこの値になります(手入力の上書きは解除)。手描きの寸法を正しい寸法に直すときに。">?</span></label>
         <input type="number" value="${obj._length}" onchange="updateDimLength(this.value)"></div>
       <div class="prop-row"><label>線の太さ</label>
         <input type="number" min="0.5" max="10" step="0.5" value="${obj._dimWidth || 1}" onchange="updateDimWidth(this.value)"></div>
@@ -5028,7 +5063,8 @@ function updateDimLength(val) {
   const ang = Math.atan2((e.y - s.y), (e.x - s.x));
   const newEnd = { x: s2.x + Math.cos(ang) * newLen, y: s2.y + Math.sin(ang) * newLen };
   canvas.remove(obj);
-  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize, textOff: obj._textOff, extLen: obj._extLen, orient: obj._textOrient, manualText: obj._manualText, arrows: obj._arrows});
+  // 長さを指定し直したら表示数値もその実寸にする(手入力の上書きは解除)
+  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize, textOff: obj._textOff, extLen: obj._extLen, orient: obj._textOrient, manualText: null, arrows: obj._arrows});
   dim.selectable = true; dim.evented = true;
   canvas.add(dim);
   canvas.setActiveObject(dim);
