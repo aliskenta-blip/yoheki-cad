@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.71 (登録部品の配置ズレ修正)</title>
+<title>yoheki-cad v0.72 (線に矢印を付ける)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -258,7 +258,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.71 (登録部品の配置ズレ修正)</span>
+  <span class="ver">v0.72 (線に矢印を付ける)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -519,6 +519,18 @@
       <div class="prop-row">
         <label>文字サイズ(mm) <span class="help-tip" data-tip="テキスト(T)・引き出し線(G)の文字の大きさの初期値(mm)。描いた後も、選択して個別に変更できます。印刷縮尺で読める大きさに(例:1/50なら250mmで紙上5mm)。">?</span></label>
         <input type="number" id="default-text-size" value="100" min="5" max="5000" step="10">
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h4>線に矢印を付ける <span class="help-tip" data-tip="直線(L)を選択(S)してからボタンを押すと、その端に矢じり(矢印)を付けます。線と矢印は1つにまとまり、まとめて動かせます。矢印の大きさは線の太さに比例します。">?</span></h4>
+      <div class="prop-row" style="font-size:10px; color:#999; line-height:1.4;">
+        <span>直線を選択(S)してから押す</span>
+      </div>
+      <div class="prop-row" style="gap:4px;">
+        <button class="btn" style="flex:1; padding:4px;" onclick="addArrowToSelected('left')">◀ 左端</button>
+        <button class="btn" style="flex:1; padding:4px;" onclick="addArrowToSelected('right')">右端 ▶</button>
+        <button class="btn primary" style="flex:1; padding:4px;" onclick="addArrowToSelected('both')">◀▶ 両端</button>
       </div>
     </div>
 
@@ -3715,6 +3727,67 @@ function createLeaderLine(tip, textPos, opts) {
     excludeFromExport: !!opts.preview
   });
   return g;
+}
+
+// ===== 直線に矢印(矢じり)を付ける v0.72 =====
+// 矢じり(塗りつぶし三角形)を作る。tip=先端のワールド座標, dir=向き(rad,先端が指す方向), ah=長さ, hw=半幅
+function makeArrowHead(tipX, tipY, dir, ah, hw, color){
+  const bx = tipX - Math.cos(dir)*ah, by = tipY - Math.sin(dir)*ah;     // 三角形の底辺中央
+  const px = -Math.sin(dir), py = Math.cos(dir);                        // 線に垂直な単位ベクトル
+  return new fabric.Polygon(
+    [ {x:tipX, y:tipY}, {x:bx+px*hw, y:by+py*hw}, {x:bx-px*hw, y:by-py*hw} ],
+    { fill:color, stroke:color, strokeWidth:1, originX:'left', originY:'top', objectCaching:false }
+  );
+}
+
+// 1本の直線に矢印を付け、線＋矢じりを1グループにして返す。which='left'|'right'|'both'
+function makeArrowLine(srcLine, which){
+  // 線の両端をワールド座標で取得(回転・拡縮にも対応)
+  const lp = srcLine.calcLinePoints();
+  const m = srcLine.calcTransformMatrix();
+  const A = fabric.util.transformPoint(new fabric.Point(lp.x1, lp.y1), m);
+  const B = fabric.util.transformPoint(new fabric.Point(lp.x2, lp.y2), m);
+  // 左端=xが小さい方、右端=xが大きい方(縦線などxが同じ時はyで判定)
+  let leftP, rightP;
+  if (A.x !== B.x) { leftP = A.x < B.x ? A : B; rightP = A.x < B.x ? B : A; }
+  else            { leftP = A.y < B.y ? A : B; rightP = A.y < B.y ? B : A; }
+  const color = srcLine.stroke || '#000';
+  const sw = srcLine.strokeWidth || 2;
+  const ah = Math.max(sw*5, 24), hw = Math.max(sw*2.5, 12);  // 線の太さに比例
+  const parts = [ new fabric.Line([A.x, A.y, B.x, B.y], {
+    stroke:color, strokeWidth:sw, strokeDashArray:srcLine.strokeDashArray||null, fill:''
+  }) ];
+  // 各端の矢じりは「外側」を指す
+  if (which==='left'  || which==='both') {
+    const dir = Math.atan2(leftP.y - rightP.y, leftP.x - rightP.x);
+    parts.push(makeArrowHead(leftP.x, leftP.y, dir, ah, hw, color));
+  }
+  if (which==='right' || which==='both') {
+    const dir = Math.atan2(rightP.y - leftP.y, rightP.x - leftP.x);
+    parts.push(makeArrowHead(rightP.x, rightP.y, dir, ah, hw, color));
+  }
+  const g = new fabric.Group(parts, {
+    _type:'arrowline', _layer: srcLine._layer || state.activeLayer,
+    selectable:true, evented:true
+  });
+  canvas.remove(srcLine);
+  canvas.add(g);
+  return g;
+}
+
+// 選択した直線に矢印を付ける(複数選択・単体どちらも対応)
+function addArrowToSelected(which){
+  const active = canvas.getActiveObject();
+  if (!active) { alert('矢印を付ける直線を選択(S)してください'); return; }
+  const targets = (active.type === 'activeSelection') ? active.getObjects() : [active];
+  const lines = targets.filter(o => o.type === 'line');
+  if (!lines.length) { alert('直線(L)を選択してください。矢印は直線に付けられます。\n(折れ線や図形には付けられません)'); return; }
+  canvas.discardActiveObject();   // 個別処理のため選択解除(座標を絶対化)
+  const made = lines.map(ln => makeArrowLine(ln, which));
+  if (made.length === 1) canvas.setActiveObject(made[0]);
+  else if (made.length > 1) canvas.setActiveObject(new fabric.ActiveSelection(made, {canvas}));
+  canvas.requestRenderAll();
+  saveHistory(); updateStats();
 }
 
 function createDimensionLine(start, end, opts) {
