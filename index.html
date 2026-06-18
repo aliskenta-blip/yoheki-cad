@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.70 (図枠を移動できる)</title>
+<title>yoheki-cad v0.71 (登録部品の配置ズレ修正)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -258,7 +258,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.70 (図枠を移動できる)</span>
+  <span class="ver">v0.71 (登録部品の配置ズレ修正)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -6119,12 +6119,20 @@ function placePart(id) {
     const placed = [];
     objs.forEach((o, i) => {
       const meta = part.objects[i];
-      // 相対位置 × 倍率 + 配置基準
-      const newLeft = baseX + (meta._relLeft || 0) * mult;
-      const newTop  = baseY + (meta._relTop  || 0) * mult;
-      o.set({ left: newLeft, top: newTop });
+      // 目標とする「外形(バウンディングボックス)左上」のワールド座標
+      const targetLeft = baseX + (meta._relLeft || 0) * mult;
+      const targetTop  = baseY + (meta._relTop  || 0) * mult;
+      // ★重要: left/top を直接代入しない。
+      // 図形によって originX/originY が 'center'(中心基準)だったり 'left/top' だったりするため、
+      // 「外形左上の座標」を left/top にそのまま入れると図形ごとに自分の幅/高さの半分だけズレる
+      // (= 配置時に図形がバラバラにずれる原因)。
+      // 先に拡縮してから、外形(getBoundingRect)左上が目標に来るよう平行移動して合わせる。
       o.scaleX = (o.scaleX || 1) * mult;
       o.scaleY = (o.scaleY || 1) * mult;
+      o.setCoords();
+      const bb = o.getBoundingRect(true, true);   // 拡縮後の外形(ワールド座標)
+      o.left += targetLeft - bb.left;
+      o.top  += targetTop  - bb.top;
       // ポリライン系のstrokeWidthはスケールで太くなりすぎないよう補正なし(意図通り拡縮)
       o.setCoords();
       o.selectable = true; o.evented = true;
