@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.80 (角を丸める=道路カーブ・半径可変)</title>
+<title>yoheki-cad v0.81 (部品のピンク修正・線の太さ調整)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.80 (角を丸める=道路カーブ・半径可変)</span>
+  <span class="ver">v0.81 (部品のピンク修正・線の太さ調整)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -1375,6 +1375,8 @@
         <input type="number" id="part-angle" value="0" step="5" style="flex:1;"></div>
       <div class="prop-row"><label>長さ(mm) <span style="color:#888;font-size:10px;">※可変部品のみ</span></label>
         <input type="number" id="part-len" value="600" step="50" style="flex:1;"></div>
+      <div class="prop-row"><label>線の太さ(mm) <span style="color:#888;font-size:10px;">部品の線の見やすさ</span></label>
+        <input type="number" id="part-stroke" value="20" min="0.5" step="1" style="flex:1;"></div>
       <div class="prop-row"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
         <input type="checkbox" id="part-continuous"> 連続配置（クリックで続けて置く）</label></div>
       <div style="font-size:10px;color:#9cf;margin:2px 0 4px;">「配置」→ 図面上をクリックで配置（吸着あり）。Escで終了。</div>
@@ -6516,14 +6518,15 @@ function registerPart() {
   }
   // 各オブジェクトを「選択範囲の左上」基準の相対座標で保存
   const br = active.getBoundingRect(true, true);
-  const serial = objs.map(o => {
+  // ★選択中はハイライトで線がピンクになっているため、元の色で保存する(配置時にピンクにならないように)
+  const serial = withoutSelHighlight(() => objs.map(o => {
     const json = o.toObject(PART_PROPS);
     // activeSelection内のleft/topはグループ中心基準なので絶対座標に直す
     const abs = o.getBoundingRect(true, true);
     json._relLeft = abs.left - br.left;
     json._relTop = abs.top - br.top;
     return json;
-  });
+  }));
 
   const parts = loadPartsStore();
   parts.push({
@@ -6581,6 +6584,16 @@ function deletePart(id) {
   renderPartsList();
 }
 
+// 配置した部品の見た目を整える: ピンク残り(選択色)を黒に戻し、線の太さを画面上で一定mmに。
+// accScale=この図形までの累積拡大率(円弧やグループの中でも実効太さを揃える)。
+function applyPartStyle(o, partStroke, accScale){
+  accScale = accScale * (o.scaleX || 1);
+  if (o._objects) { o._objects.forEach(c => applyPartStyle(c, partStroke, accScale)); return; }
+  if (o.stroke === SEL_PINK) o.set('stroke', '#000');   // 旧部品に焼き付いた選択ピンクを黒へ
+  if (o.fill === SEL_PINK) o.set('fill', '');
+  if (partStroke > 0 && o.stroke) o.set('strokeWidth', partStroke / Math.max(0.0001, accScale));
+}
+
 // 部品を配置
 function placePart(id) {
   const part = loadPartsStore().find(p => p.id === id);
@@ -6601,6 +6614,7 @@ function placePart(id) {
   const cy = (canvas.getHeight()/2 - vpt[5]) / z;
   const baseX = cx - (part.w * mult)/2;
   const baseY = cy - (part.h * mult)/2;
+  const partStroke = parseFloat((document.getElementById('part-stroke')||{}).value) || 0;
 
   fabric.util.enlivenObjects(part.objects, (objs) => {
     if (!objs || !objs.length) { alert('部品の図形を復元できませんでした。'); return; }
@@ -6621,8 +6635,9 @@ function placePart(id) {
       const bb = o.getBoundingRect(true, true);   // 拡縮後の外形(ワールド座標)
       o.left += targetLeft - bb.left;
       o.top  += targetTop  - bb.top;
-      // ポリライン系のstrokeWidthはスケールで太くなりすぎないよう補正なし(意図通り拡縮)
       o.setCoords();
+      // 旧部品でピンク色が焼き付いている場合は黒に直す＋線の太さを見やすい値に
+      applyPartStyle(o, partStroke, 1);
       o.selectable = true; o.evented = true;
       placed.push(o);
     });
@@ -6879,15 +6894,17 @@ function placePartAt(def, pos, len, angleDeg, mult){
   const bb = partBBox(shapes);
   const sc = UNITS_PER_MM * (mult||1);   // 部品はmmで定義 → 実寸(1単位=1mm)で配置
   const a = (angleDeg||0)*Math.PI/180, cos=Math.cos(a), sin=Math.sin(a);
+  // 線の太さ(mm)。配置パネルの値(既定20)。薄くて見えない問題対策。
+  const sw = parseFloat((document.getElementById('part-stroke')||{}).value) || 20;
   const toW = (x,y)=>{ const lx=(x-bb.cx)*sc, ly=(y-bb.cy)*sc; return {x: pos.x + lx*cos - ly*sin, y: pos.y + lx*sin + ly*cos}; };
   const placed=[];
   shapes.forEach(sh=>{
     if(sh.circle){
       const [ccx,ccy,r]=sh.circle; const c=toW(ccx,ccy);
-      placed.push(new fabric.Circle({left:c.x,top:c.y,radius:r*sc,originX:'center',originY:'center',stroke:'#222',strokeWidth:1.5,fill:'',_layer:state.activeLayer,selectable:true,evented:true}));
+      placed.push(new fabric.Circle({left:c.x,top:c.y,radius:r*sc,originX:'center',originY:'center',stroke:'#222',strokeWidth:sw,fill:'',_layer:state.activeLayer,selectable:true,evented:true}));
     } else {
       const wpts = sh.pts.map(([x,y])=>toW(x,y));
-      const opt = {stroke:'#222',strokeWidth:1.5,fill:'',_layer:state.activeLayer,selectable:true,evented:true};
+      const opt = {stroke:'#222',strokeWidth:sw,fill:'',_layer:state.activeLayer,selectable:true,evented:true};
       // closed:true は最終辺も閉じる(Polygon)、それ以外は開いた折れ線(Polyline)
       placed.push(sh.closed ? new fabric.Polygon(wpts, opt) : new fabric.Polyline(wpts, opt));
     }
