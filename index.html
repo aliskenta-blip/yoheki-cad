@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.92 (重機:側面6種追加・上面精密化)</title>
+<title>yoheki-cad v0.93 (ブロックハッチを実寸割付390+10/190+10)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.92 (重機:側面6種追加・上面精密化)</span>
+  <span class="ver">v0.93 (ブロックハッチを実寸割付390+10/190+10)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -6117,7 +6117,7 @@ const HATCH_TYPES = [
   {key:'sand',   name:'砂',        bg:'#f7f1e0', fg:'#b89b5e'},
   {key:'concrete',name:'コンクリート',bg:'#efefef', fg:'#888888'},
   {key:'rubble', name:'割栗石',    bg:'#ececec', fg:'#444444'},
-  {key:'brick',  name:'ブロック',  bg:'#f2e6df', fg:'#9a5a3c'},
+  {key:'brick',  name:'ブロック(実寸390)', bg:'#f2e6df', fg:'#9a5a3c'},
   {key:'hatch45',name:'斜線',      bg:'rgba(0,0,0,0)', fg:'#666666'},
   {key:'cross',  name:'格子',      bg:'rgba(0,0,0,0)', fg:'#666666'},
   {key:'solid',  name:'無地(薄)',  bg:'#eeeeee', fg:'#eeeeee'},
@@ -6332,10 +6332,55 @@ function makeLineHatchGroup(regionShape, p) {
   return grp;
 }
 
+// ブロック割付: 長さLを「ブロックB+目地J」で並べた区間配列を返す。
+// 両端はブロックを枠に合わせ(枠外に目地なし)、半端は内側(手前)に1つだけカットブロックを入れる。
+// 例) L=500, B=390, J=10 → [カット100][目地10][390(末端)]
+function blockRunSegs(L, B, J){
+  const segs = [];
+  if (L <= B + 0.5) { segs.push({a:0, len:L}); return segs; }   // 1個(枠に合わせる)
+  let x = L;                                   // 末端(外側)から内側へ並べる
+  let guard = 0;
+  while (x - B >= -0.5 && guard++ < 1000) {
+    segs.push({a: x - B, len: B});             // 390ブロック(末端側から)
+    x -= B;
+    if (x - J - B >= -0.5) { x -= J; }         // 次のブロックが入るなら目地を空ける
+    else { x -= J; break; }                    // 入らない→残りはカットへ
+  }
+  if (x > 0.5) segs.push({a: 0, len: x});      // 内側の半端=カットブロック(枠に合わせ)
+  return segs;
+}
+
+// 実寸ブロック割付(390+目地10 / 190+目地10)を、領域shapeに敷き詰めたグループを返す
+function makeBlockHatchGroup(regionShape, p){
+  const bb = regionShape.getBoundingRect(true, true);
+  const xs = blockRunSegs(bb.width, 390, 10);
+  const ys = blockRunSegs(bb.height, 190, 10);
+  const rects = [];
+  ys.forEach(ry => xs.forEach(rx => {
+    rects.push(new fabric.Rect({
+      left: bb.left + rx.a, top: bb.top + ry.a, width: rx.len, height: ry.len,
+      fill: '', stroke: p.color, strokeWidth: p.lineW, selectable:false, evented:false
+    }));
+  }));
+  const grp = new fabric.Group(rects, {
+    opacity: p.opacity, _layer: state.activeLayer, _hatch:'brick', _hatchOpacity:p.opacity,
+    selectable: (state.tool === 'select')
+  });
+  regionShape.absolutePositioned = true;
+  grp.clipPath = regionShape;                  // 非矩形の領域でもはみ出さない
+  return grp;
+}
+
 // 領域shape(rect/ellipse/polygon, キャンバス座標)に、選んだ塗り方を適用してキャンバスに追加
 function applyHatchRegion(shape) {
   const param = hatchParamOf(hatchSelected);
   const p = readHatchParams();
+  if (hatchSelected === 'brick') {            // ブロックは実寸で割付
+    const grp = makeBlockHatchGroup(shape, p);
+    canvas.add(grp); canvas.setActiveObject(grp);
+    canvas.renderAll(); saveHistory(); updateStats();
+    return;
+  }
   if (param === 'line') {
     const grp = makeLineHatchGroup(shape, p);
     canvas.add(grp);
@@ -6366,6 +6411,15 @@ function applyHatchToSelected() {
   }
   const param = hatchParamOf(hatchSelected);
   const p = readHatchParams();
+  if (hatchSelected === 'brick') {            // ブロックは実寸で割付
+    obj.clone(clip => {
+      const grp = makeBlockHatchGroup(clip, p);
+      canvas.add(grp); canvas.setActiveObject(grp);
+      canvas.renderAll(); saveHistory(); updateStats();
+      closeModal('modal-hatch');
+    });
+    return;
+  }
   if (param === 'line') {
     // 選択図形を複製してクリップに使い、斜線グループを上に重ねる
     obj.clone(clip => {
