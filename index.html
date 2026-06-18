@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v1.02 (斜めカット潰れ防止・落ち蓋U字溝2000)</title>
+<title>yoheki-cad v1.03 (部品の長さ既定を部品別に・U字溝寸法修正)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.02 (斜めカット潰れ防止・落ち蓋U字溝2000)</span>
+  <span class="ver">v1.03 (部品の長さ既定を部品別に・U字溝寸法修正)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -1392,8 +1392,8 @@
       </div>
       <div class="prop-row"><label>配置角度(°)</label>
         <input type="number" id="part-angle" value="0" step="5" style="flex:1;"></div>
-      <div class="prop-row"><label>長さ(mm) <span style="color:#888;font-size:10px;">※可変部品のみ</span></label>
-        <input type="number" id="part-len" value="600" step="50" style="flex:1;"></div>
+      <div class="prop-row"><label>長さ(mm) <span style="color:#888;font-size:10px;">※可変部品のみ(空=部品の既定)</span></label>
+        <input type="number" id="part-len" value="" placeholder="部品の既定" step="50" style="flex:1;" oninput="state.partLenEdited=true;"></div>
       <div class="prop-row"><label>線の太さ(mm) <span style="color:#888;font-size:10px;">部品の線の見やすさ</span></label>
         <input type="number" id="part-stroke" value="20" min="0.5" step="1" style="flex:1;"></div>
       <div class="prop-row"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
@@ -7275,14 +7275,14 @@ function zoomToObject(obj) {
 // build(len) は形状配列を返す。形状: {pts:[[x,y]..], closed?} か {circle:[cx,cy,r]}。座標は実寸mm。
 // lengthVar:true は「長さ(mm)」で平面長さを可変にできる部品。配置はクリック(スタンプ)・角度・連続対応。
 const BUILTIN_PARTS = [
-  { key:'u240_sec', name:'U字溝240 断面(落ちふた/切り返し)', category:'側溝',
-    build:()=>[{closed:true,pts:[[0,0],[0,270],[300,270],[300,0],[275,0],[275,25],[270,25],[270,240],[30,240],[30,25],[25,25],[25,0]]}]},
-  { key:'u240_plan', name:'U字溝240 平面(長さ可変)', category:'側溝', lengthVar:true, defLen:600,
-    build:(L)=>[{closed:true,pts:[[0,0],[300,0],[300,L],[0,L]]},{pts:[[25,0],[25,L]]},{pts:[[275,0],[275,L]]},{pts:[[30,0],[30,L]]},{pts:[[270,0],[270,L]]}]},
-  { key:'u240_drop_plan', name:'U字溝 落ち蓋式 平面(長さ可変,既定2000)', category:'側溝', lengthVar:true, defLen:2000,
+  { key:'u240_sec', name:'U字溝 断面(幅330・内240)', category:'側溝',
+    build:()=>[{closed:true,pts:[[0,0],[0,270],[330,270],[330,0],[285,0],[285,30],[280,30],[280,240],[50,240],[50,30],[45,30],[45,0]]}]},
+  { key:'u240_plan', name:'U字溝 平面(幅330・長さ可変,既定600)', category:'側溝', lengthVar:true, defLen:600,
+    build:(L)=>[{closed:true,pts:[[0,0],[330,0],[330,L],[0,L]]},{pts:[[45,0],[45,L]]},{pts:[[285,0],[285,L]]}]},
+  { key:'u240_drop_plan', name:'U字溝 落ち蓋式 平面(幅450・長さ可変,既定2000)', category:'側溝', lengthVar:true, defLen:2000,
     build:(L)=>{
       L = L || 2000;
-      const Wout=360, w1=40, w2=Wout-40, l1=70, l2=Wout-70;   // 壁内側40/320, 蓋受け70/290
+      const Wout=450, w1=60, w2=Wout-60, l1=90, l2=Wout-90;   // 壁内側60/390, 蓋受け90/360
       const s=[];
       s.push({closed:true, pts:[[0,0],[Wout,0],[Wout,L],[0,L]]});      // 外形
       s.push({pts:[[w1,0],[w1,L]]}); s.push({pts:[[w2,0],[w2,L]]});    // 壁の内側
@@ -7290,10 +7290,10 @@ const BUILTIN_PARTS = [
       for (let y=600; y<L-1; y+=600) s.push({pts:[[l1,y],[l2,y]]});    // 落ち蓋の継ぎ目(600ごと)
       return s;
     }},
-  { key:'u240_drop_sec', name:'U字溝 落ち蓋式 断面', category:'側溝',
+  { key:'u240_drop_sec', name:'U字溝 落ち蓋式 断面(幅450)', category:'側溝',
     build:()=>[
-      {closed:true,pts:[[0,0],[0,300],[360,300],[360,0],[290,0],[290,30],[320,30],[320,270],[40,270],[40,30],[70,30],[70,0]]}, // 本体(受け段付き)
-      {closed:true,pts:[[70,0],[290,0],[290,30],[70,30]]}                 // 落ち蓋
+      {closed:true,pts:[[0,0],[0,360],[450,360],[450,0],[360,0],[360,40],[390,40],[390,320],[60,320],[60,40],[90,40],[90,0]]}, // 本体(受け段付き)
+      {closed:true,pts:[[90,0],[360,0],[360,40],[90,40]]}                 // 落ち蓋
     ]},
   { key:'u300_sec', name:'U字溝300 断面', category:'側溝',
     build:()=>[{closed:true,pts:[[0,0],[0,335],[370,335],[370,0],[335,0],[335,300],[35,300],[35,0]]}]},
@@ -7728,7 +7728,9 @@ function placeBuiltinPart(key) {
   const def = BUILTIN_PARTS.find(p => p.key === key);
   if (!def) return;
   const angle = parseFloat((document.getElementById('part-angle')||{}).value)||0;
-  const len = parseFloat((document.getElementById('part-len')||{}).value)||def.defLen||600;
+  // 長さ: ユーザーが入力していればその値、空欄なら部品ごとの既定(defLen)
+  const lenField = parseFloat((document.getElementById('part-len')||{}).value);
+  const len = (lenField > 0) ? lenField : (def.defLen || 600);
   let mult = (document.getElementById('part-place-scale')||{}).value;
   mult = (mult==='auto'||mult==null||isNaN(parseFloat(mult))) ? 1 : parseFloat(mult);
   const continuous = !!(document.getElementById('part-continuous')||{}).checked;
