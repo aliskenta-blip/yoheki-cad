@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.79 (寸法:矢印任意・連続・補助線50・向き反転)</title>
+<title>yoheki-cad v0.80 (角を丸める=道路カーブ・半径可変)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.79 (寸法:矢印任意・連続・補助線50・向き反転)</span>
+  <span class="ver">v0.80 (角を丸める=道路カーブ・半径可変)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -565,6 +565,18 @@
         <button class="btn" style="flex:1; padding:4px;" onclick="addArrowToSelected('right')">右端 ▶</button>
         <button class="btn primary" style="flex:1; padding:4px;" onclick="addArrowToSelected('both')">◀▶ 両端</button>
       </div>
+    </div>
+
+    <div class="panel-section">
+      <h4>角を丸める(道路カーブ) <span class="help-tip" data-tip="2本の直線(例:水平線と垂直線)を選択(S)してボタンを押すと、その角が半径Rの曲線(丸み)になります。道路や敷地のカーブに。丸めた後はそれを選択して半径を変えられます。">?</span></h4>
+      <div class="prop-row">
+        <label>半径 R(mm)</label>
+        <input type="number" id="fillet-radius" value="1000" min="1" step="50">
+      </div>
+      <div class="prop-row" style="font-size:10px; color:#999; line-height:1.4;">
+        <span>角でつながる<b>2本の直線</b>を選択(S)してから押す</span>
+      </div>
+      <button class="btn primary" style="width:100%; padding:4px;" onclick="filletSelected()">選んだ2本の角を丸める</button>
     </div>
 
     <div class="panel-section">
@@ -3984,6 +3996,81 @@ function addArrowToSelected(which){
   saveHistory(); updateStats();
 }
 
+// ===== 角を丸める(フィレット): 2本の直線の角を半径Rの曲線にする。道路カーブ等 v0.80 =====
+function lineEndsWorld(line){
+  const lp = line.calcLinePoints();
+  const m = line.calcTransformMatrix();
+  return {
+    A: fabric.util.transformPoint(new fabric.Point(lp.x1, lp.y1), m),
+    B: fabric.util.transformPoint(new fabric.Point(lp.x2, lp.y2), m)
+  };
+}
+// V=角の頂点, far1/far2=各線の反対端, r=半径。線+円弧+線の1グループを返す(できなければnull)。
+function buildFillet(V, far1, far2, r, stroke, sw, dash){
+  const sub=(a,b)=>({x:a.x-b.x,y:a.y-b.y}), add=(a,b)=>({x:a.x+b.x,y:a.y+b.y}), mul=(a,k)=>({x:a.x*k,y:a.y*k});
+  const len=a=>Math.hypot(a.x,a.y), norm=a=>{const l=len(a)||1;return {x:a.x/l,y:a.y/l};};
+  const u1=norm(sub(far1,V)), u2=norm(sub(far2,V));
+  let dot=u1.x*u2.x+u1.y*u2.y; dot=Math.max(-1,Math.min(1,dot));
+  const alpha=Math.acos(dot);
+  if (alpha < 0.08 || alpha > Math.PI-0.08) return null;   // 平行/ほぼ一直線は不可
+  const halfTan=Math.tan(alpha/2);
+  let t=r/halfTan;
+  const maxT=Math.min(len(sub(far1,V)), len(sub(far2,V)))*0.98;
+  if (t > maxT) { t=maxT; r=t*halfTan; }                    // 半径が大きすぎる時は収まるよう縮小
+  const P1=add(V,mul(u1,t)), P2=add(V,mul(u2,t));
+  const bis=norm(add(u1,u2));
+  const C=add(V, mul(bis, r/Math.sin(alpha/2)));
+  let a0=Math.atan2(P1.y-C.y,P1.x-C.x), a1=Math.atan2(P2.y-C.y,P2.x-C.x);
+  let sweep=a1-a0; while(sweep>Math.PI)sweep-=2*Math.PI; while(sweep<-Math.PI)sweep+=2*Math.PI;
+  const N=24, arcPts=[];
+  for(let i=0;i<=N;i++){ const a=a0+sweep*i/N; arcPts.push({x:C.x+r*Math.cos(a), y:C.y+r*Math.sin(a)}); }
+  const opt={stroke, strokeWidth:sw, fill:'', strokeDashArray:dash||null, strokeLineCap:'round', strokeLineJoin:'round'};
+  const seg1=new fabric.Line([far1.x,far1.y,P1.x,P1.y], {...opt});
+  const arc =new fabric.Polyline(arcPts, {...opt});
+  const seg2=new fabric.Line([P2.x,P2.y,far2.x,far2.y], {...opt});
+  return new fabric.Group([seg1,arc,seg2], {
+    _type:'fillet', _filletV:{x:V.x,y:V.y}, _far1:{x:far1.x,y:far1.y}, _far2:{x:far2.x,y:far2.y},
+    _radius:Math.round(r), _fstroke:stroke, _fwidth:sw, _layer:state.activeLayer, selectable:true, evented:true
+  });
+}
+// 選択した2本の直線の角を丸める
+function filletSelected(){
+  const active = canvas.getActiveObject();
+  let lines = [];
+  if (active && active.type === 'activeSelection') lines = active.getObjects().filter(o=>o.type==='line');
+  else if (active && active.type === 'line') lines = [active];
+  if (lines.length !== 2) { alert('角を丸めたい2本の直線を選択(S)してください(例:水平線と垂直線)。\nShift+クリックか枠ドラッグで2本選べます。'); return; }
+  const rEl = document.getElementById('fillet-radius');
+  let r = rEl ? parseFloat(rEl.value) : 0;
+  if (!(r>0)) r = (state.gridSize||50)*2;
+  const e0 = lineEndsWorld(lines[0]), e1 = lineEndsWorld(lines[1]);
+  const pairs = [[e0.A,e1.A],[e0.A,e1.B],[e0.B,e1.A],[e0.B,e1.B]];
+  let best=0, bd=Infinity;
+  pairs.forEach((pr,i)=>{ const d=Math.hypot(pr[0].x-pr[1].x, pr[0].y-pr[1].y); if(d<bd){bd=d;best=i;} });
+  const corner = pairs[best];
+  const V = {x:(corner[0].x+corner[1].x)/2, y:(corner[0].y+corner[1].y)/2};
+  const far1 = (best===0||best===1) ? e0.B : e0.A;   // line0の反対端
+  const far2 = (best===0||best===2) ? e1.B : e1.A;   // line1の反対端
+  const g = buildFillet(V, far1, far2, r, lines[0].stroke||'#000', lines[0].strokeWidth||2, lines[0].strokeDashArray);
+  if (!g) { alert('この2本では丸められません。\n・2本が平行/一直線でないか\n・半径Rが大きすぎないか(小さくしてみてください)\n・角(端どうし)でつながっているか を確認してください。'); return; }
+  canvas.discardActiveObject();
+  canvas.remove(lines[0]); canvas.remove(lines[1]);
+  canvas.add(g); canvas.setActiveObject(g);
+  canvas.requestRenderAll(); saveHistory(); updateStats();
+  document.getElementById('status-mode').textContent = `角を半径R=${g._radius}mmで丸めました。選択して半径を変えられます`;
+}
+// フィレットの半径を後から変更(選択→プロパティのR)
+function updateFilletRadius(val){
+  const obj = canvas.getActiveObject();
+  if (!obj || obj._type !== 'fillet') return;
+  const r = parseFloat(val); if (!(r>0)) return;
+  const g = buildFillet(obj._filletV, obj._far1, obj._far2, r, obj._fstroke||obj.stroke||'#000', obj._fwidth||2, null);
+  if (!g) { alert('その半径では丸められません。小さくしてください。'); return; }
+  g._layer = obj._layer;
+  canvas.remove(obj); canvas.add(g); canvas.setActiveObject(g);
+  canvas.requestRenderAll(); saveHistory();
+}
+
 // 文字列を縦書き(1文字ずつ縦に積む)に変換。改行は除いてから1文字ずつ並べる。
 function toVerticalText(s){ return String(s).replace(/\r?\n/g, '').split('').join('\n'); }
 
@@ -4340,7 +4427,7 @@ function saveHistory() {
   if (state.isLoadingHistory) return;
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
-  const snap = withoutSelHighlight(() => JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked'])));
+  const snap = withoutSelHighlight(() => JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked'])));
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex++;
@@ -4405,7 +4492,7 @@ function duplicateSelected() {
 }
 
 // クローン時に引き継ぐカスタムプロパティ
-const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_textOrient','_manualText','_arrows','_side','_vertical','_vtext','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_partName','_face','_origStroke','_origFill'];
+const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_textOrient','_manualText','_arrows','_side','_vertical','_vtext','_filletV','_far1','_far2','_radius','_fstroke','_fwidth','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_partName','_face','_origStroke','_origFill'];
 let _clipboard = null;
 
 // ⑫ コピー(Ctrl+C)
@@ -4652,6 +4739,13 @@ function updateSelectedProps() {
       <div class="prop-row" style="font-size:10px;color:#999;">
         <span>※ ドラッグ：端点=端点移動(図形に吸着)／数字=引き出し／線=全体移動</span>
       </div>
+    `;
+  } else if (obj._type === 'fillet') {
+    html = `
+      <div class="prop-row"><label>種別</label><span>角の丸み(曲線)</span></div>
+      <div class="prop-row"><label>半径 R(mm) <span class="help-tip" data-tip="角の丸みの半径。大きいほどゆるいカーブになります。">?</span></label>
+        <input type="number" min="1" step="50" value="${obj._radius||0}" onchange="updateFilletRadius(this.value)"></div>
+      <div class="prop-row" style="font-size:10px;color:#999;"><span>※ 半径を変えるとカーブの曲がり具合が変わります。</span></div>
     `;
   } else {
     const type = obj.type || 'object';
@@ -5111,7 +5205,7 @@ function saveJSON() {
       scale: document.getElementById('paper-scale').value,
       show: document.getElementById('frame-show').checked
     },
-    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked']))
+    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked']))
   };
   // グリッドは除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame);
