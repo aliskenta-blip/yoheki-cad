@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.81 (部品のピンク修正・線の太さ調整)</title>
+<title>yoheki-cad v0.82 (右クリックで選択・節間消しT字・フィレット角度保持)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.81 (部品のピンク修正・線の太さ調整)</span>
+  <span class="ver">v0.82 (右クリックで選択・節間消しT字・フィレット角度保持)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -1667,7 +1667,7 @@ const canvas = new fabric.Canvas('canvas-container', {
 
 // 重なっていても線・図形ごとに正確に選べるように(実際に描かれた線の上をクリック判定)
 canvas.perPixelTargetFind = true;
-canvas.targetFindTolerance = 8;   // 細い線でも少しの余裕で掴める
+canvas.targetFindTolerance = 15;   // 細い線でもクリックで掴みやすいよう余裕を広げる(単体選択しやすく)
 // 選択枠・ハンドルをピンクに
 canvas.selectionColor = 'rgba(255,45,135,0.10)';
 canvas.selectionBorderColor = '#ff2d87';
@@ -2264,16 +2264,18 @@ function trimAt(pt) {
     const dx = B.x - A.x, dy = B.y - A.y;
     const L2 = dx*dx + dy*dy;
     if (L2 < 1e-9) { canvas.remove(obj); canvas.renderAll(); saveHistory(); updateStats(); return; }
-    // 他オブジェクトとの交点を、線A→B上の媒介変数 t(0..1) で収集
+    // 他オブジェクトとの交点・接点を、線A→B上の媒介変数 t(0..1) で収集
     const ts = [0, 1];
+    // 「くっついている」とみなす近接しきい値(画面で約12px。手描きの微小な隙間でも接合扱い)
+    const TOL = Math.max((obj.strokeWidth||2)*1.2, 12/(canvas.getZoom()||1));
+    const addT = (p) => { const t = ((p.x - A.x)*dx + (p.y - A.y)*dy) / L2; if (t > 0.0008 && t < 0.9992) ts.push(t); };
     canvas.forEachObject(other => {
       if (other === obj || other._isGrid || other._isSnapMarker || other._isFrame || !other.visible) return;
       worldSegsOf(other).forEach(cs => {
         const ip = segIntersect([A, B], cs);
-        if (ip) {
-          const t = ((ip.x - A.x)*dx + (ip.y - A.y)*dy) / L2;
-          if (t > 0.0008 && t < 0.9992) ts.push(t);
-        }
+        if (ip) addT(ip);
+        // T字接合: 相手の線の端点が、この線の上(近く)に乗っている場合も切り取り点にする
+        [cs[0], cs[1]].forEach(ep => { if (pointSegDist(ep, [A, B]) <= TOL) addT(ep); });
       });
     });
     const uniq = [...new Set(ts.map(t => Math.round(t*1e6)/1e6))].sort((a,b)=>a-b);
@@ -2481,7 +2483,9 @@ function setTool(tool) {
 
 canvas.on('mouse:down', (opt) => {
   const e = opt.e;
-  
+  // 右クリック/中クリックは描画に使わない(右=選択へ切替=contextmenuで処理、中=パン)
+  if (e && (e.button === 1 || e.button === 2)) return;
+
   // Space+ドラッグでパン
   if (state.spacePressed) {
     state.isPanning = true;
@@ -3784,6 +3788,14 @@ canvas.on('before:render', drawGridLayer);
   });
   // 中ボタンの「自動スクロール」既定動作を抑止
   el.addEventListener('auxclick', e => { if (e.button===1) e.preventDefault(); });
+
+  // 右クリック: ブラウザメニューを出さず、描画中なら確定 / それ以外は「選択」へ切替(ショートカット)
+  el.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    if (polyDrawing() && state.polygonPoints.length >= polyMinPts()) { finishPolygon(); return; }
+    if (dimChainMode() && state.dimChainPrev) { endDimChain(); return; }
+    if (state.tool !== 'select') setTool('select');
+  });
 })();
 
 // オブジェクト選択
@@ -4035,7 +4047,16 @@ function buildFillet(V, far1, far2, r, stroke, sw, dash){
     _radius:Math.round(r), _fstroke:stroke, _fwidth:sw, _layer:state.activeLayer, selectable:true, evented:true
   });
 }
-// 選択した2本の直線の角を丸める
+// 2本の(無限)直線の交点。平行ならnull。
+function lineIntersect(a0,a1,b0,b1){
+  const x1=a0.x,y1=a0.y,x2=a1.x,y2=a1.y,x3=b0.x,y3=b0.y,x4=b1.x,y4=b1.y;
+  const d=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);
+  if (Math.abs(d) < 1e-9) return null;
+  const px=((x1*y2-y1*x2)*(x3-x4)-(x1-x2)*(x3*y4-y3*x4))/d;
+  const py=((x1*y2-y1*x2)*(y3-y4)-(y1-y2)*(x3*y4-y3*x4))/d;
+  return {x:px, y:py};
+}
+// 選択した2本の直線の角を丸める。元の直線の「角度(向き)」は変えず、交点までを丸める。
 function filletSelected(){
   const active = canvas.getActiveObject();
   let lines = [];
@@ -4046,13 +4067,12 @@ function filletSelected(){
   let r = rEl ? parseFloat(rEl.value) : 0;
   if (!(r>0)) r = (state.gridSize||50)*2;
   const e0 = lineEndsWorld(lines[0]), e1 = lineEndsWorld(lines[1]);
-  const pairs = [[e0.A,e1.A],[e0.A,e1.B],[e0.B,e1.A],[e0.B,e1.B]];
-  let best=0, bd=Infinity;
-  pairs.forEach((pr,i)=>{ const d=Math.hypot(pr[0].x-pr[1].x, pr[0].y-pr[1].y); if(d<bd){bd=d;best=i;} });
-  const corner = pairs[best];
-  const V = {x:(corner[0].x+corner[1].x)/2, y:(corner[0].y+corner[1].y)/2};
-  const far1 = (best===0||best===1) ? e0.B : e0.A;   // line0の反対端
-  const far2 = (best===0||best===2) ? e1.B : e1.A;   // line1の反対端
+  // 角の頂点 V = 2直線の交点(=元の線の向きをそのまま使う→角度は変わらない)
+  const V = lineIntersect(e0.A, e0.B, e1.A, e1.B);
+  if (!V) { alert('この2本は平行のため丸められません。角(交わる向き)の2本を選んでください。'); return; }
+  const dist = (p,q)=>Math.hypot(p.x-q.x, p.y-q.y);
+  const far1 = dist(e0.A,V) >= dist(e0.B,V) ? e0.A : e0.B;   // line0の遠い端を残す
+  const far2 = dist(e1.A,V) >= dist(e1.B,V) ? e1.A : e1.B;   // line1の遠い端を残す
   const g = buildFillet(V, far1, far2, r, lines[0].stroke||'#000', lines[0].strokeWidth||2, lines[0].strokeDashArray);
   if (!g) { alert('この2本では丸められません。\n・2本が平行/一直線でないか\n・半径Rが大きすぎないか(小さくしてみてください)\n・角(端どうし)でつながっているか を確認してください。'); return; }
   canvas.discardActiveObject();
