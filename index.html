@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.91 (ハッチ:砕石=点と四角/コンクリート=丸の敷詰め)</title>
+<title>yoheki-cad v0.92 (重機:側面6種追加・上面精密化)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.91 (ハッチ:砕石=点と四角/コンクリート=丸の敷詰め)</span>
+  <span class="ver">v0.92 (重機:側面6種追加・上面精密化)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -7197,7 +7197,15 @@ const BUILTIN_PARTS = [
   { key:'bh_top_025',   name:'バックホウ 0.25 (上から)', category:'重機', build:()=>backhoeTopShapes(3000,550,1100,3500,0) },
   { key:'bh_top_045',   name:'バックホウ 0.45 (上から)', category:'重機', build:()=>backhoeTopShapes(3600,650,1300,4500,0) },
   { key:'bh_top_07',    name:'バックホウ 0.7 (上から)',  category:'重機', build:()=>backhoeTopShapes(4200,750,1500,5500,0) },
-  { key:'bh_top_slew',  name:'バックホウ 旋回 (上から)', category:'重機', build:()=>backhoeTopShapes(3600,650,1300,4500,90) }
+  { key:'bh_top_slew',  name:'バックホウ 旋回 (上から)', category:'重機', build:()=>backhoeTopShapes(3600,650,1300,4500,90) },
+
+  // ===== 側面から見た重機(リアル目安) =====
+  { key:'dump_side_4t',   name:'ダンプ 4t (側面)',     category:'重機', build:()=>dumpSideShapes(6200,1,false) },
+  { key:'dump_side_10t',  name:'ダンプ 10t (側面)',    category:'重機', build:()=>dumpSideShapes(7800,2,false) },
+  { key:'dump_side_raise',name:'ダンプ 荷台上げ (側面)', category:'重機', build:()=>dumpSideShapes(7800,2,true) },
+  { key:'bh_side_mini',   name:'ミニバックホウ (側面)', category:'重機', build:()=>backhoeSideShapes(0.7) },
+  { key:'bh_side_std',    name:'バックホウ 0.45 (側面)', category:'重機', build:()=>backhoeSideShapes(1.0) },
+  { key:'bh_side_large',  name:'バックホウ 0.7 (側面)',  category:'重機', build:()=>backhoeSideShapes(1.25) }
 ];
 
 // 上空から見たダンプの形状(facing +x)。L長さ/W幅/axles後軸数/loaded積載
@@ -7207,14 +7215,20 @@ function dumpTopShapes(L, W, axles, loaded){
   const cabL = Math.min(1600, L*0.22);
   s.push({closed:true, pts:[[L-cabL,200],[L-150,200],[L-150,W-200],[L-cabL,W-200]]}); // 運転席(前=右)
   s.push({pts:[[L-cabL,W/2],[L-150,W/2]]});                             // 左右ドア仕切り
+  s.push({pts:[[L-cabL+250,500],[L-cabL+250,W-500]]}); // 運転席フロントガラス線
   s.push({closed:true, pts:[[250,180],[L-cabL-300,180],[L-cabL-300,W-180],[250,W-180]]}); // 荷台
+  for (let x=900; x<L-cabL-400; x+=900) s.push({pts:[[x,180],[x,W-180]]});   // 荷台のあおり/リブ
   if (loaded){ for (let x=600; x<L-cabL-500; x+=500){ s.push({pts:[[x,300],[x+250,W-300]]}); } } // 土砂(網掛け)
-  const wheel = cx => {
-    s.push({closed:true, pts:[[cx-260,-130],[cx+260,-130],[cx+260,160],[cx-260,160]]});       // 上側
-    s.push({closed:true, pts:[[cx-260,W-160],[cx+260,W-160],[cx+260,W+130],[cx-260,W+130]]}); // 下側
+  // サイドミラー(運転席前)
+  s.push({closed:true, pts:[[L-180,-260],[L-40,-260],[L-40,-90],[L-180,-90]]});
+  s.push({closed:true, pts:[[L-180,W+90],[L-40,W+90],[L-40,W+260],[L-180,W+260]]});
+  // タイヤ(上から)。前輪=シングル、後輪=ダブル
+  const tire = (cx, hw) => {
+    s.push({closed:true, pts:[[cx-hw,-130],[cx+hw,-130],[cx+hw,170],[cx-hw,170]]});         // 上側
+    s.push({closed:true, pts:[[cx-hw,W-170],[cx+hw,W-170],[cx+hw,W+130],[cx-hw,W+130]]});   // 下側
   };
-  wheel(L-cabL+200);                                  // 前輪
-  for (let i=0;i<axles;i++) wheel(700 + i*850);       // 後輪(軸数)
+  tire(L-cabL+200, 240);                              // 前輪(シングル)
+  for (let i=0;i<axles;i++){ const cx=750+i*850; tire(cx-150,150); tire(cx+150,150); } // 後輪(ダブル)
   return s;
 }
 
@@ -7233,10 +7247,69 @@ function backhoeTopShapes(tl, tw, gap, reach, slewDeg){
   const hw = totalW*0.42, hx0 = cx - tl*0.30, hx1 = cx + tl*0.28;
   s.push(poly([[hx0+150,cy-hw],[hx1,cy-hw],[hx1+200,cy-hw*0.5],[hx1+200,cy+hw*0.5],[hx1,cy+hw],[hx0+150,cy+hw],[hx0-200,cy+hw*0.5],[hx0-200,cy-hw*0.5]])); // 旋回体(後丸み)
   s.push(poly([[hx0+250,cy-hw+120],[hx0+900,cy-hw+120],[hx0+900,cy-120],[hx0+250,cy-120]])); // 運転席
+  // 履帯の駆動輪・遊動輪(両端の丸)
+  [tw/2, tw+gap+tw/2].forEach(yc => { s.push({circle:[tw*0.6, yc, tw*0.42]}); s.push({circle:[tl-tw*0.6, yc, tw*0.42]}); });
   const bx = hx1+200;
   s.push(poly([[bx,cy-220],[bx+reach*0.45,cy-160],[bx+reach*0.45,cy+160],[bx,cy+220]]));            // ブーム
   s.push(poly([[bx+reach*0.45,cy-150],[bx+reach*0.8,cy-110],[bx+reach*0.8,cy+110],[bx+reach*0.45,cy+150]])); // アーム
   s.push(poly([[bx+reach*0.8,cy-300],[bx+reach,cy-300],[bx+reach,cy+300],[bx+reach*0.8,cy+300]]));  // バケット
+  // バケットの爪
+  for (let k=-2;k<=2;k++){ const ty=cy+k*120; s.push(poly([[bx+reach,ty-30],[bx+reach+180,ty]])); }
+  return s;
+}
+
+// 側面から見たダンプ。L=全長(mm), axles=後軸数, raised=荷台上げ。facing right(前=右)。地面 y=GL
+function dumpSideShapes(L, axles, raised){
+  const s = [];
+  const GL = 2200, wr = 520, wcy = GL - wr;     // 地面・タイヤ半径・車軸高さ
+  const cabL = 1500;
+  // シャシ枠
+  s.push({pts:[[300,1500],[L-150,1500]]});
+  // タイヤ(円+ハブ)
+  const tire = cx => { s.push({circle:[cx,wcy,wr]}); s.push({circle:[cx,wcy,wr*0.34]}); };
+  tire(L-1100);                                 // 前輪
+  for (let i=0;i<axles;i++) tire(900 + i*1150);  // 後輪
+  // 運転席(前=右): キャブ＋窓＋前面
+  s.push({closed:true, pts:[[L-cabL,560],[L-250,560],[L-150,900],[L-150,1480],[L-cabL,1480]]});
+  s.push({closed:true, pts:[[L-cabL+120,650],[L-360,650],[L-300,900],[L-cabL+120,900]]});  // 窓
+  // 荷台(後ろ=左)。raisedなら後端を持ち上げて傾ける
+  if (raised){
+    s.push({closed:true, pts:[[180,250],[L-cabL-250,820],[L-cabL-250,1450],[180,980]]});   // 傾いた荷台
+    s.push({pts:[[180,980],[180,1450]]});                                                  // テールゲート開
+  } else {
+    s.push({closed:true, pts:[[180,620],[L-cabL-250,620],[L-cabL-250,1450],[180,1450]]});  // 荷台
+    for (let x=700; x<L-cabL-350; x+=700) s.push({pts:[[x,620],[x,1450]]});                 // あおりリブ
+  }
+  // 排気筒
+  s.push({pts:[[L-cabL-120,560],[L-cabL-120,200]]});
+  return s;
+}
+
+// 側面から見たバックホウ(油圧ショベル)。sc=大きさ倍率。facing right(ブーム=右)。
+function backhoeSideShapes(sc){
+  sc = sc || 1;
+  const m = (pts) => ({closed:true, pts: pts.map(([x,y])=>[x*sc, y*sc])});
+  const ln = (pts) => ({pts: pts.map(([x,y])=>[x*sc, y*sc])});
+  const ci = (x,y,r) => ({circle:[x*sc, y*sc, r*sc]});
+  const s = [];
+  // 履帯(クローラ): 上下の線＋前後の輪＋転輪＋桟
+  s.push(m([[400,2180],[2200,2180],[2200,2500],[400,2500]]));   // 履帯本体
+  s.push(ci(450,2340,200)); s.push(ci(450,2340,90));            // 遊動輪(前)
+  s.push(ci(2150,2340,230)); s.push(ci(2150,2340,95));          // 駆動輪(後)
+  for (let x=700;x<2000;x+=300) s.push(ci(x,2480,90));          // 下部転輪
+  s.push(ci(1300,2180,80));                                     // 上部転輪
+  // 旋回台(上部本体): カウンターウェイト(左)〜エンジン〜キャブ土台
+  s.push(m([[350,2180],[2250,2180],[2250,1500],[2000,1150],[820,1150],[450,1380],[300,1750]]));
+  // 運転席(キャブ)＋窓
+  s.push(m([[820,1150],[1700,1150],[1700,1750],[820,1750]]));
+  s.push(m([[900,1230],[1600,1230],[1600,1600],[900,1600]]));   // 窓
+  // ブーム(本体前から上→前へ)
+  s.push(m([[1950,1700],[2350,1150],[3050,820],[3180,980],[2520,1300],[2150,1820]]));
+  // アーム(スティック)
+  s.push(m([[3050,860],[3520,820],[3620,1760],[3360,1820],[3120,1050]]));
+  // バケット(爪付き)
+  s.push(m([[3380,1740],[3760,1700],[3820,2050],[3520,2260],[3360,1980]]));
+  for (let k=0;k<4;k++){ const x=3540+k*70; s.push(ln([[x,2230],[x+20,2330]])); }   // 爪
   return s;
 }
 
