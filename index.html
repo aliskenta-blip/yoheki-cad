@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.86 (範囲選択で色・太さ・文字・大きさを一括変更)</title>
+<title>yoheki-cad v0.87 (グリッド既定100)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.86 (範囲選択で色・太さ・文字・大きさを一括変更)</span>
+  <span class="ver">v0.87 (グリッド既定100)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -399,7 +399,7 @@
       <h4>表示設定</h4>
       <div class="prop-row">
         <label><input type="checkbox" id="grid-show" checked onchange="updateGrid()"> グリッド</label>
-        <input type="number" id="grid-size" value="50" min="10" max="500" step="10" onchange="updateGrid()">
+        <input type="number" id="grid-size" value="100" min="10" max="500" step="10" onchange="updateGrid()">
       </div>
       <div class="prop-row">
         <label><input type="checkbox" id="grid-snap" checked> グリッドスナップ</label><span class="help-tip" data-tip="ONにすると方眼の交点(または下のスナップ分割の刻み)に吸着して描けます。">?</span>
@@ -1707,7 +1707,7 @@ let state = {
   history: [],
   historyIndex: -1,
   isLoadingHistory: false,
-  gridSize: 50,
+  gridSize: 100,
   showGrid: true,
   snapToGrid: true,
   orthoMode: false,
