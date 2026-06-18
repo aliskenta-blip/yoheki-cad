@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.90 (上空ダンプ・バックホウ各5・直交45°)</title>
+<title>yoheki-cad v0.91 (ハッチ:砕石=点と四角/コンクリート=丸の敷詰め)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.90 (上空ダンプ・バックホウ各5・直交45°)</span>
+  <span class="ver">v0.91 (ハッチ:砕石=点と四角/コンクリート=丸の敷詰め)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -6143,9 +6143,18 @@ function makeHatchTile(type, density) {
     const n = type === 'sand' ? d*3 : d;
     const r = type === 'sand' ? 0.8 : 1.4;
     for (let i=0;i<n;i++){ const x=rnd()*size,y=rnd()*size; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); }
-  } else if (type === 'gravel' || type === 'rubble') {
-    const n = type === 'rubble' ? Math.max(4, d/3) : Math.max(6, d/2);
-    const sz = type === 'rubble' ? 14 : 8;
+  } else if (type === 'gravel') {
+    // 砕石: 小さな点(粒)＋小さな四角(砕石片)を散布
+    ctx.lineWidth = 1;
+    const ndots = Math.max(24, d*2);
+    for (let i=0;i<ndots;i++){ const x=rnd()*size, y=rnd()*size, r=0.7+rnd()*1.5; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); }
+    const nsq = Math.max(8, d);
+    for (let i=0;i<nsq;i++){
+      const x=rnd()*size, y=rnd()*size, s=2.5+rnd()*4, a=rnd()*1.57;
+      ctx.save(); ctx.translate(x,y); ctx.rotate(a); ctx.strokeRect(-s/2,-s/2,s,s); ctx.restore();
+    }
+  } else if (type === 'rubble') {
+    const n = Math.max(4, d/3), sz = 14;
     for (let i=0;i<n;i++){
       const x=rnd()*size, y=rnd()*size, s=sz*(0.6+rnd()*0.6);
       ctx.beginPath();
@@ -6154,9 +6163,17 @@ function makeHatchTile(type, density) {
       ctx.closePath(); ctx.stroke();
     }
   } else if (type === 'concrete') {
-    for (let i=0;i<d;i++){ const x=rnd()*size,y=rnd()*size; ctx.beginPath(); ctx.arc(x,y,0.8,0,7); ctx.fill(); }
-    // 短いハッチ
-    for (let i=0;i<3;i++){ const x=rnd()*size,y=rnd()*size; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+6,y+6); ctx.stroke(); }
+    // コンクリート: 粗骨材を表す大きめの丸を敷き詰める(行ごとに半ピッチずらす)
+    ctx.lineWidth = 1.2;
+    const step = 16, R = 9.5;            // 64/16=4 でタイル継ぎ目なし
+    let row = 0;
+    for (let y=0; y<=size; y+=step){
+      const off = (row%2)*(step/2);
+      for (let x=-step; x<=size+step; x+=step){ ctx.beginPath(); ctx.arc(x+off, y, R, 0, 7); ctx.stroke(); }
+      row++;
+    }
+    // 細骨材の小さな点
+    for (let i=0;i<d;i++){ const x=rnd()*size,y=rnd()*size; ctx.beginPath(); ctx.arc(x,y,0.7,0,7); ctx.fill(); }
   } else if (type === 'brick') {
     const bh = size/4;
     for (let row=0; row<4; row++){
