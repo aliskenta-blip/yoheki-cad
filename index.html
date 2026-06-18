@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.72 (線に矢印を付ける)</title>
+<title>yoheki-cad v0.73 (複製を方向どおり1マス空けて)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -258,7 +258,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.72 (線に矢印を付ける)</span>
+  <span class="ver">v0.73 (複製を方向どおり1マス空けて)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -537,10 +537,10 @@
     <div class="panel-section">
       <h4>複製・連続配置</h4>
       <div class="prop-row" style="font-size:10px; color:#999; line-height:1.4;">
-        <span>選択(S)した図形を <kbd>Ctrl</kbd>+<kbd>C</kbd> コピー → <kbd>Ctrl</kbd>+<kbd>V</kbd> 貼り付け</span>
+        <span>選択(S)した図形を <kbd>Ctrl</kbd>+<kbd>C</kbd> コピー → <kbd>Ctrl</kbd>+<kbd>V</kbd> 貼り付け。<br>貼り付け(と<kbd>Ctrl</kbd>+<kbd>D</kbd>複製)は下の【方向】に従い、本体の真横/真上に <b>1マス</b> 空けて配置します。</span>
       </div>
       <div class="prop-row">
-        <label>方向 <span class="help-tip" data-tip="複製を並べる向き。水平=右/左、垂直=下/上。U字溝やブロックを連続で並べるのに便利。">?</span></label>
+        <label>方向 <span class="help-tip" data-tip="複製を並べる向き。水平=右/左、垂直=下/上。Ctrl+V貼り付け・Ctrl+D複製もこの向きに、本体から1マス空けて真横/真上(真下)に複製します。U字溝やブロックを連続で並べるのに便利。">?</span></label>
         <select id="array-dir">
           <option value="right" selected>水平 → 右</option>
           <option value="left">水平 ← 左</option>
@@ -4170,14 +4170,22 @@ function addClone(cl, dx, dy) {
   return out;
 }
 
-// 重なって見えないよう、図形サイズに応じたズラし量(mm)を返す
+// 複製(Ctrl+D)・貼り付け(Ctrl+V)のズラし量(mm)。
+// 「複製・連続配置」の【方向】設定に従い、本体の真横/真上(真下)に "1マス" 空けて複製する。
+// 例: 方向=水平右 → 図形の右に1マス空けて真横へ。上下左右とも同様。
 function dupOffset(obj) {
   let b = {width:200, height:200};
   try { b = obj.getBoundingRect(true, true); } catch(e){}
-  return { dx: Math.max(150, Math.round(b.width*0.25)), dy: Math.max(150, Math.round(b.height*0.25)) };
+  const dirEl = document.getElementById('array-dir');
+  const dir = dirEl ? dirEl.value : 'right';       // right/left/down/up
+  const gridGap = state.gridSize || 50;            // 本体とのすき間=1マス
+  const horizontal = (dir === 'right' || dir === 'left');
+  const sign = (dir === 'right' || dir === 'down') ? 1 : -1;
+  if (horizontal) return { dx: sign * (b.width  + gridGap), dy: 0 };  // 真横(縦ずれ0)
+  return { dx: 0, dy: sign * (b.height + gridGap) };                  // 真上/真下(横ずれ0)
 }
 
-// ⑫ 貼り付け(Ctrl+V) — 図形サイズぶんズラして重ならないように
+// ⑫ 貼り付け(Ctrl+V) — 下の【方向】設定に従い、真横/真上に1マス空けて貼り付け(dupOffset)
 function pasteClipboard() {
   if (!_clipboard) return;
   _clipboard.clone(cl => {
