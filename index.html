@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v1.01 (斜めカット後に目地10mm自動)</title>
+<title>yoheki-cad v1.02 (斜めカット潰れ防止・落ち蓋U字溝2000)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.01 (斜めカット後に目地10mm自動)</span>
+  <span class="ver">v1.02 (斜めカット潰れ防止・落ち蓋U字溝2000)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -3733,10 +3733,9 @@ function _cutChild(child, P, N, keepPos, out){
   else if (t === 'line'){ const e=lineEndsWorld(child); const seg=clipSegHalf(e.A,e.B,P,N,keepPos); if (seg) out.push(new fabric.Line([seg[0].x,seg[0].y,seg[1].x,seg[1].y], _cutStyle(child))); }
   else if (t === 'circle'){ const cc=objCenterWorld(child); const d=(cc.x-P.x)*N.x+(cc.y-P.y)*N.y; if ((keepPos&&d>=0)||(!keepPos&&d<=0)) out.push(new fabric.Circle({left:cc.x,top:cc.y,radius:child.radius*(child.scaleX||1),originX:'center',originY:'center',..._cutStyle(child)})); }
 }
-function cutOneObject(obj, P, N){
-  const b = obj.getBoundingRect(true, true);
-  const cx=b.left+b.width/2, cy=b.top+b.height/2;
-  const keepPos = ((cx-P.x)*N.x + (cy-P.y)*N.y) >= 0;   // 自分の中心がある側を残す
+function objCenterXY(obj){ const b=obj.getBoundingRect(true,true); return {x:b.left+b.width/2, y:b.top+b.height/2}; }
+function cutOneObject(obj, P, N, keepPos){
+  if (keepPos === undefined){ const c=objCenterXY(obj); keepPos = ((c.x-P.x)*N.x + (c.y-P.y)*N.y) >= 0; }  // 既定=自分の中心側
   const out=[];
   const kids = (obj.type === 'group') ? obj.getObjects() : [obj];
   kids.forEach(k => _cutChild(k, P, N, keepPos, out));
@@ -3755,8 +3754,15 @@ function performMiterCut(targets, P1, P2){
   if (L < 1){ alert('切る線が短すぎます。2点を離してドラッグしてください。'); return; }
   const N = {x:-dy/L, y:dx/L};
   const HALF_JOINT = 5;   // 目地10mm → 各図形を切断線から5mmずつ離す
-  const made = targets.map(o => {
-    const res = cutOneObject(o, P1, N);
+  // 2つを切るときは「互いに相手から遠い側(=自分の本体側)」を残す→細片化(潰れ)を防止
+  let keepArr = [];
+  if (targets.length === 2){
+    const cA = objCenterXY(targets[0]), cB = objCenterXY(targets[1]);
+    const dA = (cA.x-cB.x)*N.x + (cA.y-cB.y)*N.y;
+    keepArr = [dA >= 0, dA < 0];
+  }
+  const made = targets.map((o, i) => {
+    const res = cutOneObject(o, P1, N, keepArr.length ? keepArr[i] : undefined);
     if (res){
       const sgn = res._cutKeepPos ? 1 : -1;          // 自分の残した側へ少し引く=切り口どうしに隙間
       res.left += N.x * HALF_JOINT * sgn;
@@ -7273,6 +7279,22 @@ const BUILTIN_PARTS = [
     build:()=>[{closed:true,pts:[[0,0],[0,270],[300,270],[300,0],[275,0],[275,25],[270,25],[270,240],[30,240],[30,25],[25,25],[25,0]]}]},
   { key:'u240_plan', name:'U字溝240 平面(長さ可変)', category:'側溝', lengthVar:true, defLen:600,
     build:(L)=>[{closed:true,pts:[[0,0],[300,0],[300,L],[0,L]]},{pts:[[25,0],[25,L]]},{pts:[[275,0],[275,L]]},{pts:[[30,0],[30,L]]},{pts:[[270,0],[270,L]]}]},
+  { key:'u240_drop_plan', name:'U字溝 落ち蓋式 平面(長さ可変,既定2000)', category:'側溝', lengthVar:true, defLen:2000,
+    build:(L)=>{
+      L = L || 2000;
+      const Wout=360, w1=40, w2=Wout-40, l1=70, l2=Wout-70;   // 壁内側40/320, 蓋受け70/290
+      const s=[];
+      s.push({closed:true, pts:[[0,0],[Wout,0],[Wout,L],[0,L]]});      // 外形
+      s.push({pts:[[w1,0],[w1,L]]}); s.push({pts:[[w2,0],[w2,L]]});    // 壁の内側
+      s.push({pts:[[l1,0],[l1,L]]}); s.push({pts:[[l2,0],[l2,L]]});    // 落ち蓋の受け縁
+      for (let y=600; y<L-1; y+=600) s.push({pts:[[l1,y],[l2,y]]});    // 落ち蓋の継ぎ目(600ごと)
+      return s;
+    }},
+  { key:'u240_drop_sec', name:'U字溝 落ち蓋式 断面', category:'側溝',
+    build:()=>[
+      {closed:true,pts:[[0,0],[0,300],[360,300],[360,0],[290,0],[290,30],[320,30],[320,270],[40,270],[40,30],[70,30],[70,0]]}, // 本体(受け段付き)
+      {closed:true,pts:[[70,0],[290,0],[290,30],[70,30]]}                 // 落ち蓋
+    ]},
   { key:'u300_sec', name:'U字溝300 断面', category:'側溝',
     build:()=>[{closed:true,pts:[[0,0],[0,335],[370,335],[370,0],[335,0],[335,300],[35,300],[35,0]]}]},
   { key:'lgutter_sec', name:'L形側溝 断面(コーピン丸み)', category:'側溝',
