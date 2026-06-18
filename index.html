@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v1.00 (選択図形のShift+ドラッグで確実に直交移動)</title>
+<title>yoheki-cad v1.01 (斜めカット後に目地10mm自動)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.00 (選択図形のShift+ドラッグで確実に直交移動)</span>
+  <span class="ver">v1.01 (斜めカット後に目地10mm自動)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -3746,6 +3746,7 @@ function cutOneObject(obj, P, N){
     res = new fabric.Group(out, {_type:obj._type, _partName:obj._partName, _layer:obj._layer ?? state.activeLayer, selectable:true, evented:true});
   } else { res = out[0]; }
   canvas.remove(obj); canvas.add(res);
+  res._cutKeepPos = keepPos;   // 切った側(目地を空ける方向の判定に使う)
   return res;
 }
 function performMiterCut(targets, P1, P2){
@@ -3753,10 +3754,20 @@ function performMiterCut(targets, P1, P2){
   const dx=P2.x-P1.x, dy=P2.y-P1.y, L=Math.hypot(dx,dy);
   if (L < 1){ alert('切る線が短すぎます。2点を離してドラッグしてください。'); return; }
   const N = {x:-dy/L, y:dx/L};
-  const made = targets.map(o => cutOneObject(o, P1, N)).filter(Boolean);
+  const HALF_JOINT = 5;   // 目地10mm → 各図形を切断線から5mmずつ離す
+  const made = targets.map(o => {
+    const res = cutOneObject(o, P1, N);
+    if (res){
+      const sgn = res._cutKeepPos ? 1 : -1;          // 自分の残した側へ少し引く=切り口どうしに隙間
+      res.left += N.x * HALF_JOINT * sgn;
+      res.top  += N.y * HALF_JOINT * sgn;
+      res.setCoords();
+    }
+    return res;
+  }).filter(Boolean);
   if (made.length) canvas.setActiveObject(made.length>1 ? new fabric.ActiveSelection(made, {canvas}) : made[0]);
   canvas.requestRenderAll(); saveHistory(); updateStats();
-  document.getElementById('status-mode').textContent = `斜めカットしました(${made.length}個)`;
+  document.getElementById('status-mode').textContent = `斜めカット＋目地10mmで仕上げました(${made.length}個)`;
 }
 
 // 縮尺補正: ドラッグした2点の実距離を入力 → 図面全体を比率で拡大縮小
