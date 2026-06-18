@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.96 (楕円ツール・中心点・面積算出)</title>
+<title>yoheki-cad v0.97 (移動時もShiftで直交8方向)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.96 (楕円ツール・中心点・面積算出)</span>
+  <span class="ver">v0.97 (移動時もShiftで直交8方向)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -4088,11 +4088,14 @@ canvas.on('mouse:down', (opt) => {
   if (t) t._moveStart = { left: t.left, top: t.top };
 });
 
-// ドラッグ中に、選んだ向き以外の移動を打ち消す
+// ドラッグ中に、選んだ向き以外の移動を打ち消す。Shift押下中は8方向(45°)に固定。
 canvas.on('object:moving', (opt) => {
   const o = opt.target;
-  const c = state.moveConstraint || 'free';
-  if (c === 'free' || !o || !o._moveStart) return;
+  if (!o || !o._moveStart) return;
+  const shift = window.shiftPressed || (opt.e && opt.e.shiftKey);
+  let c = state.moveConstraint || 'free';
+  if (shift) c = 'angle';            // Shift中は水平/垂直/斜め45°の8方向に固定
+  if (c === 'free') return;
   const s = o._moveStart;
   if (c === 'h') {
     o.set('top', s.top);
@@ -4101,7 +4104,7 @@ canvas.on('object:moving', (opt) => {
   } else if (c === 'angle') {
     // 指定角の倍数の向き(45なら8方向)へスナップして移動 — 全方位対応
     const dx = o.left - s.left, dy = o.top - s.top;
-    const step = (state.moveAngle || 45) * Math.PI / 180;
+    const step = (shift ? 45 : (state.moveAngle || 45)) * Math.PI / 180;   // Shift中は45°固定
     if (step > 0 && (dx || dy)) {
       const snapped = Math.round(Math.atan2(dy, dx) / step) * step;  // ドラッグ方向を最寄りの倍数角へ
       const ux = Math.cos(snapped), uy = Math.sin(snapped);
