@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.75 (曲線/連続線/誘導員/方位)</title>
+<title>yoheki-cad v0.76 (断面図→展開図を鉄筋選択時だけ表示)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -269,7 +269,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.75 (曲線/連続線/誘導員/方位)</span>
+  <span class="ver">v0.76 (断面図→展開図を鉄筋選択時だけ表示)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -580,7 +580,7 @@
       <button class="btn" style="width:100%; margin-top:4px;" onclick="arrayDuplicate()">選択を連続複製</button>
     </div>
 
-    <div class="panel-section">
+    <div class="panel-section" id="dev-section" style="display:none">
       <h4>断面図 → 展開図</h4>
       <button class="btn" style="width:100%;" onclick="selectRebarOnly()">🔩 鉄筋だけ選択</button>
       <div class="prop-row" style="font-size:10px;color:#999;line-height:1.4;">
@@ -2407,8 +2407,9 @@ function setTool(tool) {
   document.getElementById('status-mode').textContent = 'モード: ' + (labels[tool] || tool) +
     (tool === 'facepen' ? `（配置面「${document.getElementById('dev-face').value||'未選択'}」を鉄筋クリックで指定。Sキー/選択で終了）` : '') +
     (tool === 'rolepen' ? `（${state.rolePenRole==='tate'?'縦筋':'横筋'}を鉄筋クリックで連続指定。Sキー/選択で終了）` : '');
-  
+
   canvas.renderAll();
+  if (typeof updateDevSectionVisibility === 'function') updateDevSectionVisibility();
 }
 
 // ============================================================
@@ -3735,13 +3736,24 @@ function withoutSelHighlight(fn) {
   finally { restored.forEach(o => o.set('stroke', SEL_PINK)); }
 }
 
-canvas.on('selection:created', () => { updateSelectedProps(); applySelHighlight(); });
-canvas.on('selection:updated', () => { updateSelectedProps(); applySelHighlight(); });
+canvas.on('selection:created', () => { updateSelectedProps(); applySelHighlight(); updateDevSectionVisibility(); });
+canvas.on('selection:updated', () => { updateSelectedProps(); applySelHighlight(); updateDevSectionVisibility(); });
 canvas.on('selection:cleared', () => {
   clearSelHighlight();
   canvas.requestRenderAll();
   document.getElementById('prop-content').innerHTML = 'オブジェクトを選択してください';
+  updateDevSectionVisibility();
 });
+
+// 「断面図→展開図」は鉄筋を扱っている時だけ表示(左欄をすっきり)。
+// 表示条件: 鉄筋(線・横筋○)を選択中、または鉄筋系ツール(鉄筋/横筋○/縦横ペン/面ペン)使用中。
+function updateDevSectionVisibility() {
+  const sec = document.getElementById('dev-section');
+  if (!sec) return;
+  const selHasRebar = canvas.getActiveObjects().some(o => o._type === 'rebar' || o._type === 'rebardot');
+  const rebarTool = ['rebar','rebardot','rolepen','facepen'].includes(state.tool);
+  sec.style.display = (selHasRebar || rebarTool) ? 'block' : 'none';
+}
 
 canvas.on('object:modified', () => {
   saveHistory();
