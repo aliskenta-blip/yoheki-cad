@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.84 (寸法を縮尺連動・カンマ・縦書き単位横・角丸め個別/黒)</title>
+<title>yoheki-cad v0.85 (コーン線ツール:折れ点・末端・一定間隔にコーン)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.84 (寸法を縮尺連動・カンマ・縦書き単位横・角丸め個別/黒)</span>
+  <span class="ver">v0.85 (コーン線ツール:折れ点・末端・一定間隔にコーン)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -313,6 +313,9 @@
   </button>
   <button class="tool-btn" data-tool="polyline" data-help="連続線(折れ線)。クリックで点を足していき、右クリックで確定(Enterも可)。色・線種は左の「線の設定」。コーンを結ぶ赤い破線などに" title="連続線" onclick="setTool('polyline')">
     <span class="icon">⊿</span><span class="label">連続線</span>
+  </button>
+  <button class="tool-btn" data-tool="coneline" data-help="コーン線(保安図)。クリックで点→右クリックで確定。折れ点・末端・一定間隔に赤いカラーコーンを自動配置。間隔/サイズは左パネルで設定" title="コーン線" onclick="setTool('coneline')">
+    <span class="icon">▪▫▪</span><span class="label">コーン線</span>
   </button>
   <button class="tool-btn" data-tool="rect" data-help="矩形を描く。対角にドラッグ" title="矩形 (R)" onclick="setTool('rect')">
     <span class="icon">▭</span><span class="label">矩形</span>
@@ -832,7 +835,22 @@
         <span>数値は<b>あとから変更できます</b>: 寸法線を<b>ダブルクリック</b>→好きな数値を入力(空欄で実測値に戻る)。手書き図など実測がズレるときに。</span>
       </div>
     </div>
-    
+
+    <div class="panel-section" id="coneline-settings" style="display:none">
+      <h4>コーン線設定 <span class="help-tip" data-tip="保安図用。クリックで点を足し、右クリックで確定すると、折れ点・末端・一定間隔にカラーコーン(四角)を自動配置します。線とコーンの色は「線の設定」の色、線の太さも「線の設定」の太さです(赤・30など)。">?</span></h4>
+      <div class="prop-row">
+        <label>コーン間隔(mm) <span class="help-tip" data-tip="直線部分にコーンを並べる間隔。折れ点と末端には必ず置きます。0にすると折れ点と末端だけ。">?</span></label>
+        <input type="number" id="coneline-gap" value="1000" min="0" step="100">
+      </div>
+      <div class="prop-row">
+        <label>コーンの大きさ(mm)</label>
+        <input type="number" id="coneline-size" value="400" min="20" step="50">
+      </div>
+      <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
+        <span>クリックで点→<b>右クリックで確定</b>。色・線の太さは「線の設定」(例:赤・太さ30)。</span>
+      </div>
+    </div>
+
     <div class="panel-section">
       <h4>キーボード</h4>
       <div style="font-size:10.5px; line-height: 1.7;">
@@ -2472,11 +2490,12 @@ function setTool(tool) {
   document.getElementById('rebardot-settings').style.display = (tool === 'rebardot') ? 'block' : 'none';
   document.getElementById('eraser-settings').style.display = (tool === 'eraser') ? 'block' : 'none';
   document.getElementById('dim-settings').style.display = (tool === 'dim') ? 'block' : 'none';
-  
+  const clSet = document.getElementById('coneline-settings'); if (clSet) clSet.style.display = (tool === 'coneline') ? 'block' : 'none';
+
   // ステータス
   const labels = {
     'select': '選択', 'line': '直線', 'rect': '矩形', 'circle': '円',
-    'polygon': '多角形', 'polyline': '連続線（クリックで点→右クリックで確定(Enterも可)）', 'freehand': 'フリーハンド', 'curve': '曲線（クリックで通過点→右クリックで確定(Enterも可)）', 'dim': '寸法線',
+    'polygon': '多角形', 'polyline': '連続線（クリックで点→右クリックで確定(Enterも可)）', 'coneline': 'コーン線（クリックで点→右クリックで確定。折れ点・末端・一定間隔にコーン配置）', 'freehand': 'フリーハンド', 'curve': '曲線（クリックで通過点→右クリックで確定(Enterも可)）', 'dim': '寸法線',
     'rebar': '鉄筋', 'text': 'テキスト', 'eraser': '消しゴム', 'trim': '節間消し',
     'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線', 'facepen': '面指定ペン', 'rolepen': '縦横指定ペン',
     'calib': '縮尺補正（実距離のわかる2点をドラッグ）',
@@ -3102,8 +3121,10 @@ function hatchPolyMode() { return state.tool === 'hatch' && state.hatchPoly; }
 function curveDrawing() { return state.tool === 'curve'; }
 // 連続線(折れ線)モード: クリックで点 → ダブルクリック/Enterで開いた折れ線に
 function polylineDrawing() { return state.tool === 'polyline'; }
-function polyDrawing() { return state.tool === 'polygon' || rebarPolyMode() || hatchPolyMode() || curveDrawing() || polylineDrawing(); }
-function polyMinPts() { return (rebarPolyMode() || curveDrawing() || polylineDrawing()) ? 2 : 3; }
+// コーン線モード: 折れ線＋折れ点・末端・一定間隔にカラーコーンを自動配置
+function conelineDrawing() { return state.tool === 'coneline'; }
+function polyDrawing() { return state.tool === 'polygon' || rebarPolyMode() || hatchPolyMode() || curveDrawing() || polylineDrawing() || conelineDrawing(); }
+function polyMinPts() { return (rebarPolyMode() || curveDrawing() || polylineDrawing() || conelineDrawing()) ? 2 : 3; }
 
 function finishPolygon() {
   if (state.polygonPoints.length < polyMinPts()) return;
@@ -3112,6 +3133,7 @@ function finishPolygon() {
   if (hatchPolyMode()) { finishHatchPoly(); return; }
   if (curveDrawing()) { finishCurve(); return; }
   if (polylineDrawing()) { finishPolylineChain(); return; }
+  if (conelineDrawing()) { finishConeLine(); return; }
   const strokeColor = document.getElementById('stroke-color').value;
   const strokeWidth = parseFloat(document.getElementById('stroke-width').value);
   const fillColor = document.getElementById('fill-none').checked ? '' : document.getElementById('fill-color').value;
@@ -3150,6 +3172,47 @@ function finishPolylineChain(){
   saveHistory();
   updateStats();
   document.getElementById('status-mode').textContent = '連続線を描きました。続けてクリック→右クリックで確定(Enterも可)';
+}
+
+// コーン線を確定: 折れ線＋折れ点・末端・一定間隔にカラーコーン(四角)を配置。1グループにまとめる。
+function finishConeLine(){
+  const pts = state.polygonPoints.map(p => ({x:p.x, y:p.y}));
+  if (pts.length < 2) { state.polygonPoints = []; return; }
+  const color = document.getElementById('stroke-color').value || '#e53935';
+  const width = parseFloat(document.getElementById('stroke-width').value) || 30;
+  const gap = parseFloat((document.getElementById('coneline-gap')||{}).value) || 0;
+  const size = parseFloat((document.getElementById('coneline-size')||{}).value) || 400;
+
+  // コーンを置く点: 全頂点(折れ点・末端) + 各区間を間隔gapで分割した点
+  const conePts = [];
+  const pushUniq = p => { if (!conePts.some(q => Math.hypot(q.x-p.x, q.y-p.y) < 1)) conePts.push(p); };
+  pts.forEach(pushUniq);
+  if (gap > 0) {
+    for (let i=0;i<pts.length-1;i++){
+      const a=pts[i], b=pts[i+1], len=Math.hypot(b.x-a.x, b.y-a.y);
+      const ux=(b.x-a.x)/len, uy=(b.y-a.y)/len;
+      for (let d=gap; d < len-1; d+=gap) pushUniq({x:a.x+ux*d, y:a.y+uy*d});
+    }
+  }
+  const parts = [];
+  // 線(折れ線)
+  parts.push(new fabric.Polyline(pts, {
+    stroke: color, strokeWidth: width, fill: '', strokeLineCap:'round', strokeLineJoin:'round'
+  }));
+  // コーン(塗りつぶしの四角)
+  conePts.forEach(p => parts.push(new fabric.Rect({
+    left:p.x, top:p.y, width:size, height:size, originX:'center', originY:'center',
+    fill: color, stroke: color, strokeWidth: 1
+  })));
+  const g = new fabric.Group(parts, {
+    _type:'coneline', _layer: state.activeLayer, selectable:(state.tool==='select'), evented:true
+  });
+  canvas.add(g);
+  state.polygonPoints = [];
+  state.tempObject = null;
+  saveHistory();
+  updateStats();
+  document.getElementById('status-mode').textContent = `コーン線を描きました(コーン${conePts.length}個)。続けてクリック→右クリックで確定`;
 }
 
 // 通過点を滑らかに結ぶSVGパス文字列(Catmull-Romスプライン→3次ベジェ変換)。
