@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.89 (部品:ドラッグ並替/サムネ・コーン間隔倍/重複除去)</title>
+<title>yoheki-cad v0.90 (上空ダンプ・バックホウ各5・直交45°)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.89 (部品:ドラッグ並替/サムネ・コーン間隔倍/重複除去)</span>
+  <span class="ver">v0.90 (上空ダンプ・バックホウ各5・直交45°)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -424,7 +424,7 @@
       </div>
       <div class="prop-row">
         <label><input type="checkbox" id="ortho"> 直交モード <kbd>Shift</kbd></label>
-        <span class="help-tip" data-tip="ONにすると線が水平か垂直だけに固定されます。Shiftキーを押している間だけ一時的に効かせることも可能。">?</span>
+        <span class="help-tip" data-tip="ONにすると線が水平・垂直・斜め45°の8方向だけに固定されます。Shiftキーを押している間だけ一時的に効かせることも可能。">?</span>
       </div>
       <div class="prop-row">
         <label>移動方向 <span class="help-tip" data-tip="選択(S)で図形をドラッグして動かすときに、動かせる向きを制限します。L形やU字溝をまっすぐ並べたいときに便利。">?</span></label>
@@ -2428,10 +2428,13 @@ function chainSegments(segs) {
 
 function orthoPoint(start, end) {
   if (!state.orthoMode && !window.shiftPressed) return end;
-  const dx = Math.abs(end.x - start.x);
-  const dy = Math.abs(end.y - start.y);
-  if (dx > dy) return {x: end.x, y: start.y};
-  else return {x: start.x, y: end.y};
+  const dx = end.x - start.x, dy = end.y - start.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) return end;
+  // 45°刻み(水平・垂直・斜め45°の8方向)に吸着。一番近い向きへ投影。
+  const step = Math.PI / 4;
+  const ang = Math.round(Math.atan2(dy, dx) / step) * step;
+  return { x: start.x + Math.cos(ang) * len, y: start.y + Math.sin(ang) * len };
 }
 
 // ============================================================
@@ -7165,8 +7168,60 @@ const BUILTIN_PARTS = [
       {closed:true,pts:[[0,0],[55,60],[0,300],[-55,60]]},             // 南(下)の尾
       {pts:[[-55,-545],[-55,-415]]},{pts:[[-55,-545],[55,-415]]},{pts:[[55,-545],[55,-415]]}, // 文字N
       {pts:[[360,0],[450,0]]},{pts:[[-360,0],[-450,0]]},{pts:[[0,360],[0,450]]}  // E/W/S目盛
-    ]}
+    ]},
+
+  // ===== 上空から見た重機(リアル目安) =====
+  { key:'dump_top_2t',  name:'ダンプ 2t (上から)',  category:'重機', build:()=>dumpTopShapes(4500,1900,1,false) },
+  { key:'dump_top_4t',  name:'ダンプ 4t (上から)',  category:'重機', build:()=>dumpTopShapes(6000,2100,1,false) },
+  { key:'dump_top_10t', name:'ダンプ 10t (上から)', category:'重機', build:()=>dumpTopShapes(7800,2500,2,false) },
+  { key:'dump_top_3ax', name:'大型ダンプ 3軸 (上から)', category:'重機', build:()=>dumpTopShapes(9000,2500,3,false) },
+  { key:'dump_top_load',name:'ダンプ 土砂積載 (上から)', category:'重機', build:()=>dumpTopShapes(7800,2500,2,true) },
+  { key:'bh_top_mini',  name:'ミニバックホウ (上から)', category:'重機', build:()=>backhoeTopShapes(2400,450,800,2400,0) },
+  { key:'bh_top_025',   name:'バックホウ 0.25 (上から)', category:'重機', build:()=>backhoeTopShapes(3000,550,1100,3500,0) },
+  { key:'bh_top_045',   name:'バックホウ 0.45 (上から)', category:'重機', build:()=>backhoeTopShapes(3600,650,1300,4500,0) },
+  { key:'bh_top_07',    name:'バックホウ 0.7 (上から)',  category:'重機', build:()=>backhoeTopShapes(4200,750,1500,5500,0) },
+  { key:'bh_top_slew',  name:'バックホウ 旋回 (上から)', category:'重機', build:()=>backhoeTopShapes(3600,650,1300,4500,90) }
 ];
+
+// 上空から見たダンプの形状(facing +x)。L長さ/W幅/axles後軸数/loaded積載
+function dumpTopShapes(L, W, axles, loaded){
+  const s = [];
+  s.push({closed:true, pts:[[0,0],[L,0],[L,W],[0,W]]});                  // 車体外形
+  const cabL = Math.min(1600, L*0.22);
+  s.push({closed:true, pts:[[L-cabL,200],[L-150,200],[L-150,W-200],[L-cabL,W-200]]}); // 運転席(前=右)
+  s.push({pts:[[L-cabL,W/2],[L-150,W/2]]});                             // 左右ドア仕切り
+  s.push({closed:true, pts:[[250,180],[L-cabL-300,180],[L-cabL-300,W-180],[250,W-180]]}); // 荷台
+  if (loaded){ for (let x=600; x<L-cabL-500; x+=500){ s.push({pts:[[x,300],[x+250,W-300]]}); } } // 土砂(網掛け)
+  const wheel = cx => {
+    s.push({closed:true, pts:[[cx-260,-130],[cx+260,-130],[cx+260,160],[cx-260,160]]});       // 上側
+    s.push({closed:true, pts:[[cx-260,W-160],[cx+260,W-160],[cx+260,W+130],[cx-260,W+130]]}); // 下側
+  };
+  wheel(L-cabL+200);                                  // 前輪
+  for (let i=0;i<axles;i++) wheel(700 + i*850);       // 後輪(軸数)
+  return s;
+}
+
+// 上空から見たバックホウの形状(facing +x, slewDeg=上体の旋回角)
+function backhoeTopShapes(tl, tw, gap, reach, slewDeg){
+  const totalW = tw*2 + gap;
+  const cx = tl*0.45, cy = totalW/2;       // 旋回中心
+  const s = [];
+  s.push({closed:true, pts:[[0,0],[tl,0],[tl,tw],[0,tw]]});               // 左クローラ
+  s.push({closed:true, pts:[[0,tw+gap],[tl,tw+gap],[tl,totalW],[0,totalW]]}); // 右クローラ
+  const step = Math.max(300, tl/10);
+  for (let x=250;x<tl;x+=step){ s.push({pts:[[x,0],[x,tw]]}); s.push({pts:[[x,tw+gap],[x,totalW]]}); } // 履帯の桟
+  const a = (slewDeg||0)*Math.PI/180, ca=Math.cos(a), sa=Math.sin(a);
+  const rot = (x,y)=>{ const dx=x-cx, dy=y-cy; return [cx+dx*ca-dy*sa, cy+dx*sa+dy*ca]; };
+  const poly = pts => ({closed:true, pts: pts.map(([x,y])=>rot(x,y))});
+  const hw = totalW*0.42, hx0 = cx - tl*0.30, hx1 = cx + tl*0.28;
+  s.push(poly([[hx0+150,cy-hw],[hx1,cy-hw],[hx1+200,cy-hw*0.5],[hx1+200,cy+hw*0.5],[hx1,cy+hw],[hx0+150,cy+hw],[hx0-200,cy+hw*0.5],[hx0-200,cy-hw*0.5]])); // 旋回体(後丸み)
+  s.push(poly([[hx0+250,cy-hw+120],[hx0+900,cy-hw+120],[hx0+900,cy-120],[hx0+250,cy-120]])); // 運転席
+  const bx = hx1+200;
+  s.push(poly([[bx,cy-220],[bx+reach*0.45,cy-160],[bx+reach*0.45,cy+160],[bx,cy+220]]));            // ブーム
+  s.push(poly([[bx+reach*0.45,cy-150],[bx+reach*0.8,cy-110],[bx+reach*0.8,cy+110],[bx+reach*0.45,cy+150]])); // アーム
+  s.push(poly([[bx+reach*0.8,cy-300],[bx+reach,cy-300],[bx+reach,cy+300],[bx+reach*0.8,cy+300]]));  // バケット
+  return s;
+}
 
 function partBBox(shapes){
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
