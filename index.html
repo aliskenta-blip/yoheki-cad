@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.74 (コピペ色/ヘルプ表示/左欄幅調整)</title>
+<title>yoheki-cad v0.75 (曲線/連続線/誘導員/方位)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -269,7 +269,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.74 (コピペ色/ヘルプ表示/左欄幅調整)</span>
+  <span class="ver">v0.75 (曲線/連続線/誘導員/方位)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -303,6 +303,9 @@
   <button class="tool-btn" data-tool="line" data-help="直線を引く。始点→終点をドラッグ。Shiftで水平/垂直" title="直線 (L)" onclick="setTool('line')">
     <span class="icon">╱</span><span class="label">線</span>
   </button>
+  <button class="tool-btn" data-tool="polyline" data-help="連続線(折れ線)。クリックで点を足していき、ダブルクリック/Enterで確定。色・線種は左の「線の設定」。コーンを結ぶ赤い破線などに" title="連続線" onclick="setTool('polyline')">
+    <span class="icon">⊿</span><span class="label">連続線</span>
+  </button>
   <button class="tool-btn" data-tool="rect" data-help="矩形を描く。対角にドラッグ" title="矩形 (R)" onclick="setTool('rect')">
     <span class="icon">▭</span><span class="label">矩形</span>
   </button>
@@ -314,6 +317,9 @@
   </button>
   <button class="tool-btn" data-tool="freehand" data-help="手書きの自由曲線" title="フリーハンド (F)" onclick="setTool('freehand')">
     <span class="icon">✎</span><span class="label">手書き</span>
+  </button>
+  <button class="tool-btn" data-tool="curve" data-help="きれいな曲線。通過させたい点をクリック→ダブルクリック/Enterで滑らかな曲線に確定" title="曲線" onclick="setTool('curve')">
+    <span class="icon">〜</span><span class="label">曲線</span>
   </button>
   <div class="tool-divider"></div>
   
@@ -2391,7 +2397,7 @@ function setTool(tool) {
   // ステータス
   const labels = {
     'select': '選択', 'line': '直線', 'rect': '矩形', 'circle': '円',
-    'polygon': '多角形', 'freehand': 'フリーハンド', 'dim': '寸法線',
+    'polygon': '多角形', 'polyline': '連続線（クリックで点→ダブルクリック/Enterで確定）', 'freehand': 'フリーハンド', 'curve': '曲線（クリックで通過点→ダブルクリック/Enterで確定）', 'dim': '寸法線',
     'rebar': '鉄筋', 'text': 'テキスト', 'eraser': '消しゴム', 'trim': '節間消し',
     'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線', 'facepen': '面指定ペン', 'rolepen': '縦横指定ペン',
     'calib': '縮尺補正（実距離のわかる2点をドラッグ）',
@@ -2994,14 +3000,20 @@ function rebarPolyMode() {
 }
 // ④ ハッチを多角形(斜め・多角形)で囲んで塗るモード
 function hatchPolyMode() { return state.tool === 'hatch' && state.hatchPoly; }
-function polyDrawing() { return state.tool === 'polygon' || rebarPolyMode() || hatchPolyMode(); }
-function polyMinPts() { return rebarPolyMode() ? 2 : 3; }
+// 曲線(スプライン)モード: クリックで通過点 → ダブルクリック/Enterで滑らかな曲線に
+function curveDrawing() { return state.tool === 'curve'; }
+// 連続線(折れ線)モード: クリックで点 → ダブルクリック/Enterで開いた折れ線に
+function polylineDrawing() { return state.tool === 'polyline'; }
+function polyDrawing() { return state.tool === 'polygon' || rebarPolyMode() || hatchPolyMode() || curveDrawing() || polylineDrawing(); }
+function polyMinPts() { return (rebarPolyMode() || curveDrawing() || polylineDrawing()) ? 2 : 3; }
 
 function finishPolygon() {
   if (state.polygonPoints.length < polyMinPts()) return;
   if (state.tempObject) { canvas.remove(state.tempObject); state.tempObject = null; }
   if (rebarPolyMode()) { finishRebarPoly(); return; }
   if (hatchPolyMode()) { finishHatchPoly(); return; }
+  if (curveDrawing()) { finishCurve(); return; }
+  if (polylineDrawing()) { finishPolylineChain(); return; }
   const strokeColor = document.getElementById('stroke-color').value;
   const strokeWidth = parseFloat(document.getElementById('stroke-width').value);
   const fillColor = document.getElementById('fill-none').checked ? '' : document.getElementById('fill-color').value;
@@ -3017,6 +3029,67 @@ function finishPolygon() {
   state.tempObject = null;
   saveHistory();
   updateStats();
+}
+
+// 連続線(折れ線)を確定。クリックした点を順に結ぶ開いた線。色・太さ・線種は「線の設定」。
+function finishPolylineChain(){
+  const pts = state.polygonPoints.map(p => ({x:p.x, y:p.y}));
+  if (pts.length < 2) { state.polygonPoints = []; return; }
+  const strokeColor = document.getElementById('stroke-color').value;
+  const strokeWidth = parseFloat(document.getElementById('stroke-width').value);
+  const strokeStyle = document.getElementById('stroke-style').value;
+  const poly = new fabric.Polyline(pts, {
+    stroke: strokeColor, strokeWidth: strokeWidth, fill: '',
+    strokeLineCap: 'round', strokeLineJoin: 'round',
+    strokeDashArray: strokeStyle ? strokeStyle.split(',').map(Number) : null,
+    _layer: state.activeLayer, selectable: (state.tool === 'select')
+  });
+  canvas.add(poly);
+  state.polygonPoints = [];
+  state.tempObject = null;
+  saveHistory();
+  updateStats();
+  document.getElementById('status-mode').textContent = '連続線を描きました。続けてクリック→ダブルクリック/Enterで確定';
+}
+
+// 通過点を滑らかに結ぶSVGパス文字列(Catmull-Romスプライン→3次ベジェ変換)。
+function smoothPathFromPoints(pts){
+  if (pts.length < 2) return '';
+  if (pts.length === 2) return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`;
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++){
+    const p0 = pts[i-1] || pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i+1];
+    const p3 = pts[i+2] || p2;
+    // Catmull-Rom → ベジェ制御点(張力1/6)
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${c1x} ${c1y} ${c2x} ${c2y} ${p2.x} ${p2.y}`;
+  }
+  return d;
+}
+
+// 曲線を確定。クリックした点を通る滑らかな曲線(開いた線)。線色・太さ・スタイルは「線の設定」。
+function finishCurve(){
+  const pts = state.polygonPoints.map(p => ({x:p.x, y:p.y}));
+  const d = smoothPathFromPoints(pts);
+  if (!d) { state.polygonPoints = []; return; }
+  const strokeColor = document.getElementById('stroke-color').value;
+  const strokeWidth = parseFloat(document.getElementById('stroke-width').value);
+  const strokeStyle = document.getElementById('stroke-style').value;
+  const path = new fabric.Path(d, {
+    stroke: strokeColor, strokeWidth: strokeWidth, fill: '',
+    strokeLineCap: 'round', strokeLineJoin: 'round',
+    strokeDashArray: strokeStyle ? strokeStyle.split(',').map(Number) : null,
+    _layer: state.activeLayer, selectable: (state.tool === 'select')
+  });
+  canvas.add(path);
+  state.polygonPoints = [];
+  state.tempObject = null;
+  saveHistory();
+  updateStats();
+  document.getElementById('status-mode').textContent = '曲線を描きました。続けてクリック→ダブルクリック/Enterで次の曲線を確定';
 }
 
 // ② 折れ線鉄筋を確定(開いた折れ線=L字/コ字/U字)。線色・太さは径から。
@@ -6364,7 +6437,94 @@ const BUILTIN_PARTS = [
   { key:'first_aid', name:'救急箱(+)', category:'保安',
     build:()=>[{closed:true,pts:[[0,0],[400,0],[400,300],[0,300]]},{closed:true,pts:[[180,50],[220,50],[220,250],[180,250]]},{closed:true,pts:[[70,130],[330,130],[330,170],[70,170]]}]},
   { key:'road_sign', name:'規制標識(丸＋ポール)', category:'保安',
-    build:()=>[{circle:[200,200,200]},{pts:[[200,400],[200,1300]]},{pts:[[140,1300],[260,1300]]}]}
+    build:()=>[{circle:[200,200,200]},{pts:[[200,400],[200,1300]]},{pts:[[140,1300],[260,1300]]}]},
+
+  // ===== 交通誘導員(ガードマン) 正面・身長約1.7m。共通=ヘルメット/反射ベスト/脚。手と持ち物で動作を変える =====
+  { key:'guard_flag_stop', name:'誘導員 赤旗で停止', category:'誘導員',
+    build:()=>[
+      {circle:[0,180,110]},                                              // 頭(ヘルメット)
+      {pts:[[-120,205],[120,205]]},                                      // つば
+      {pts:[[-118,150],[118,150]]},                                      // ヘルメット帯
+      {pts:[[0,290],[0,335]]},                                           // 首
+      {closed:true,pts:[[-200,340],[200,340],[170,830],[-170,830]]},     // 反射ベスト(胴)
+      {pts:[[-170,560],[170,560]]},{pts:[[-170,650],[170,650]]},         // 反射帯×2
+      {pts:[[0,360],[0,810]]},                                           // 前合わせ
+      {pts:[[-170,810],[170,810]]},                                      // ベルト
+      {pts:[[200,360],[345,250],[440,150]]},                            // 右腕(上げて旗)
+      {pts:[[440,150],[440,-260]]},                                      // 旗ざお
+      {closed:true,pts:[[440,-260],[670,-195],[440,-130]]},             // 旗
+      {pts:[[-200,365],[-255,640],[-245,790]]},                          // 左腕(下げ)
+      {pts:[[-110,830],[-135,1300],[-150,1690]]},{pts:[[110,830],[135,1300],[150,1690]]}, // 脚
+      {pts:[[-150,1690],[-260,1710]]},{pts:[[150,1690],[260,1710]]}      // 足
+    ]},
+  { key:'guard_guide_go', name:'誘導員 手で誘導(進行)', category:'誘導員',
+    build:()=>[
+      {circle:[0,180,110]},{pts:[[-120,205],[120,205]]},{pts:[[-118,150],[118,150]]},
+      {pts:[[0,290],[0,335]]},
+      {closed:true,pts:[[-200,340],[200,340],[170,830],[-170,830]]},
+      {pts:[[-170,560],[170,560]]},{pts:[[-170,650],[170,650]]},{pts:[[0,360],[0,810]]},{pts:[[-170,810],[170,810]]},
+      {pts:[[200,380],[520,365],[660,360]]},                            // 右腕(水平に伸ばす)
+      {pts:[[660,330],[820,355]]},{pts:[[660,390],[820,365]]},          // 誘導棒
+      {pts:[[-200,380],[-300,520],[-180,560]]},                         // 左腕(腰)
+      {pts:[[-110,830],[-135,1300],[-150,1690]]},{pts:[[110,830],[135,1300],[150,1690]]},
+      {pts:[[-150,1690],[-260,1710]]},{pts:[[150,1690],[260,1710]]}
+    ]},
+  { key:'guard_stop_both', name:'誘導員 両手で停止', category:'誘導員',
+    build:()=>[
+      {circle:[0,180,110]},{pts:[[-120,205],[120,205]]},{pts:[[-118,150],[118,150]]},
+      {pts:[[0,290],[0,335]]},
+      {closed:true,pts:[[-200,340],[200,340],[170,830],[-170,830]]},
+      {pts:[[-170,560],[170,560]]},{pts:[[-170,650],[170,650]]},{pts:[[0,360],[0,810]]},{pts:[[-170,810],[170,810]]},
+      {pts:[[200,360],[430,210],[540,120]]},                            // 右腕(上げ・旗)
+      {pts:[[540,120],[575,-210]]},{closed:true,pts:[[575,-210],[780,-150],[575,-95]]}, // 旗
+      {pts:[[-200,360],[-430,210],[-540,120]]},                         // 左腕(上げ)
+      {pts:[[-540,120],[-540,60]]},                                     // 左手
+      {pts:[[-110,830],[-135,1300],[-150,1690]]},{pts:[[110,830],[135,1300],[150,1690]]},
+      {pts:[[-150,1690],[-260,1710]]},{pts:[[150,1690],[260,1710]]}
+    ]},
+  { key:'guard_light_night', name:'誘導員 誘導灯(夜間)', category:'誘導員',
+    build:()=>[
+      {circle:[0,180,110]},{pts:[[-120,205],[120,205]]},{pts:[[-118,150],[118,150]]},
+      {pts:[[0,290],[0,335]]},
+      {closed:true,pts:[[-200,340],[200,340],[170,830],[-170,830]]},
+      {pts:[[-170,560],[170,560]]},{pts:[[-170,650],[170,650]]},{pts:[[0,360],[0,810]]},{pts:[[-170,810],[170,810]]},
+      {pts:[[200,375],[430,300],[540,245]]},                            // 右腕(前に上げ)
+      {pts:[[540,245],[650,175]]},                                      // 誘導灯の棒
+      {circle:[678,158,62]},                                            // 灯(光)
+      {pts:[[740,110],[800,70]]},{pts:[[760,150],[825,140]]},{pts:[[720,80],[760,30]]}, // 光の線
+      {pts:[[-200,375],[-255,640],[-245,790]]},                         // 左腕
+      {pts:[[-110,830],[-135,1300],[-150,1690]]},{pts:[[110,830],[135,1300],[150,1690]]},
+      {pts:[[-150,1690],[-260,1710]]},{pts:[[150,1690],[260,1710]]}
+    ]},
+  { key:'guard_salute', name:'誘導員 直立・敬礼', category:'誘導員',
+    build:()=>[
+      {circle:[0,180,110]},{pts:[[-120,205],[120,205]]},{pts:[[-118,150],[118,150]]},
+      {pts:[[0,290],[0,335]]},
+      {closed:true,pts:[[-190,340],[190,340],[165,830],[-165,830]]},
+      {pts:[[-165,560],[165,560]]},{pts:[[-165,650],[165,650]]},{pts:[[0,360],[0,810]]},{pts:[[-165,810],[165,810]]},
+      {pts:[[190,360],[300,255],[120,215]]},                            // 右腕(敬礼=ヘルメットへ)
+      {pts:[[-190,360],[-215,600],[-205,790]]},                         // 左腕(直立)
+      {pts:[[-105,830],[-120,1300],[-130,1690]]},{pts:[[105,830],[120,1300],[130,1690]]},
+      {pts:[[-130,1690],[-240,1710]]},{pts:[[130,1690],[240,1710]]}
+    ]},
+
+  // カラーコーン(上空から)= 角丸の四角ベース＋中心の輪。保安図でコーンの位置記号に。
+  { key:'cone_top', name:'カラーコーン(上から)', category:'保安',
+    build:()=>[
+      {closed:true,pts:[[-200,-200],[200,-200],[200,200],[-200,200]]},  // ベース(四角)
+      {pts:[[-200,-200],[200,200]]},{pts:[[200,-200],[-200,200]]},      // 対角線
+      {circle:[0,0,80]}                                                 // 頂点(輪)
+    ]},
+
+  // ===== 方位記号(北矢印) =====
+  { key:'compass_north', name:'方位(北矢印)', category:'記号',
+    build:()=>[
+      {circle:[0,0,360]},                                              // 外円
+      {closed:true,pts:[[0,-330],[70,60],[0,0],[-70,60]]},             // 北(上)の矢
+      {closed:true,pts:[[0,0],[55,60],[0,300],[-55,60]]},             // 南(下)の尾
+      {pts:[[-55,-545],[-55,-415]]},{pts:[[-55,-545],[55,-415]]},{pts:[[55,-545],[55,-415]]}, // 文字N
+      {pts:[[360,0],[450,0]]},{pts:[[-360,0],[-450,0]]},{pts:[[0,360],[0,450]]}  // E/W/S目盛
+    ]}
 ];
 
 function partBBox(shapes){
