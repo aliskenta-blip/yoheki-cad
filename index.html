@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.88 (寸法を指定長さに・寸法選択で設定を上部へ)</title>
+<title>yoheki-cad v0.89 (部品:ドラッグ並替/サムネ・コーン間隔倍/重複除去)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.88 (寸法を指定長さに・寸法選択で設定を上部へ)</span>
+  <span class="ver">v0.89 (部品:ドラッグ並替/サムネ・コーン間隔倍/重複除去)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -839,8 +839,8 @@
     <div class="panel-section" id="coneline-settings" style="display:none">
       <h4>コーン線設定 <span class="help-tip" data-tip="保安図用。クリックで点を足し、右クリックで確定すると、折れ点・末端・一定間隔にカラーコーン(四角)を自動配置します。線とコーンの色は「線の設定」の色、線の太さも「線の設定」の太さです(赤・30など)。">?</span></h4>
       <div class="prop-row">
-        <label>コーン間隔(mm) <span class="help-tip" data-tip="直線部分にコーンを並べる間隔。折れ点と末端には必ず置きます。0にすると折れ点と末端だけ。">?</span></label>
-        <input type="number" id="coneline-gap" value="1000" min="0" step="100">
+        <label>コーン間隔(mm) <span class="help-tip" data-tip="直線部分にコーンを並べる間隔。折れ点と末端には必ず置き、被る間隔コーンは消します。0にすると折れ点と末端だけ。">?</span></label>
+        <input type="number" id="coneline-gap" value="2000" min="0" step="100">
       </div>
       <div class="prop-row">
         <label>コーンの大きさ(mm)</label>
@@ -3184,15 +3184,20 @@ function finishConeLine(){
   const gap = parseFloat((document.getElementById('coneline-gap')||{}).value) || 0;
   const size = parseFloat((document.getElementById('coneline-size')||{}).value) || 400;
 
-  // コーンを置く点: 全頂点(折れ点・末端) + 各区間を間隔gapで分割した点
+  // コーンを置く点: まず全頂点(折れ点・末端)を最優先で置く
   const conePts = [];
-  const pushUniq = p => { if (!conePts.some(q => Math.hypot(q.x-p.x, q.y-p.y) < 1)) conePts.push(p); };
-  pts.forEach(pushUniq);
+  const nearAny = (p, thr) => conePts.some(q => Math.hypot(q.x-p.x, q.y-p.y) < thr);
+  pts.forEach(p => { if (!nearAny(p, 1)) conePts.push(p); });
+  // 直線部の間隔コーンは、折れ点・末端や既存コーンと被る(コーン幅以内)なら置かない
+  const overlap = size;   // 中心がコーン幅以内なら重なりとみなす
   if (gap > 0) {
     for (let i=0;i<pts.length-1;i++){
       const a=pts[i], b=pts[i+1], len=Math.hypot(b.x-a.x, b.y-a.y);
       const ux=(b.x-a.x)/len, uy=(b.y-a.y)/len;
-      for (let d=gap; d < len-1; d+=gap) pushUniq({x:a.x+ux*d, y:a.y+uy*d});
+      for (let d=gap; d < len-1; d+=gap){
+        const p = {x:a.x+ux*d, y:a.y+uy*d};
+        if (!nearAny(p, overlap)) conePts.push(p);   // 被るときは末端/折れ点を優先(=このコーンを消す)
+      }
     }
   }
   const parts = [];
@@ -6764,12 +6769,19 @@ function renderPartsList() {
       <button class="btn" style="padding:3px 8px;" onclick="hideBuiltinPart('${p.key}')">🗑</button>
     </div>`;
   });
-  html += '<div style="margin:10px 0 4px; font-size:11px; color:#7fbfff; font-weight:bold;">登録部品（自分で登録）</div>';
+  html += '<div style="margin:10px 0 4px; font-size:11px; color:#7fbfff; font-weight:bold;">登録部品（自分で登録）'
+    + (parts.length > 1 ? ' <span style="color:#888;font-weight:normal;font-size:10px;">⠿をドラッグで並び替え</span>' : '')
+    + '</div>';
   if (parts.length === 0) {
     html += '<p style="color:#888; font-size:11px;">登録された部品はありません。図形を選択して上のボタンで登録してください。</p>';
   } else {
     parts.forEach(p => {
-      html += `<div style="display:flex; align-items:center; gap:6px; padding:6px; border-bottom:1px solid #3a3a3a;">
+      const thumb = p.thumb
+        ? `<img src="${p.thumb}" width="56" height="44" style="background:#fff;border:1px solid #ccc;border-radius:3px;flex:none;object-fit:contain;">`
+        : `<span style="width:56px;height:44px;background:#fff;border:1px solid #ccc;border-radius:3px;flex:none;display:inline-flex;align-items:center;justify-content:center;color:#bbb;font-size:9px;">…</span>`;
+      html += `<div class="part-row" draggable="true" data-pid="${p.id}" style="display:flex; align-items:center; gap:6px; padding:6px; border-bottom:1px solid #3a3a3a;">
+        <span class="part-grip" style="cursor:grab; color:#888; font-size:14px; user-select:none;" title="ドラッグで並び替え">⠿</span>
+        ${thumb}
         <span style="flex:1; font-size:12px;"><b>${escapeHtml(p.name)}</b>
           <span style="color:#888; font-size:10px;"> [${p.category}] ${Math.round(p.w/(p.scale||0.15))}×${Math.round(p.h/(p.scale||0.15))}mm相当</span></span>
         <button class="btn primary" style="padding:3px 8px;" onclick="placePart('${p.id}')">配置</button>
@@ -6778,6 +6790,101 @@ function renderPartsList() {
     });
   }
   div.innerHTML = html;
+  setupPartsDnD();
+  ensurePartThumbs();
+}
+
+// 登録部品リストのドラッグ並び替え(イベント委譲で1回だけ設定)
+function setupPartsDnD(){
+  const div = document.getElementById('parts-list');
+  if (!div || div._dndSetup) return;
+  div._dndSetup = true;
+  let dragId = null;
+  div.addEventListener('dragstart', e => {
+    const row = e.target.closest('[data-pid]'); if (!row) return;
+    dragId = row.getAttribute('data-pid');
+    e.dataTransfer.effectAllowed = 'move';
+    row.style.opacity = '0.4';
+  });
+  div.addEventListener('dragend', e => {
+    const row = e.target.closest('[data-pid]'); if (row) row.style.opacity = '';
+    dragId = null;
+  });
+  div.addEventListener('dragover', e => { if (dragId != null) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } });
+  div.addEventListener('drop', e => {
+    if (dragId == null) return;
+    e.preventDefault();
+    const row = e.target.closest('[data-pid]');
+    reorderPart(dragId, row ? row.getAttribute('data-pid') : null, e);
+    dragId = null;
+  });
+}
+
+function reorderPart(dragId, targetId, e){
+  const parts = loadPartsStore();
+  const from = parts.findIndex(p => p.id === dragId);
+  if (from < 0) return;
+  const [moved] = parts.splice(from, 1);
+  let to;
+  if (!targetId || targetId === dragId) {
+    to = parts.length;   // 空白や自分自身の上 → 末尾へ
+  } else {
+    let ti = parts.findIndex(p => p.id === targetId);
+    const row = e.target.closest('[data-pid]');
+    if (row) { const r = row.getBoundingClientRect(); if (e.clientY > r.top + r.height/2) ti++; }   // 行の下半分なら後ろへ
+    to = ti;
+  }
+  parts.splice(to, 0, moved);
+  savePartsStore(parts);
+  renderPartsList();
+}
+
+// 登録部品の保存図形からサムネイル(PNG dataURL)を生成して返す(コールバック)
+function genPartThumb(part, cb){
+  try {
+    fabric.util.enlivenObjects(part.objects || [], objs => {
+      if (!objs || !objs.length) { cb(null); return; }
+      // 保存した相対位置で並べ直す(placePartと同じ考え方、倍率1)
+      objs.forEach((o,i) => {
+        const meta = (part.objects[i]) || {};
+        o.setCoords();
+        const bb = o.getBoundingRect(true, true);
+        o.left += (meta._relLeft || 0) - bb.left;
+        o.top  += (meta._relTop  || 0) - bb.top;
+        o.setCoords();
+        if (o.stroke === SEL_PINK) o.set('stroke', '#000');   // 念のためピンク除去
+      });
+      const W=56, H=44, pad=4;
+      const grp = new fabric.Group(objs, {});
+      grp.setCoords();
+      const bw = Math.max(1, grp.width), bh = Math.max(1, grp.height);
+      const s = Math.min((W-pad*2)/bw, (H-pad*2)/bh);
+      grp.set({ scaleX:s, scaleY:s, left:W/2, top:H/2, originX:'center', originY:'center' });
+      const tc = new fabric.StaticCanvas(null, { width:W, height:H, backgroundColor:'#fff' });
+      tc.add(grp); tc.renderAll();
+      let url = null;
+      try { url = tc.toDataURL({ format:'png' }); } catch(e){}
+      tc.dispose && tc.dispose();
+      cb(url);
+    });
+  } catch(e){ cb(null); }
+}
+
+// サムネイル未生成の登録部品があれば作って保存し、再描画(1回だけ)
+let _thumbGenRunning = false;
+function ensurePartThumbs(){
+  if (_thumbGenRunning) return;
+  const parts = loadPartsStore();
+  const missing = parts.filter(p => !p.thumb);
+  if (!missing.length) return;
+  _thumbGenRunning = true;
+  let pending = missing.length;
+  missing.forEach(p => {
+    genPartThumb(p, url => {
+      if (url) { const all = loadPartsStore(); const t = all.find(x => x.id === p.id); if (t) { t.thumb = url; try { savePartsStore(all); } catch(e){} } }
+      if (--pending === 0) { _thumbGenRunning = false; renderPartsList(); }
+    });
+  });
 }
 
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
