@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.99 (コーン線は既定で赤)</title>
+<title>yoheki-cad v1.00 (選択図形のShift+ドラッグで確実に直交移動)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.99 (コーン線は既定で赤)</span>
+  <span class="ver">v1.00 (選択図形のShift+ドラッグで確実に直交移動)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -4170,6 +4170,23 @@ canvas.on('mouse:down', (opt) => {
   const t = opt.target;
   if (t) t._moveStart = { left: t.left, top: t.top };
 });
+
+// 選択済みの図形を Shift+ドラッグしたら「複数選択の解除」ではなく直交移動にする。
+// fabricより先(capture)に、Shiftの複数選択キーを一時的に無効化(選択済みを掴んだ時だけ)。
+(function setupShiftMove(){
+  const el = canvas.upperCanvasEl;
+  el.addEventListener('mousedown', (e) => {
+    if (state.tool !== 'select' || !e.shiftKey) return;
+    let t = null; try { t = canvas.findTarget(e); } catch(_) {}
+    if (!t) return;   // 空クリックや未選択図形のShiftクリックは従来どおり複数選択
+    const act = canvas.getActiveObject();
+    const selected = (act === t) || (act && act._objects && act._objects.indexOf(t) >= 0);
+    if (selected) { canvas._shiftMoveTmp = canvas.selectionKey; canvas.selectionKey = 'altKey'; }
+  }, true);
+  window.addEventListener('mouseup', () => {
+    if (canvas._shiftMoveTmp !== undefined) { canvas.selectionKey = canvas._shiftMoveTmp; delete canvas._shiftMoveTmp; }
+  });
+})();
 
 // ドラッグ中に、選んだ向き以外の移動を打ち消す。Shift押下中は8方向(45°)に固定。
 canvas.on('object:moving', (opt) => {
