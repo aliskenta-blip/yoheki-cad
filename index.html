@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.85 (コーン線ツール:折れ点・末端・一定間隔にコーン)</title>
+<title>yoheki-cad v0.85b (矢印を連続線にも対応)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.85 (コーン線ツール:折れ点・末端・一定間隔にコーン)</span>
+  <span class="ver">v0.85b (矢印を連続線にも対応)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -559,9 +559,9 @@
     </div>
 
     <div class="panel-section">
-      <h4>線に矢印を付ける <span class="help-tip" data-tip="直線(L)を選択(S)してからボタンを押すと、その端に矢じり(矢印)を付けます。線と矢印は1つにまとまり、まとめて動かせます。矢印の大きさは線の太さに比例します。">?</span></h4>
+      <h4>線に矢印を付ける <span class="help-tip" data-tip="直線(L)や連続線(折れ線)を選択(S)してからボタンを押すと、その端に矢じり(矢印)を付けます。折れ線は端の向き(折れ点の向き)に沿って矢印が付きます。線と矢印は1つにまとまり、まとめて動かせます。矢印の大きさは線の太さに比例。">?</span></h4>
       <div class="prop-row" style="font-size:10px; color:#999; line-height:1.4;">
-        <span>直線を選択(S)してから押す</span>
+        <span>直線・連続線を選択(S)してから押す</span>
       </div>
       <div class="prop-row" style="gap:4px;">
         <button class="btn" style="flex:1; padding:4px;" onclick="addArrowToSelected('left')">◀ 左端</button>
@@ -4068,15 +4068,44 @@ function makeArrowLine(srcLine, which){
   return g;
 }
 
-// 選択した直線に矢印を付ける(複数選択・単体どちらも対応)
+// 連続線(折れ線)に矢印を付ける。端(=折れ点でもある両端)に、その向きの矢じりを付ける。
+function makeArrowPolyline(poly, which){
+  const pts = objWorldPoints(poly);
+  if (!pts || pts.length < 2) return null;
+  const p0 = pts[0], pN = pts[pts.length-1];
+  // 端の外向き方向(端の1つ手前の頂点から端へ)
+  const dir0 = Math.atan2(p0.y - pts[1].y, p0.x - pts[1].x);
+  const dirN = Math.atan2(pN.y - pts[pts.length-2].y, pN.x - pts[pts.length-2].x);
+  // 左端=xが小さい方の端(縦のときはyで判定)
+  let leftEnd, rightEnd, leftDir, rightDir;
+  const useY = Math.abs(p0.x - pN.x) < 1e-6;
+  const p0First = useY ? (p0.y <= pN.y) : (p0.x <= pN.x);
+  if (p0First) { leftEnd=p0; leftDir=dir0; rightEnd=pN; rightDir=dirN; }
+  else         { leftEnd=pN; leftDir=dirN; rightEnd=p0; rightDir=dir0; }
+  const color = (poly.stroke === SEL_PINK ? (poly._preSelStroke || '#000') : poly.stroke) || '#000';
+  const sw = poly.strokeWidth || 2;
+  const ah = Math.max(sw*5, 24), hw = Math.max(sw*2.5, 12);
+  const parts = [ new fabric.Polyline(pts, {
+    stroke:color, strokeWidth:sw, fill:'', strokeDashArray:poly.strokeDashArray||null,
+    strokeLineCap:(poly.strokeDashArray?'butt':'round'), strokeLineJoin:'round'
+  }) ];
+  if (which==='left'  || which==='both') parts.push(makeArrowHead(leftEnd.x, leftEnd.y, leftDir, ah, hw, color));
+  if (which==='right' || which==='both') parts.push(makeArrowHead(rightEnd.x, rightEnd.y, rightDir, ah, hw, color));
+  const g = new fabric.Group(parts, { _type:'arrowline', _layer: poly._layer || state.activeLayer, selectable:true, evented:true });
+  canvas.remove(poly);
+  canvas.add(g);
+  return g;
+}
+
+// 選択した直線・連続線(折れ線)に矢印を付ける(複数選択・単体どちらも対応)
 function addArrowToSelected(which){
   const active = canvas.getActiveObject();
-  if (!active) { alert('矢印を付ける直線を選択(S)してください'); return; }
+  if (!active) { alert('矢印を付ける直線/連続線を選択(S)してください'); return; }
   const targets = (active.type === 'activeSelection') ? active.getObjects() : [active];
-  const lines = targets.filter(o => o.type === 'line');
-  if (!lines.length) { alert('直線(L)を選択してください。矢印は直線に付けられます。\n(折れ線や図形には付けられません)'); return; }
+  const elig = targets.filter(o => o.type === 'line' || o.type === 'polyline');
+  if (!elig.length) { alert('直線(L)または連続線(折れ線)を選択してください。\n(円・文字・図形には付けられません)'); return; }
   canvas.discardActiveObject();   // 個別処理のため選択解除(座標を絶対化)
-  const made = lines.map(ln => makeArrowLine(ln, which));
+  const made = elig.map(o => o.type === 'line' ? makeArrowLine(o, which) : makeArrowPolyline(o, which)).filter(Boolean);
   if (made.length === 1) canvas.setActiveObject(made[0]);
   else if (made.length > 1) canvas.setActiveObject(new fabric.ActiveSelection(made, {canvas}));
   canvas.requestRenderAll();
