@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.83b (寸法の文字サイズ ラベル明確化)</title>
+<title>yoheki-cad v0.84 (寸法を縮尺連動・カンマ・縦書き単位横・角丸め個別/黒)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.83b (寸法の文字サイズ ラベル明確化)</span>
+  <span class="ver">v0.84 (寸法を縮尺連動・カンマ・縦書き単位横・角丸め個別/黒)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -568,7 +568,7 @@
     </div>
 
     <div class="panel-section">
-      <h4>角を丸める(道路カーブ) <span class="help-tip" data-tip="2本の直線(例:水平線と垂直線)を選択(S)してボタンを押すと、その角が半径Rの曲線(丸み)になります。道路や敷地のカーブに。丸めた後はそれを選択して半径を変えられます。">?</span></h4>
+      <h4>角を丸める(道路カーブ) <span class="help-tip" data-tip="2本の直線(例:水平線と垂直線)を選択(S)してボタンを押すと、その角が半径Rの曲線(丸み)になります。道路や敷地のカーブに。結果は『直線2本＋曲線1本』で、それぞれ個別に選べます。半径Rは0(空欄)で線の長さに合わせて自動。">?</span></h4>
       <div class="prop-row">
         <label>半径 R(mm) <span class="help-tip" data-tip="角の丸みの半径。0(空欄)にすると線の長さに合わせて自然なアーチを自動で決めます。数値を入れるとその半径に。後から選択して変更も可。">?</span></label>
         <input type="number" id="fillet-radius" value="0" min="0" step="50" placeholder="0=自動">
@@ -786,12 +786,12 @@
     <div class="panel-section" id="dim-settings" style="display:none">
       <h4>寸法線設定</h4>
       <div class="prop-row">
-        <label>文字サイズ <span class="help-tip" data-tip="寸法の数値の文字の大きさ。これから引く寸法線に適用。引いた後も、寸法線を選択(S)→プロパティの「文字サイズ」で個別に変えられます。">?</span></label>
-        <input type="number" id="dim-size" value="30" min="8" max="200" step="1">
+        <label>文字サイズ <span class="help-tip" data-tip="寸法の数値の文字の大きさ。縮尺に合わせて自動設定されます(A4 1/100で400)。引いた後も、寸法線を選択(S)→プロパティの「文字サイズ」で個別に変えられます。">?</span></label>
+        <input type="number" id="dim-size" value="400" min="8" max="20000" step="10">
       </div>
       <div class="prop-row">
         <label>線の太さ</label>
-        <input type="number" id="dim-width" value="3" min="0.5" max="20" step="0.5">
+        <input type="number" id="dim-width" value="30" min="0.5" max="2000" step="1">
       </div>
       <div class="prop-row">
         <label>単位</label>
@@ -802,8 +802,8 @@
         </select>
       </div>
       <div class="prop-row">
-        <label>補助線の長さ(mm) <span class="help-tip" data-tip="端の返し線(足)の長さ。寸法線の両端から伸びる補助線です。既定50。">?</span></label>
-        <input type="number" id="dim-ext" value="50" min="0" max="2000" step="5">
+        <label>補助線の長さ(mm) <span class="help-tip" data-tip="端の返し線(足)の長さ。縮尺に合わせて自動設定されます(A4 1/100で800)。">?</span></label>
+        <input type="number" id="dim-ext" value="800" min="0" max="40000" step="10">
       </div>
       <div class="prop-row">
         <label><input type="checkbox" id="dim-arrows"> 矢印を付ける <span class="help-tip" data-tip="ONで寸法線の両端に矢印を付けます。既定OFF(矢印なし)。後から選択した寸法線でも切り替えられます。">?</span></label>
@@ -1764,7 +1764,22 @@ function syncFrameStroke() {
   paperFrame.rect.set({ strokeWidth: 2 / z, strokeDashArray: [10/z, 5/z] });
 }
 
+// 寸法のデフォルト寸法を縮尺(1/S)に連動させる。基準は A4 1/100 で
+// 線太さ30・文字400・補助線800・引き出し200(=文字/2で自動)。他の縮尺は S/100 倍。
+let _lastScaleForDims = null;
+function updateScaleDims(force){
+  const S = parseFloat((document.getElementById('paper-scale')||{}).value) || 100;
+  if (!force && _lastScaleForDims === S) return;
+  _lastScaleForDims = S;
+  const f = S / 100;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('dim-width', Math.round(30*f*10)/10);
+  set('dim-size',  Math.round(400*f));
+  set('dim-ext',   Math.round(800*f));
+}
+
 function updatePaperFrame() {
+  updateScaleDims();   // 縮尺が変わったら寸法デフォルトも自動で切替
   // 既存枠を消す
   if (paperFrame) {
     canvas.remove(paperFrame.rect);
@@ -3965,7 +3980,8 @@ function makeArrowLine(srcLine, which){
   let leftP, rightP;
   if (A.x !== B.x) { leftP = A.x < B.x ? A : B; rightP = A.x < B.x ? B : A; }
   else            { leftP = A.y < B.y ? A : B; rightP = A.y < B.y ? B : A; }
-  const color = srcLine.stroke || '#000';
+  // 選択中のピンクではなく元の色を使う
+  const color = (srcLine.stroke === SEL_PINK ? (srcLine._preSelStroke || '#000') : srcLine.stroke) || '#000';
   const sw = srcLine.strokeWidth || 2;
   const ah = Math.max(sw*5, 24), hw = Math.max(sw*2.5, 12);  // 線の太さに比例
   const parts = [ new fabric.Line([A.x, A.y, B.x, B.y], {
@@ -4037,14 +4053,13 @@ function buildFillet(V, far1, far2, r, stroke, sw, dash){
   if (dV(midOf(altSweep)) < dV(midOf(sweep))) sweep = altSweep;
   const N=24, arcPts=[];
   for(let i=0;i<=N;i++){ const a=a0+sweep*i/N; arcPts.push({x:C.x+r*Math.cos(a), y:C.y+r*Math.sin(a)}); }
-  const opt={stroke, strokeWidth:sw, fill:'', strokeDashArray:dash||null, strokeLineCap:'round', strokeLineJoin:'round'};
-  const seg1=new fabric.Line([far1.x,far1.y,P1.x,P1.y], {...opt});
-  const arc =new fabric.Polyline(arcPts, {...opt});
-  const seg2=new fabric.Line([P2.x,P2.y,far2.x,far2.y], {...opt});
-  return new fabric.Group([seg1,arc,seg2], {
-    _type:'fillet', _filletV:{x:V.x,y:V.y}, _far1:{x:far1.x,y:far1.y}, _far2:{x:far2.x,y:far2.y},
-    _radius:Math.round(r), _fstroke:stroke, _fwidth:sw, _layer:state.activeLayer, selectable:true, evented:true
-  });
+  const lay = state.activeLayer;
+  const mk = extra => ({stroke, strokeWidth:sw, fill:'', strokeDashArray:dash||null, strokeLineCap:'round', strokeLineJoin:'round', _layer:lay, selectable:true, evented:true, ...extra});
+  // グループ化しない: 直線2本 + 曲線(円弧)1本 を別々のオブジェクトとして返す(個別選択できるように)
+  const seg1=new fabric.Line([far1.x,far1.y,P1.x,P1.y], mk());
+  const arc =new fabric.Polyline(arcPts, mk());
+  const seg2=new fabric.Line([P2.x,P2.y,far2.x,far2.y], mk());
+  return [seg1, arc, seg2];
 }
 // 2本の(無限)直線の交点。平行ならnull。
 function lineIntersect(a0,a1,b0,b1){
@@ -4073,13 +4088,16 @@ function filletSelected(){
   const far2 = dist(e1.A,V) >= dist(e1.B,V) ? e1.A : e1.B;   // line1の遠い端を残す
   // R未指定(0/空)なら、線の長さに対して自然なアーチ(短い方の約35%)を自動採用
   if (!(r>0)) r = Math.round(Math.min(dist(far1,V), dist(far2,V)) * 0.35);
-  const g = buildFillet(V, far1, far2, r, lines[0].stroke||'#000', lines[0].strokeWidth||2, lines[0].strokeDashArray);
-  if (!g) { alert('この2本では丸められません。\n・2本が平行/一直線でないか\n・半径Rが大きすぎないか(小さくしてみてください)\n・角(端どうし)でつながっているか を確認してください。'); return; }
+  // 線の色は選択ハイライト(ピンク)ではなく元の色を使う(配置時にピンクにならないように)
+  const trueStroke = (lines[0].stroke === SEL_PINK ? (lines[0]._preSelStroke || '#000') : lines[0].stroke) || '#000';
+  const parts = buildFillet(V, far1, far2, r, trueStroke, lines[0].strokeWidth||2, lines[0].strokeDashArray);
+  if (!parts) { alert('この2本では丸められません。\n・2本が平行/一直線でないか\n・半径Rが大きすぎないか(小さくしてみてください)\n・角(端どうし)でつながっているか を確認してください。'); return; }
   canvas.discardActiveObject();
   canvas.remove(lines[0]); canvas.remove(lines[1]);
-  canvas.add(g); canvas.setActiveObject(g);
+  parts.forEach(o => canvas.add(o));
+  canvas.setActiveObject(new fabric.ActiveSelection(parts, {canvas}));
   canvas.requestRenderAll(); saveHistory(); updateStats();
-  document.getElementById('status-mode').textContent = `角を半径R=${g._radius}mmで丸めました。選択して半径を変えられます`;
+  document.getElementById('status-mode').textContent = `角を丸めました(R=${r}mm)。直線2本＋曲線1本として個別に選べます`;
 }
 // フィレットの半径を後から変更(選択→プロパティのR)
 function updateFilletRadius(val){
@@ -4216,23 +4234,30 @@ function createDimensionLine(start, end, opts) {
   }
 
   const unit = document.getElementById('dim-unit').value;
-  // m単位なら mm→m に換算して表示(小数2桁・末尾0は省く)
-  let dispLen;
+  // 3桁ごとにカンマ(1,000)を入れる(整数部のみ)
+  const addComma = s => { const p = String(s).split('.'); p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ','); return p.join('.'); };
+  // 数値部(numStr)と単位部(unitStr)を分けて作る
+  let numStr, unitStr;
   if (unit === 'm') {
-    dispLen = (realLen / 1000).toFixed(2).replace(/\.?0+$/, '') + ' m';
+    numStr = addComma((realLen / 1000).toFixed(2).replace(/\.?0+$/, '')); unitStr = 'm';
   } else {
-    dispLen = realLen + (unit ? ' ' + unit : '');
+    numStr = addComma(realLen); unitStr = unit;   // unit='mm' or ''
   }
   // 手動入力の数値があればそれを使う(空文字は実測値に戻す扱い)
   const manual = opts.manualText;
   const manualStored = (manual != null && manual !== '') ? manual : null;
-  const valStr = manualStored != null ? manualStored : dispLen;
+  const valStr = manualStored != null ? manualStored : (numStr + (unitStr ? ' ' + unitStr : ''));
 
   // 文字向き: auto=線に沿う / horizontal=水平 / vertical=縦書き(縦に積む)
   const orient = opts.orient || ((document.getElementById('dim-orient')||{}).value) || 'auto';
   let textStr = valStr, textAngle;
   if (orient === 'horizontal') { textAngle = 0; }
-  else if (orient === 'vertical') { textAngle = 0; textStr = toVerticalText(valStr); }
+  else if (orient === 'vertical') {
+    textAngle = 0;
+    // 数字は縦に積み、単位(mm/m)は1行=横書きのまま下に付ける
+    if (manualStored != null) { textStr = toVerticalText(valStr); }
+    else { textStr = numStr.split('').concat(unitStr ? [unitStr] : []).join('\n'); }
+  }
   else { textAngle = pulledOut ? 0 : (angle > 90 || angle < -90 ? angle + 180 : angle); }
 
   const text = new fabric.Text(textStr, {
