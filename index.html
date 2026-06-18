@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.82 (右クリックで選択・節間消しT字・フィレット角度保持)</title>
+<title>yoheki-cad v0.83 (フィレット自然アーチ・確定は右クリックのみ)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.82 (右クリックで選択・節間消しT字・フィレット角度保持)</span>
+  <span class="ver">v0.83 (フィレット自然アーチ・確定は右クリックのみ)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -311,7 +311,7 @@
   <button class="tool-btn" data-tool="line" data-help="直線を引く。始点→終点をドラッグ。Shiftで水平/垂直" title="直線 (L)" onclick="setTool('line')">
     <span class="icon">╱</span><span class="label">線</span>
   </button>
-  <button class="tool-btn" data-tool="polyline" data-help="連続線(折れ線)。クリックで点を足していき、ダブルクリック/Enterで確定。色・線種は左の「線の設定」。コーンを結ぶ赤い破線などに" title="連続線" onclick="setTool('polyline')">
+  <button class="tool-btn" data-tool="polyline" data-help="連続線(折れ線)。クリックで点を足していき、右クリックで確定(Enterも可)。色・線種は左の「線の設定」。コーンを結ぶ赤い破線などに" title="連続線" onclick="setTool('polyline')">
     <span class="icon">⊿</span><span class="label">連続線</span>
   </button>
   <button class="tool-btn" data-tool="rect" data-help="矩形を描く。対角にドラッグ" title="矩形 (R)" onclick="setTool('rect')">
@@ -320,13 +320,13 @@
   <button class="tool-btn" data-tool="circle" data-help="円を描く。中心から半径をドラッグ" title="円 (C)" onclick="setTool('circle')">
     <span class="icon">○</span><span class="label">円</span>
   </button>
-  <button class="tool-btn" data-tool="polygon" data-help="多角形。クリックで頂点追加→ダブルクリック/Enterで確定" title="多角形" onclick="setTool('polygon')">
+  <button class="tool-btn" data-tool="polygon" data-help="多角形。クリックで頂点追加→右クリックで確定(Enterも可)" title="多角形" onclick="setTool('polygon')">
     <span class="icon">⬡</span><span class="label">多角形</span>
   </button>
   <button class="tool-btn" data-tool="freehand" data-help="手書きの自由曲線" title="フリーハンド (F)" onclick="setTool('freehand')">
     <span class="icon">✎</span><span class="label">手書き</span>
   </button>
-  <button class="tool-btn" data-tool="curve" data-help="きれいな曲線。通過させたい点をクリック→ダブルクリック/Enterで滑らかな曲線に確定" title="曲線" onclick="setTool('curve')">
+  <button class="tool-btn" data-tool="curve" data-help="きれいな曲線。通過させたい点をクリック→右クリックで滑らかな曲線に確定(Enterも可)" title="曲線" onclick="setTool('curve')">
     <span class="icon">〜</span><span class="label">曲線</span>
   </button>
   <div class="tool-divider"></div>
@@ -570,8 +570,8 @@
     <div class="panel-section">
       <h4>角を丸める(道路カーブ) <span class="help-tip" data-tip="2本の直線(例:水平線と垂直線)を選択(S)してボタンを押すと、その角が半径Rの曲線(丸み)になります。道路や敷地のカーブに。丸めた後はそれを選択して半径を変えられます。">?</span></h4>
       <div class="prop-row">
-        <label>半径 R(mm)</label>
-        <input type="number" id="fillet-radius" value="1000" min="1" step="50">
+        <label>半径 R(mm) <span class="help-tip" data-tip="角の丸みの半径。0(空欄)にすると線の長さに合わせて自然なアーチを自動で決めます。数値を入れるとその半径に。後から選択して変更も可。">?</span></label>
+        <input type="number" id="fillet-radius" value="0" min="0" step="50" placeholder="0=自動">
       </div>
       <div class="prop-row" style="font-size:10px; color:#999; line-height:1.4;">
         <span>角でつながる<b>2本の直線</b>を選択(S)してから押す</span>
@@ -701,10 +701,10 @@
         </select>
       </div>
       <div class="prop-row">
-        <label><input type="checkbox" id="rebar-polyline"> 折れ線で描く <span class="help-tip" data-tip="ONにすると、クリックで頂点を追加して曲がった鉄筋(L字・コ字・U字)を直線でつなげて描けます。ダブルクリックかEnterで確定。OFFは始点→終点のドラッグで1本。">?</span></label>
+        <label><input type="checkbox" id="rebar-polyline"> 折れ線で描く <span class="help-tip" data-tip="ONにすると、クリックで頂点を追加して曲がった鉄筋(L字・コ字・U字)を直線でつなげて描けます。右クリックで確定(Enterも可)。OFFは始点→終点のドラッグで1本。">?</span></label>
       </div>
       <div class="prop-row" style="font-size:10px;color:#999;">
-        <span>折れ線: クリックで頂点→ダブルクリック/Enterで確定</span>
+        <span>折れ線: クリックで頂点→右クリックで確定(Enterも可)</span>
       </div>
       <div class="prop-row" style="margin-top:6px; border-top:1px solid #444; padding-top:6px;">
         <label>テンプレート <span class="help-tip" data-tip="よく使う形の鉄筋を寸法指定で配置します。例:1200×100のL字筋。配置後は移動・コピー・連続複製できます。">?</span></label>
@@ -810,7 +810,7 @@
         <span></span>
       </div>
       <div class="prop-row">
-        <label><input type="checkbox" id="dim-chain"> 連続して測る <span class="help-tip" data-tip="ONにすると、クリックした点を次々つないで寸法線を連続で引けます(端が次の始点に)。ダブルクリックかEscで終了。OFFは始点→終点のドラッグで1本ずつ。">?</span></label>
+        <label><input type="checkbox" id="dim-chain"> 連続して測る <span class="help-tip" data-tip="ONにすると、クリックした点を次々つないで寸法線を連続で引けます(端が次の始点に)。右クリックかEscで終了。OFFは始点→終点のドラッグで1本ずつ。">?</span></label>
         <span></span>
       </div>
       <div class="prop-row">
@@ -1058,7 +1058,7 @@
       <p><b>🆕 v0.33 鉄筋の描画:</b></p>
       <ul>
         <li><b>鉄筋のフック(曲げ)が実寸で見える</b>ように修正(以前は約24mmで線に見えていた→約10dに)。端部の曲げ設定が反映されます</li>
-        <li><b>折れ線で描くとき、次の点までの線がカーソルに追従</b>するように(連続線を描く感覚に)。クリックで頂点→ダブルクリック/Enterで確定。多角形・多角形ハッチも同様</li>
+        <li><b>折れ線で描くとき、次の点までの線がカーソルに追従</b>するように(連続線を描く感覚に)。クリックで頂点→右クリックで確定(Enterも可)。多角形・多角形ハッチも同様</li>
       </ul>
       <p><b>🆕 v0.32 複製を使いやすく:</b></p>
       <ul>
@@ -1088,7 +1088,7 @@
       <p><b>🆕 v0.24 多角形ハッチ:</b> ハッチ(▦)モーダルの「▰ 多角形で囲んで塗る」で、斜め・多角形の範囲をクリックして囲み、ダブルクリック/Enterで塗れます。</p>
       <p><b>🆕 v0.23 鉄筋の強化:</b></p>
       <ul>
-        <li><b>折れ線鉄筋</b>: 鉄筋(B)設定の「折れ線で描く」をONにすると、クリックで頂点を足してL字・コ字・U字の鉄筋を直線で描けます(ダブルクリック/Enterで確定)</li>
+        <li><b>折れ線鉄筋</b>: 鉄筋(B)設定の「折れ線で描く」をONにすると、クリックで頂点を足してL字・コ字・U字の鉄筋を直線で描けます(右クリックで確定(Enterも可))</li>
         <li><b>鉄筋テンプレート</b>: 形(直線/L字/コ字/U字)と寸法(主筋長・フック幅mm)を指定して配置。例:1200×100のL字筋</li>
         <li><b>横筋○のスナップ</b>: 「オブジェクトスナップ」ON(既定)で、縦筋の<b>端点・交点・垂線</b>に吸着して横筋○を置けます</li>
       </ul>
@@ -2461,7 +2461,7 @@ function setTool(tool) {
   // ステータス
   const labels = {
     'select': '選択', 'line': '直線', 'rect': '矩形', 'circle': '円',
-    'polygon': '多角形', 'polyline': '連続線（クリックで点→ダブルクリック/Enterで確定）', 'freehand': 'フリーハンド', 'curve': '曲線（クリックで通過点→ダブルクリック/Enterで確定）', 'dim': '寸法線',
+    'polygon': '多角形', 'polyline': '連続線（クリックで点→右クリックで確定(Enterも可)）', 'freehand': 'フリーハンド', 'curve': '曲線（クリックで通過点→右クリックで確定(Enterも可)）', 'dim': '寸法線',
     'rebar': '鉄筋', 'text': 'テキスト', 'eraser': '消しゴム', 'trim': '節間消し',
     'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線', 'facepen': '面指定ペン', 'rolepen': '縦横指定ペン',
     'calib': '縮尺補正（実距離のわかる2点をドラッグ）',
@@ -3069,15 +3069,9 @@ canvas.on('mouse:up', (opt) => {
   state.isDrawing = false;
 });
 
-// 多角形の確定
+// ダブルクリックは「描画の確定」には使わない(確定は右クリックのみ。ユーザー要望)。
+// 寸法線のダブルクリック=数値編集だけ残す。
 canvas.on('mouse:dblclick', (opt) => {
-  if (polyDrawing() && state.polygonPoints.length >= polyMinPts()) {
-    finishPolygon();
-    return;
-  }
-  // 連続寸法を終了
-  if (dimChainMode() && state.dimChainPrev) { endDimChain(); return; }
-  // 寸法線をダブルクリック→数値を後から入力・変更
   const t = opt && opt.target;
   if (t && t._type === 'dimension') { editDimensionValue(t); }
 });
@@ -3140,7 +3134,7 @@ function finishPolylineChain(){
   state.tempObject = null;
   saveHistory();
   updateStats();
-  document.getElementById('status-mode').textContent = '連続線を描きました。続けてクリック→ダブルクリック/Enterで確定';
+  document.getElementById('status-mode').textContent = '連続線を描きました。続けてクリック→右クリックで確定(Enterも可)';
 }
 
 // 通過点を滑らかに結ぶSVGパス文字列(Catmull-Romスプライン→3次ベジェ変換)。
@@ -3181,7 +3175,7 @@ function finishCurve(){
   state.tempObject = null;
   saveHistory();
   updateStats();
-  document.getElementById('status-mode').textContent = '曲線を描きました。続けてクリック→ダブルクリック/Enterで次の曲線を確定';
+  document.getElementById('status-mode').textContent = '曲線を描きました。続けてクリック→右クリックで次の曲線を確定';
 }
 
 // ② 折れ線鉄筋を確定(開いた折れ線=L字/コ字/U字)。線色・太さは径から。
@@ -4036,6 +4030,11 @@ function buildFillet(V, far1, far2, r, stroke, sw, dash){
   const C=add(V, mul(bis, r/Math.sin(alpha/2)));
   let a0=Math.atan2(P1.y-C.y,P1.x-C.x), a1=Math.atan2(P2.y-C.y,P2.x-C.x);
   let sweep=a1-a0; while(sweep>Math.PI)sweep-=2*Math.PI; while(sweep<-Math.PI)sweep+=2*Math.PI;
+  // 円弧は必ず「角の頂点V側」に膨らむ方を選ぶ(大回り=ループ防止)
+  const midOf = sw => { const a=a0+sw/2; return {x:C.x+r*Math.cos(a), y:C.y+r*Math.sin(a)}; };
+  const dV = p => Math.hypot(p.x-V.x, p.y-V.y);
+  const altSweep = sweep > 0 ? sweep-2*Math.PI : sweep+2*Math.PI;
+  if (dV(midOf(altSweep)) < dV(midOf(sweep))) sweep = altSweep;
   const N=24, arcPts=[];
   for(let i=0;i<=N;i++){ const a=a0+sweep*i/N; arcPts.push({x:C.x+r*Math.cos(a), y:C.y+r*Math.sin(a)}); }
   const opt={stroke, strokeWidth:sw, fill:'', strokeDashArray:dash||null, strokeLineCap:'round', strokeLineJoin:'round'};
@@ -4065,7 +4064,6 @@ function filletSelected(){
   if (lines.length !== 2) { alert('角を丸めたい2本の直線を選択(S)してください(例:水平線と垂直線)。\nShift+クリックか枠ドラッグで2本選べます。'); return; }
   const rEl = document.getElementById('fillet-radius');
   let r = rEl ? parseFloat(rEl.value) : 0;
-  if (!(r>0)) r = (state.gridSize||50)*2;
   const e0 = lineEndsWorld(lines[0]), e1 = lineEndsWorld(lines[1]);
   // 角の頂点 V = 2直線の交点(=元の線の向きをそのまま使う→角度は変わらない)
   const V = lineIntersect(e0.A, e0.B, e1.A, e1.B);
@@ -4073,6 +4071,8 @@ function filletSelected(){
   const dist = (p,q)=>Math.hypot(p.x-q.x, p.y-q.y);
   const far1 = dist(e0.A,V) >= dist(e0.B,V) ? e0.A : e0.B;   // line0の遠い端を残す
   const far2 = dist(e1.A,V) >= dist(e1.B,V) ? e1.A : e1.B;   // line1の遠い端を残す
+  // R未指定(0/空)なら、線の長さに対して自然なアーチ(短い方の約35%)を自動採用
+  if (!(r>0)) r = Math.round(Math.min(dist(far1,V), dist(far2,V)) * 0.35);
   const g = buildFillet(V, far1, far2, r, lines[0].stroke||'#000', lines[0].strokeWidth||2, lines[0].strokeDashArray);
   if (!g) { alert('この2本では丸められません。\n・2本が平行/一直線でないか\n・半径Rが大きすぎないか(小さくしてみてください)\n・角(端どうし)でつながっているか を確認してください。'); return; }
   canvas.discardActiveObject();
@@ -4980,7 +4980,7 @@ function dimChainMode(){ return state.tool === 'dim' && !!((document.getElementB
 function handleDimChainClick(pt){
   if (!state.dimChainPrev) {
     state.dimChainPrev = {x:pt.x, y:pt.y};
-    document.getElementById('status-mode').textContent = '連続寸法: 次の点をクリック(ダブルクリック/Escで終了)';
+    document.getElementById('status-mode').textContent = '連続寸法: 次の点をクリック(右クリック/Escで終了)';
     return;
   }
   const s = state.dimChainPrev, e = {x:pt.x, y:pt.y};
@@ -4991,7 +4991,7 @@ function handleDimChainClick(pt){
   canvas.add(dim);
   state.dimChainPrev = e;   // 端が次の始点に
   canvas.renderAll(); saveHistory(); updateStats();
-  document.getElementById('status-mode').textContent = '連続寸法: 次の点をクリック(ダブルクリック/Escで終了)';
+  document.getElementById('status-mode').textContent = '連続寸法: 次の点をクリック(右クリック/Escで終了)';
 }
 function endDimChain(){
   if (state.dimChainPreview) { canvas.remove(state.dimChainPreview); state.dimChainPreview = null; }
@@ -6194,7 +6194,7 @@ function startHatchPolyDraw() {
   setTool('hatch');
   state.hatchPoly = true;   // setToolの後に立てる(setToolがクリアするため)
   closeModal('modal-hatch');
-  document.getElementById('status-mode').textContent = 'モード: ハッチ多角形 (クリックで頂点→ダブルクリック/Enterで確定)';
+  document.getElementById('status-mode').textContent = 'モード: ハッチ多角形 (クリックで頂点→右クリックで確定(Enterも可))';
 }
 
 // 多角形ハッチを確定
