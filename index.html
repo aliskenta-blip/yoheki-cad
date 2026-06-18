@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.95 (多角形を連続線に統合・引き出し文字を大きく)</title>
+<title>yoheki-cad v0.96 (楕円ツール・中心点・面積算出)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.95 (多角形を連続線に統合・引き出し文字を大きく)</span>
+  <span class="ver">v0.96 (楕円ツール・中心点・面積算出)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -322,6 +322,9 @@
   </button>
   <button class="tool-btn" data-tool="circle" data-help="円を描く。中心から半径をドラッグ" title="円 (C)" onclick="setTool('circle')">
     <span class="icon">○</span><span class="label">円</span>
+  </button>
+  <button class="tool-btn" data-tool="ellipse" data-help="楕円を描く。対角(枠)にドラッグ" title="楕円" onclick="setTool('ellipse')">
+    <span class="icon">⬭</span><span class="label">楕円</span>
   </button>
   <button class="tool-btn" data-tool="freehand" data-help="手書きの自由曲線" title="フリーハンド (F)" onclick="setTool('freehand')">
     <span class="icon">✎</span><span class="label">手書き</span>
@@ -2500,7 +2503,7 @@ function setTool(tool) {
 
   // ステータス
   const labels = {
-    'select': '選択', 'line': '直線', 'rect': '矩形', 'circle': '円',
+    'select': '選択', 'line': '直線', 'rect': '矩形', 'circle': '円', 'ellipse': '楕円（対角にドラッグ）',
     'polygon': '多角形', 'polyline': '連続線（クリックで点→右クリックで確定(Enterも可)）', 'coneline': 'コーン線（クリックで点→右クリックで確定。折れ点・末端・一定間隔にコーン配置）', 'freehand': 'フリーハンド', 'curve': '曲線（クリックで通過点→右クリックで確定(Enterも可)）', 'dim': '寸法線',
     'rebar': '鉄筋', 'text': 'テキスト', 'eraser': '消しゴム', 'trim': '節間消し',
     'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線', 'facepen': '面指定ペン', 'rolepen': '縦横指定ペン',
@@ -2681,6 +2684,11 @@ canvas.on('mouse:down', (opt) => {
   } else if (state.tool === 'circle') {
     state.tempObject = new fabric.Circle({
       ...baseProps, left: pt.x, top: pt.y, radius: 1, originX: 'center', originY: 'center'
+    });
+    canvas.add(state.tempObject);
+  } else if (state.tool === 'ellipse') {
+    state.tempObject = new fabric.Ellipse({
+      ...baseProps, left: pt.x, top: pt.y, rx: 1, ry: 1, originX: 'left', originY: 'top'
     });
     canvas.add(state.tempObject);
   } else if (polyDrawing()) {
@@ -2892,6 +2900,11 @@ canvas.on('mouse:move', (opt) => {
   } else if (state.tool === 'circle') {
     const r = Math.sqrt(Math.pow(endPt.x - state.startPoint.x, 2) + Math.pow(endPt.y - state.startPoint.y, 2));
     state.tempObject.set({radius: r});
+  } else if (state.tool === 'ellipse') {
+    state.tempObject.set({
+      left: Math.min(state.startPoint.x, endPt.x), top: Math.min(state.startPoint.y, endPt.y),
+      rx: Math.abs(endPt.x - state.startPoint.x)/2, ry: Math.abs(endPt.y - state.startPoint.y)/2
+    });
   } else if (state.tool === 'dim') {
     canvas.remove(state.tempObject);
     state.tempObject = createDimensionLine(state.startPoint, endPt);
@@ -3611,6 +3624,56 @@ function applyShapeDims() {
   canvas.setActiveObject(shape);
   canvas.renderAll(); saveHistory(); updateStats();
   document.getElementById('status-mode').textContent = '形を入力距離で実寸化しました。';
+}
+
+// ===== 面積・中心点 =====
+// 多角形(ワールド頂点)の面積(mm²)。シューレース公式。
+function polyAreaMM(pts){
+  let a = 0;
+  for (let i=0;i<pts.length;i++){ const p=pts[i], q=pts[(i+1)%pts.length]; a += p.x*q.y - q.x*p.y; }
+  return Math.abs(a)/2;
+}
+// 図形の面積(m²)。対象外はnull。activeSelectionは閉図形を合算。
+function objAreaM2(obj){
+  if (!obj) return null;
+  const t = obj.type;
+  if (t === 'rect')    return (obj.width*(obj.scaleX||1)) * (obj.height*(obj.scaleY||1)) / 1e6;
+  if (t === 'circle')  return Math.PI * Math.pow(obj.radius*(obj.scaleX||1), 2) / 1e6;
+  if (t === 'ellipse') return Math.PI * (obj.rx*(obj.scaleX||1)) * (obj.ry*(obj.scaleY||1)) / 1e6;
+  if (t === 'polygon' || t === 'polyline'){ const pts = shapeWorldPoints(obj); return pts && pts.length>=3 ? polyAreaMM(pts)/1e6 : 0; }
+  if (t === 'activeSelection'){
+    let sum = 0; obj.getObjects().forEach(o => { const a = objAreaM2(o); if (a) sum += a; }); return sum;
+  }
+  return null;
+}
+// 図形の中心(ワールド座標, 外形の中央)
+function objCenterWorld(obj){ const b = obj.getBoundingRect(true, true); return {x:b.left+b.width/2, y:b.top+b.height/2, b}; }
+
+// 選択図形の中心に十字マーク(交点はオブジェクトスナップで吸着可)
+function markCenter(){
+  const obj = canvas.getActiveObject();
+  if (!obj){ alert('中心点を出す図形を選択(S)してください'); return; }
+  const c = objCenterWorld(obj);
+  const sz = Math.max(80, Math.min(c.b.width, c.b.height)*0.18);
+  const lw = Math.max(2, sz*0.04);
+  const opt = {stroke:'#e91e63', strokeWidth:lw, _layer:state.activeLayer, selectable:(state.tool==='select'), evented:true};
+  canvas.add(new fabric.Line([c.x-sz, c.y, c.x+sz, c.y], {...opt}));
+  canvas.add(new fabric.Line([c.x, c.y-sz, c.x, c.y+sz], {...opt}));
+  canvas.requestRenderAll(); saveHistory(); updateStats();
+  document.getElementById('status-mode').textContent = '中心に＋印を付けました(交点に吸着して円が描けます)';
+}
+// 選択図形の面積を中心に文字で記入
+function labelArea(){
+  const obj = canvas.getActiveObject();
+  const area = objAreaM2(obj);
+  if (area == null){ alert('面積を出せる図形(四角・円・楕円・多角形・それらの選択)を選んでください'); return; }
+  const c = objCenterWorld(obj);
+  const t = new fabric.IText(area.toFixed(2)+' ㎡', {
+    left:c.x, top:c.y, originX:'center', originY:'center',
+    fontSize: defaultTextSize(), fill:'#000', fontFamily:'Yu Gothic, sans-serif',
+    textAlign:'center', _layer:state.activeLayer
+  });
+  canvas.add(t); canvas.requestRenderAll(); saveHistory(); updateStats();
 }
 
 // 縮尺補正: ドラッグした2点の実距離を入力 → 図面全体を比率で拡大縮小
@@ -4981,7 +5044,15 @@ function updateSelectedProps() {
       html += `<div class="prop-row"><label>大きさ(倍率%) <span class="help-tip" data-tip="選択した図形全体をまとめて拡大・縮小します(100で等倍)。配置の間隔も比例して変わります。角のハンドルをドラッグしても拡大縮小できます。">?</span></label><input type="number" min="1" step="5" value="100" onchange="scaleSelection(this.value)"></div>`;
     }
     if (obj.type === 'line' || obj.type === 'polyline' || obj.type === 'polygon' || obj.type === 'activeSelection') {
-      html += `<div class="prop-row"><button class="btn" style="width:100%;" onclick="openShapeDims()">📏 各辺の距離を入力(実寸化)</button></div>`;
+      html += `<div class="prop-row"><button class="btn" style="width:100%;" onclick="openShapeDims()">📏 各辺の距離を入力(補正・実寸化)</button></div>`;
+    }
+    // 面積・中心点(四角・円・楕円・多角形・選択)
+    const _area = objAreaM2(obj);
+    if (_area != null && _area > 0) {
+      html += `<div class="prop-row"><label>面積</label><span style="font-weight:bold;color:#2e7d32;">${_area.toFixed(2)} ㎡</span></div>`;
+      html += `<div class="prop-row" style="gap:4px;">
+        <button class="btn" style="flex:1;padding:4px;" onclick="markCenter()">＋ 中心点</button>
+        <button class="btn" style="flex:1;padding:4px;" onclick="labelArea()">㎡ 面積を記入</button></div>`;
     }
     if (obj._hatch) {
       const op = Math.round((obj.opacity != null ? obj.opacity : 1) * 100);
