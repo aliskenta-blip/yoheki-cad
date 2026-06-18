@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.77 (左欄を折りたたみ＋ツール連動で整理)</title>
+<title>yoheki-cad v0.78 (寸法の数値後入力・文字向き・縦書き)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.77 (左欄を折りたたみ＋ツール連動で整理)</span>
+  <span class="ver">v0.78 (寸法の数値後入力・文字向き・縦書き)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -545,6 +545,14 @@
         <label>文字サイズ(mm) <span class="help-tip" data-tip="テキスト(T)・引き出し線(G)の文字の大きさの初期値(mm)。描いた後も、選択して個別に変更できます。印刷縮尺で読める大きさに(例:1/50なら250mmで紙上5mm)。">?</span></label>
         <input type="number" id="default-text-size" value="100" min="5" max="5000" step="10">
       </div>
+      <div class="prop-row">
+        <label><input type="checkbox" id="text-vertical"> 縦書きで入れる <span class="help-tip" data-tip="文字(T)を縦書き(文字を縦に積む)で入れます。「歩道」など縦書きしたい注記に。チェックを入れてから文字ツールで入力。下のボタンで選択中の文字を縦/横に切替もできます。">?</span></label>
+        <span></span>
+      </div>
+      <div class="prop-row" style="gap:4px;">
+        <button class="btn" style="flex:1; padding:4px;" onclick="setSelectedTextVertical(true)">選択を縦書き</button>
+        <button class="btn" style="flex:1; padding:4px;" onclick="setSelectedTextVertical(false)">選択を横書き</button>
+      </div>
     </div>
 
     <div class="panel-section">
@@ -780,6 +788,17 @@
           <option value="m">m（現場全体図向け）</option>
           <option value="">無し</option>
         </select>
+      </div>
+      <div class="prop-row">
+        <label>文字向き <span class="help-tip" data-tip="寸法の数値の向き。自動=線に沿って回る(縦の寸法線は数字も縦向き)。横書き=常に水平で読みやすい。縦書き=数字を縦に積む。">?</span></label>
+        <select id="dim-orient">
+          <option value="auto" selected>自動(線に沿う)</option>
+          <option value="horizontal">横書き(水平)</option>
+          <option value="vertical">縦書き(縦に積む)</option>
+        </select>
+      </div>
+      <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
+        <span>数値は<b>あとから変更できます</b>: 寸法線を<b>ダブルクリック</b>→好きな数値を入力(空欄で実測値に戻る)。手書き図など実測がズレるときに。</span>
       </div>
     </div>
     
@@ -2631,11 +2650,14 @@ canvas.on('mouse:down', (opt) => {
   } else if (state.tool === 'text') {
     const text = prompt('テキストを入力:', '注記');
     if (text) {
-      const t = new fabric.IText(text, {
+      const vEl = document.getElementById('text-vertical');
+      const vertical = vEl && vEl.checked;
+      const t = new fabric.IText(vertical ? toVerticalText(text) : text, {
         left: pt.x, top: pt.y,
         fontSize: defaultTextSize(), fill: strokeColor,
         fontFamily: 'Yu Gothic, sans-serif',
-        _layer: state.activeLayer
+        textAlign: 'center', lineHeight: vertical ? 0.95 : 1.16,
+        _layer: state.activeLayer, _vertical: !!vertical, _vtext: text
       });
       canvas.add(t);
       saveHistory();
@@ -2997,10 +3019,14 @@ canvas.on('mouse:up', (opt) => {
 });
 
 // 多角形の確定
-canvas.on('mouse:dblclick', () => {
+canvas.on('mouse:dblclick', (opt) => {
   if (polyDrawing() && state.polygonPoints.length >= polyMinPts()) {
     finishPolygon();
+    return;
   }
+  // 寸法線をダブルクリック→数値を後から入力・変更
+  const t = opt && opt.target;
+  if (t && t._type === 'dimension') { editDimensionValue(t); }
 });
 
 // 折れ線系の描画中か(多角形 or 鉄筋の折れ線モード)。② L字/コ字/U字鉄筋を直線で描く。
@@ -3920,6 +3946,51 @@ function addArrowToSelected(which){
   saveHistory(); updateStats();
 }
 
+// 文字列を縦書き(1文字ずつ縦に積む)に変換。改行は除いてから1文字ずつ並べる。
+function toVerticalText(s){ return String(s).replace(/\r?\n/g, '').split('').join('\n'); }
+
+// 選択中の文字を縦書き/横書きに切り替える。元の文を_vtextに保持して相互変換。
+function setSelectedTextVertical(v){
+  const objs = canvas.getActiveObjects().filter(o => o.type === 'i-text' || o.type === 'text' || o.type === 'textbox');
+  if (!objs.length) { alert('縦書き/横書きにする文字を選択(S)してください'); return; }
+  objs.forEach(o => {
+    const base = (o._vtext != null) ? o._vtext : String(o.text).replace(/\n/g, '');
+    o._vtext = base; o._vertical = v;
+    o.set({ text: v ? toVerticalText(base) : base, textAlign: 'center', lineHeight: v ? 0.95 : 1.16 });
+    o.setCoords();
+  });
+  canvas.discardActiveObject();
+  canvas.requestRenderAll(); saveHistory();
+  document.getElementById('status-mode').textContent = `${objs.length}個の文字を${v?'縦書き':'横書き'}にしました`;
+}
+
+// 寸法線の数値を後から編集(ダブルクリック)。空欄で実測値に戻す。
+function editDimensionValue(group){
+  const cur = (group._manualText != null) ? group._manualText : (group._length != null ? String(group._length) : '');
+  const v = prompt('寸法の数値を入力（空欄にすると実測値に戻ります）:', cur);
+  if (v === null) return;
+  regenDimension(group, { manualText: v.trim() });
+  saveHistory(); updateStats();
+}
+
+// 寸法線グループを作り直す(数値・向きの変更を反映)。位置は_start/_endから復元。
+function regenDimension(group, changes){
+  changes = changes || {};
+  const s = group._start, e = group._end;
+  if (!s || !e) return group;
+  const ng = createDimensionLine(s, e, {
+    size: group._dimSize, width: group._dimWidth, extLen: group._extLen, textOff: group._textOff,
+    orient: (changes.orient != null) ? changes.orient : (group._textOrient || 'auto'),
+    manualText: (changes.manualText !== undefined) ? changes.manualText : group._manualText
+  });
+  ng._layer = group._layer;
+  canvas.remove(group);
+  canvas.add(ng);
+  canvas.setActiveObject(ng);
+  canvas.requestRenderAll();
+  return ng;
+}
+
 function createDimensionLine(start, end, opts) {
   opts = opts || {};
   const len = Math.sqrt(Math.pow(end.x-start.x, 2) + Math.pow(end.y-start.y, 2));
@@ -3998,13 +4069,26 @@ function createDimensionLine(start, end, opts) {
   } else {
     dispLen = realLen + (unit ? ' ' + unit : '');
   }
-  const text = new fabric.Text(dispLen, {
+  // 手動入力の数値があればそれを使う(空文字は実測値に戻す扱い)
+  const manual = opts.manualText;
+  const manualStored = (manual != null && manual !== '') ? manual : null;
+  const valStr = manualStored != null ? manualStored : dispLen;
+
+  // 文字向き: auto=線に沿う / horizontal=水平 / vertical=縦書き(縦に積む)
+  const orient = opts.orient || ((document.getElementById('dim-orient')||{}).value) || 'auto';
+  let textStr = valStr, textAngle;
+  if (orient === 'horizontal') { textAngle = 0; }
+  else if (orient === 'vertical') { textAngle = 0; textStr = toVerticalText(valStr); }
+  else { textAngle = pulledOut ? 0 : (angle > 90 || angle < -90 ? angle + 180 : angle); }
+
+  const text = new fabric.Text(textStr, {
     left: textPos.x, top: textPos.y,
     fontSize: dimSize,
     fontFamily: 'Yu Gothic, sans-serif',
     fill: '#000',
-    originX: 'center', originY: 'center',
-    angle: pulledOut ? 0 : (angle > 90 || angle < -90 ? angle + 180 : angle)
+    originX: 'center', originY: 'center', textAlign: 'center',
+    lineHeight: orient === 'vertical' ? 0.95 : 1.16,
+    angle: textAngle
   });
   dimParts.push(text);
 
@@ -4015,6 +4099,8 @@ function createDimensionLine(start, end, opts) {
     _dimSize: dimSize,
     _extLen: ext,
     _textOff: off,
+    _textOrient: orient,
+    _manualText: manualStored,
     _start: {x:start.x, y:start.y},
     _end: {x:end.x, y:end.y},
     _layer: state.activeLayer,
@@ -4207,7 +4293,7 @@ function saveHistory() {
   if (state.isLoadingHistory) return;
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
-  const snap = withoutSelHighlight(() => JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked'])));
+  const snap = withoutSelHighlight(() => JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_vertical', '_vtext', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked'])));
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex++;
@@ -4272,7 +4358,7 @@ function duplicateSelected() {
 }
 
 // クローン時に引き継ぐカスタムプロパティ
-const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_partName','_face','_origStroke','_origFill'];
+const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_textOrient','_manualText','_vertical','_vtext','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_partName','_face','_origStroke','_origFill'];
 let _clipboard = null;
 
 // ⑫ コピー(Ctrl+C)
@@ -4498,6 +4584,14 @@ function updateSelectedProps() {
         <input type="number" min="0.5" max="10" step="0.5" value="${obj._dimWidth || 1}" onchange="updateDimWidth(this.value)"></div>
       <div class="prop-row"><label>文字サイズ</label>
         <input type="number" min="6" max="60" step="1" value="${obj._dimSize || 14}" onchange="updateDimSize(this.value)"></div>
+      <div class="prop-row"><label>文字向き <span class="help-tip" data-tip="数値の向き。自動=線に沿う／横書き=水平／縦書き=縦に積む。">?</span></label>
+        <select onchange="updateDimOrient(this.value)">
+          <option value="auto" ${(obj._textOrient||'auto')==='auto'?'selected':''}>自動</option>
+          <option value="horizontal" ${obj._textOrient==='horizontal'?'selected':''}>横書き</option>
+          <option value="vertical" ${obj._textOrient==='vertical'?'selected':''}>縦書き</option>
+        </select></div>
+      <div class="prop-row"><label>数値(手入力) <span class="help-tip" data-tip="数値を自由に書き換えます(例:全長や記号入り)。空欄にすると実測値に戻ります。寸法線のダブルクリックでも編集できます。">?</span></label>
+        <input type="text" value="${obj._manualText != null ? String(obj._manualText).replace(/"/g,'&quot;') : ''}" placeholder="空=実測値" onchange="updateDimManual(this.value)"></div>
       <div class="prop-row"><label>補助線の長さ <span class="help-tip" data-tip="端の返し線(足)の長さ。寸法線の両端から上下に伸びる補助線です。">?</span></label>
         <input type="number" min="0" max="200" step="1" value="${Math.round(obj._extLen != null ? obj._extLen : 10)}" onchange="updateDimExt(this.value)"></div>
       <div class="prop-row"><label>数字の引き出し長さ <span class="help-tip" data-tip="数字を寸法線から引き出す長さ。0で線の上に戻ります。ドラッグでも動かせます。">?</span></label>
@@ -4644,7 +4738,7 @@ function updateDimLength(val) {
   const ang = Math.atan2((e.y - s.y), (e.x - s.x));
   const newEnd = { x: s2.x + Math.cos(ang) * newLen, y: s2.y + Math.sin(ang) * newLen };
   canvas.remove(obj);
-  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize, textOff: obj._textOff, extLen: obj._extLen});
+  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize, textOff: obj._textOff, extLen: obj._extLen, orient: obj._textOrient, manualText: obj._manualText});
   dim.selectable = true; dim.evented = true;
   canvas.add(dim);
   canvas.setActiveObject(dim);
@@ -4665,7 +4759,9 @@ function rebuildDimension(ov) {
     width: ov.width != null ? ov.width : obj._dimWidth,
     size:  ov.size  != null ? ov.size  : obj._dimSize,
     textOff: ov.textOff != null ? ov.textOff : obj._textOff,
-    extLen: ov.extLen != null ? ov.extLen : obj._extLen
+    extLen: ov.extLen != null ? ov.extLen : obj._extLen,
+    orient: ov.orient != null ? ov.orient : obj._textOrient,
+    manualText: ov.manualText !== undefined ? ov.manualText : obj._manualText
   };
   canvas.remove(obj);
   const dim = createDimensionLine(s2, e2, opts);
@@ -4678,7 +4774,7 @@ function liveUpdateDimLeader(dim, off) {
   const s = dim._start, e = dim._end;
   if (!s || !e) return;
   canvas.remove(dim);
-  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off, extLen: dim._extLen});
+  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off, extLen: dim._extLen, orient: dim._textOrient, manualText: dim._manualText});
   nd.selectable = true; nd.evented = true;
   nd.lockMovementX = true; nd.lockMovementY = true;
   canvas.add(nd);
@@ -4690,7 +4786,7 @@ function liveUpdateDimLeader(dim, off) {
 function liveUpdateDimEndpoints(dim, s, e) {
   if (!s || !e) return;
   canvas.remove(dim);
-  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: dim._textOff, extLen: dim._extLen});
+  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: dim._textOff, extLen: dim._extLen, orient: dim._textOrient, manualText: dim._manualText});
   nd.selectable = true; nd.evented = true;
   nd.lockMovementX = true; nd.lockMovementY = true;
   canvas.add(nd);
@@ -4701,6 +4797,8 @@ function liveUpdateDimEndpoints(dim, s, e) {
 function updateDimWidth(val){ const w=parseFloat(val); if(!isNaN(w)) rebuildDimension({width: Math.max(0.5, w)}); }
 function updateDimSize(val){ const s=parseFloat(val); if(!isNaN(s)) rebuildDimension({size: Math.max(6, s)}); }
 function updateDimExt(val){ const x=parseFloat(val); if(!isNaN(x)) rebuildDimension({extLen: Math.max(0, x)}); }
+function updateDimOrient(val){ rebuildDimension({orient: val}); }
+function updateDimManual(val){ rebuildDimension({manualText: (val||'').trim()}); }
 // 数字の引き出し(足): 長さ/角度のどちらかを変更してオフセットを作り直す
 function updateDimLeader(which, val){
   const obj = canvas.getActiveObject();
@@ -4928,7 +5026,7 @@ function saveJSON() {
       scale: document.getElementById('paper-scale').value,
       show: document.getElementById('frame-show').checked
     },
-    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked']))
+    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_vertical', '_vtext', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked']))
   };
   // グリッドは除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame);
