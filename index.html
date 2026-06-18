@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.98 (斜めカット/留め・曲線ツール削除)</title>
+<title>yoheki-cad v0.99 (コーン線は既定で赤)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.98 (斜めカット/留め・曲線ツール削除)</span>
+  <span class="ver">v0.99 (コーン線は既定で赤)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -2497,6 +2497,8 @@ function setTool(tool) {
   document.getElementById('eraser-settings').style.display = (tool === 'eraser') ? 'block' : 'none';
   document.getElementById('dim-settings').style.display = (tool === 'dim') ? 'block' : 'none';
   const clSet = document.getElementById('coneline-settings'); if (clSet) clSet.style.display = (tool === 'coneline') ? 'block' : 'none';
+  // コーン線は既定で赤色に(選んだ時に線色を赤へ。後から変更可)
+  if (tool === 'coneline') { const sc = document.getElementById('stroke-color'); if (sc) { sc.value = '#e53935'; if (typeof renderAllSwatches === 'function') renderAllSwatches(); } }
 
   // ステータス
   const labels = {
