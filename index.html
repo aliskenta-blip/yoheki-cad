@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.94 (写真から2tダンプ・中型BH0.28を寸法準拠で追加)</title>
+<title>yoheki-cad v0.95 (多角形を連続線に統合・引き出し文字を大きく)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.94 (写真から2tダンプ・中型BH0.28を寸法準拠で追加)</span>
+  <span class="ver">v0.95 (多角形を連続線に統合・引き出し文字を大きく)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -311,7 +311,7 @@
   <button class="tool-btn" data-tool="line" data-help="直線を引く。始点→終点をドラッグ。Shiftで水平/垂直" title="直線 (L)" onclick="setTool('line')">
     <span class="icon">╱</span><span class="label">線</span>
   </button>
-  <button class="tool-btn" data-tool="polyline" data-help="連続線(折れ線)。クリックで点を足していき、右クリックで確定(Enterも可)。色・線種は左の「線の設定」。コーンを結ぶ赤い破線などに" title="連続線" onclick="setTool('polyline')">
+  <button class="tool-btn" data-tool="polyline" data-help="連続線/多角形。クリックで点→右クリックで確定(Enterも可)。「線の設定」の『連続線を閉じて面に』ONで多角形(閉じた図形・塗り可)、OFFで開いた折れ線。色・線種も「線の設定」。" title="連続線/多角形" onclick="setTool('polyline')">
     <span class="icon">⊿</span><span class="label">連続線</span>
   </button>
   <button class="tool-btn" data-tool="coneline" data-help="コーン線(保安図)。クリックで点→右クリックで確定。折れ点・末端・一定間隔に赤いカラーコーンを自動配置。間隔/サイズは左パネルで設定" title="コーン線" onclick="setTool('coneline')">
@@ -322,9 +322,6 @@
   </button>
   <button class="tool-btn" data-tool="circle" data-help="円を描く。中心から半径をドラッグ" title="円 (C)" onclick="setTool('circle')">
     <span class="icon">○</span><span class="label">円</span>
-  </button>
-  <button class="tool-btn" data-tool="polygon" data-help="多角形。クリックで頂点追加→右クリックで確定(Enterも可)" title="多角形" onclick="setTool('polygon')">
-    <span class="icon">⬡</span><span class="label">多角形</span>
   </button>
   <button class="tool-btn" data-tool="freehand" data-help="手書きの自由曲線" title="フリーハンド (F)" onclick="setTool('freehand')">
     <span class="icon">✎</span><span class="label">手書き</span>
@@ -545,8 +542,12 @@
         <span></span>
       </div>
       <div class="prop-row">
-        <label>文字サイズ(mm) <span class="help-tip" data-tip="テキスト(T)・引き出し線(G)の文字の大きさの初期値(mm)。描いた後も、選択して個別に変更できます。印刷縮尺で読める大きさに(例:1/50なら250mmで紙上5mm)。">?</span></label>
-        <input type="number" id="default-text-size" value="100" min="5" max="5000" step="10">
+        <label><input type="checkbox" id="polyline-close"> 連続線を閉じて面に <span class="help-tip" data-tip="ONにすると「連続線」が最後に始点とつながり、閉じた多角形(面・塗り可)になります。OFFは開いた折れ線。元の『多角形』はこれに統合しました。">?</span></label>
+        <span></span>
+      </div>
+      <div class="prop-row">
+        <label>文字サイズ(mm) <span class="help-tip" data-tip="テキスト(T)・引き出し線(G)の文字の大きさの初期値(mm)。縮尺に合わせて自動設定。描いた後も選択して個別に変更できます。">?</span></label>
+        <input type="number" id="default-text-size" value="300" min="5" max="20000" step="10">
       </div>
       <div class="prop-row">
         <label><input type="checkbox" id="text-vertical"> 縦書きで入れる <span class="help-tip" data-tip="文字(T)を縦書き(文字を縦に積む)で入れます。「歩道」など縦書きしたい注記に。チェックを入れてから文字ツールで入力。下のボタンで選択中の文字を縦/横に切替もできます。">?</span></label>
@@ -1794,6 +1795,7 @@ function updateScaleDims(force){
   set('dim-width', Math.round(30*f*10)/10);
   set('dim-size',  Math.round(400*f));
   set('dim-ext',   Math.round(800*f));
+  set('default-text-size', Math.round(300*f));   // 注記・引き出し線の文字も縮尺連動で読める大きさに
 }
 
 function updatePaperFrame() {
@@ -3155,7 +3157,7 @@ function finishPolygon() {
   updateStats();
 }
 
-// 連続線(折れ線)を確定。クリックした点を順に結ぶ開いた線。色・太さ・線種は「線の設定」。
+// 連続線を確定。「連続線を閉じて面に」ONなら閉じた多角形(塗り可)、OFFなら開いた折れ線。
 function finishPolylineChain(){
   const pts = state.polygonPoints.map(p => ({x:p.x, y:p.y}));
   if (pts.length < 2) { state.polygonPoints = []; return; }
@@ -3163,19 +3165,31 @@ function finishPolylineChain(){
   const strokeWidth = parseFloat(document.getElementById('stroke-width').value);
   const strokeStyle = document.getElementById('stroke-style').value;
   const dash = strokeStyle ? strokeStyle.split(',').map(Number) : null;
-  const poly = new fabric.Polyline(pts, {
-    stroke: strokeColor, strokeWidth: strokeWidth, fill: '',
-    // 破線のときは round cap だと隙間が潰れて実線に見えるので butt にする
-    strokeLineCap: dash ? 'butt' : 'round', strokeLineJoin: 'round',
-    strokeDashArray: dash,
-    _layer: state.activeLayer, selectable: (state.tool === 'select')
-  });
-  canvas.add(poly);
+  const closeIt = !!(document.getElementById('polyline-close')||{}).checked;
+  let obj;
+  if (closeIt && pts.length >= 3) {
+    // 閉じた多角形(面)。塗り設定が効く。
+    const fillColor = document.getElementById('fill-none').checked ? '' : document.getElementById('fill-color').value;
+    obj = new fabric.Polygon(pts, {
+      stroke: strokeColor, strokeWidth: strokeWidth, fill: fillColor,
+      strokeLineJoin: 'round', strokeDashArray: dash,
+      _layer: state.activeLayer, selectable: (state.tool === 'select')
+    });
+  } else {
+    // 開いた折れ線
+    obj = new fabric.Polyline(pts, {
+      stroke: strokeColor, strokeWidth: strokeWidth, fill: '',
+      strokeLineCap: dash ? 'butt' : 'round', strokeLineJoin: 'round',  // 破線はbuttで隙間を保つ
+      strokeDashArray: dash,
+      _layer: state.activeLayer, selectable: (state.tool === 'select')
+    });
+  }
+  canvas.add(obj);
   state.polygonPoints = [];
   state.tempObject = null;
   saveHistory();
   updateStats();
-  document.getElementById('status-mode').textContent = '連続線を描きました。続けてクリック→右クリックで確定(Enterも可)';
+  document.getElementById('status-mode').textContent = (closeIt?'多角形(面)':'連続線')+'を描きました。続けてクリック→右クリックで確定(Enterも可)';
 }
 
 // コーン線を確定: 折れ線＋折れ点・末端・一定間隔にカラーコーン(四角)を配置。1グループにまとめる。
