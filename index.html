@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.76 (断面図→展開図を鉄筋選択時だけ表示)</title>
+<title>yoheki-cad v0.77 (左欄を折りたたみ＋ツール連動で整理)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -85,7 +85,15 @@
     text-transform: uppercase; letter-spacing: 0.5px;
     border-bottom: 1px solid #555; padding-bottom: 3px;
   }
-  
+  /* 見出しクリックで折りたたみ(アコーディオン)。左右の欄のみ対象(モーダルは除外)。 */
+  .panel-left .panel-section > h4, .panel-right .panel-section > h4 { cursor: pointer; user-select: none; }
+  .panel-left .panel-section > h4::before, .panel-right .panel-section > h4::before {
+    content: '▾'; display: inline-block; width: 13px; font-size: 9px; color: #fdc674;
+  }
+  .panel-section.collapsed > h4 { margin-bottom: 0; border-bottom: none; }
+  .panel-section.collapsed > h4::before { content: '▸'; }
+  .panel-section.collapsed > *:not(h4) { display: none !important; }
+
   /* キャンバスエリア */
   .canvas-wrap {
     position: relative;
@@ -269,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.76 (断面図→展開図を鉄筋選択時だけ表示)</span>
+  <span class="ver">v0.77 (左欄を折りたたみ＋ツール連動で整理)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -2410,6 +2418,7 @@ function setTool(tool) {
 
   canvas.renderAll();
   if (typeof updateDevSectionVisibility === 'function') updateDevSectionVisibility();
+  if (typeof focusToolSection === 'function') focusToolSection(tool);
 }
 
 // ============================================================
@@ -3752,7 +3761,23 @@ function updateDevSectionVisibility() {
   if (!sec) return;
   const selHasRebar = canvas.getActiveObjects().some(o => o._type === 'rebar' || o._type === 'rebardot');
   const rebarTool = ['rebar','rebardot','rolepen','facepen'].includes(state.tool);
-  sec.style.display = (selHasRebar || rebarTool) ? 'block' : 'none';
+  const show = (selHasRebar || rebarTool);
+  sec.style.display = show ? 'block' : 'none';
+  if (show) sec.classList.remove('collapsed');   // 出てきたら開いた状態で見せる
+}
+
+// ツール選択時に、その道具に関係する設定セクションを開く(折りたたんでいても展開)。
+function focusToolSection(tool){
+  const map = {
+    line:'線の設定', rect:'線の設定', circle:'線の設定', polygon:'線の設定',
+    polyline:'線の設定', curve:'線の設定', freehand:'線の設定', text:'線の設定',
+    rebar:'鉄筋設定', rebardot:'横筋・断面', dim:'寸法線設定', eraser:'消しゴム'
+  };
+  const title = map[tool]; if (!title) return;
+  document.querySelectorAll('.panel-left .panel-section').forEach(sec => {
+    const h4 = sec.querySelector('h4');
+    if (h4 && h4.textContent.trim().startsWith(title)) sec.classList.remove('collapsed');
+  });
 }
 
 canvas.on('object:modified', () => {
@@ -7486,6 +7511,28 @@ setupSwatches();   // 色スウォッチ(代表色・最近使った色)を初�
   function hide(){ tip.style.display = 'none'; }
   document.addEventListener('mouseover', e => { const el = e.target.closest('.help-tip[data-tip]'); if(el) show(el); });
   document.addEventListener('mouseout',  e => { if (e.target.closest('.help-tip[data-tip]')) hide(); });
+})();
+
+// ===== 見出しクリックで設定欄を折りたたむ(アコーディオン)。状態は記憶 =====
+(function setupAccordion(){
+  const KEY = 'yoheki_collapsed_sections';
+  let collapsed = {};
+  const hadSaved = localStorage.getItem(KEY) != null;
+  try { collapsed = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch(e){}
+  // 初回(保存なし)に畳んでおく欄=使用頻度の低いもの。見出し先頭一致で判定。
+  const PRE = ['縮尺補正','画像・地図','線に矢印','キーボード','統計'];
+  document.querySelectorAll('.panel-left .panel-section, .panel-right .panel-section').forEach(sec => {
+    const h4 = sec.querySelector('h4'); if (!h4) return;
+    const key = h4.textContent.trim();
+    const preCollapse = !hadSaved && PRE.some(t => key.startsWith(t));
+    if (collapsed[key] || preCollapse) sec.classList.add('collapsed');
+    h4.addEventListener('click', e => {
+      if (e.target.closest('.help-tip')) return;   // 「?」クリックは折りたたみにしない
+      sec.classList.toggle('collapsed');
+      collapsed[key] = sec.classList.contains('collapsed');
+      try { localStorage.setItem(KEY, JSON.stringify(collapsed)); } catch(e){}
+    });
+  });
 })();
 
 // ===== 左パネルの幅をドラッグで調整できるリサイザー =====
