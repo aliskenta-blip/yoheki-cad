@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yoheki-cad v0.73 (複製を方向どおり1マス空けて)</title>
+<title>yoheki-cad v0.74 (コピペ色/ヘルプ表示/左欄幅調整)</title>
 <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -60,9 +60,15 @@
   /* メインエリア */
   .main {
     display: grid;
-    grid-template-columns: 220px 1fr 260px;
+    grid-template-columns: var(--left-w, 240px) 1fr 260px;
     height: calc(100% - 80px);
   }
+  /* 左パネルの幅を変えるドラッグバー */
+  #left-resizer {
+    position: fixed; top: 80px; bottom: 0; width: 7px; margin-left: -3px;
+    cursor: col-resize; z-index: 50; background: transparent;
+  }
+  #left-resizer:hover { background: rgba(249,115,22,0.5); }
   
   /* 左パネル: ツール詳細・プロパティ */
   .panel-left {
@@ -211,13 +217,13 @@
     font-size: 9px; cursor: help; position: relative; flex: none;
   }
   .help-tip:hover { background: #f97316; color: #fff; }
-  .help-tip[data-tip]:hover::after {
-    content: attr(data-tip);
-    position: absolute; left: 18px; top: 50%; transform: translateY(-50%);
+  /* ヘルプ(?)の説明は画面に被せて出す共通ツールチップ(#gtip)で表示する。
+     左パネル内だと幅で見切れるため、CSS::afterはやめてJSで body 直下に出す。 */
+  #gtip {
+    position: fixed; z-index: 99999; display: none; max-width: 320px;
     background: #1a1a1a; color: #eee; border: 1px solid #f97316;
-    padding: 6px 9px; border-radius: 5px; font-size: 11px; line-height: 1.5;
-    width: 200px; z-index: 9999; white-space: normal;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.5); pointer-events: none;
+    padding: 8px 11px; border-radius: 6px; font-size: 12px; line-height: 1.6;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.6); pointer-events: none; white-space: normal;
   }
   /* ツールバーボタンのリッチツールチップ */
   .tool-btn[data-help] { position: relative; }
@@ -255,10 +261,15 @@
 </head>
 <body>
 
+<!-- ヘルプ(?)の説明を画面に被せて出す共通ツールチップ -->
+<div id="gtip"></div>
+<!-- 左パネルの幅を変えるドラッグバー -->
+<div id="left-resizer" title="ドラッグで左の欄の幅を調整"></div>
+
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v0.73 (複製を方向どおり1マス空けて)</span>
+  <span class="ver">v0.74 (コピペ色/ヘルプ表示/左欄幅調整)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -3617,29 +3628,38 @@ canvas.on('before:render', drawGridLayer);
 // オブジェクト選択
 // --- 選択中の線・図形をピンクで強調(保存/印刷/書き出しには残さない) ---
 const SEL_PINK = '#ff2d87';
-let _selHi = [];   // [{obj, stroke}] 元の線色を退避
+let _selHi = [];   // ピンク強調中のオブジェクト一覧(元色は各objの_preSelStrokeに退避)
 // 通常の線/図形は線色をピンクに。グループ(寸法/引出/十字○)は枠の色で示す。
+// 元色は「オブジェクト自身(_preSelStroke)」に退避するので、追跡漏れ(孤立ピンク)が起きても確実に元へ戻せる。
 function applySelHighlight() {
   clearSelHighlight();
   canvas.getActiveObjects().forEach(o => {
     if (o._isGrid || o._isFrame || o._objects) return;   // グループは対象外(枠で示す)
     if (!o.stroke) return;                                // 線色のない図形は枠で示す
-    _selHi.push({ obj: o, stroke: o.stroke });
+    if (o.stroke === SEL_PINK) return;                    // 既にピンク=元色不明なら触らない(ピンク二重記録の防止)
+    o._preSelStroke = o.stroke;                           // 元色をオブジェクト自身に退避
+    _selHi.push(o);
     o.set('stroke', SEL_PINK);
   });
   canvas.requestRenderAll();
 }
-// 解除時に元色へ戻す。ただしユーザーがパネル等で色を変えていたら(=ピンク以外)その色を尊重。
+// 解除時に元色へ戻す。ユーザーがパネル等で色を変えていたら(=ピンク以外)その色を尊重。
 function clearSelHighlight() {
-  _selHi.forEach(h => { if (h.obj.stroke === SEL_PINK) h.obj.set('stroke', h.stroke); });
+  _selHi.forEach(o => {
+    if (o.stroke === SEL_PINK && o._preSelStroke !== undefined) o.set('stroke', o._preSelStroke);
+    delete o._preSelStroke;
+  });
   _selHi = [];
 }
-// シリアライズ/書き出し中だけ一時的に元色へ戻す(ピンクのままの物だけ)
+// シリアライズ/書き出し/複製中だけ一時的に元色へ戻す。
+// _selHi だけでなく全オブジェクトを走査するので、追跡漏れのピンクも書き出し・コピーに残らない。
 function withoutSelHighlight(fn) {
-  const saved = _selHi.filter(h => h.obj.stroke === SEL_PINK);
-  saved.forEach(h => h.obj.set('stroke', h.stroke));
+  const restored = [];
+  canvas.getObjects().forEach(o => {
+    if (o.stroke === SEL_PINK && o._preSelStroke !== undefined) { o.set('stroke', o._preSelStroke); restored.push(o); }
+  });
   try { return fn(); }
-  finally { saved.forEach(h => h.obj.set('stroke', SEL_PINK)); }
+  finally { restored.forEach(o => o.set('stroke', SEL_PINK)); }
 }
 
 canvas.on('selection:created', () => { updateSelectedProps(); applySelHighlight(); });
@@ -7273,6 +7293,53 @@ saveHistory();
 updateStats();
 setTool('select');
 setupSwatches();   // 色スウォッチ(代表色・最近使った色)を初期描画
+
+// ===== ヘルプ(?)ツールチップを画面に被せて表示(左パネルで見切れない) =====
+(function setupHelpTips(){
+  const tip = document.getElementById('gtip');
+  function show(el){
+    const txt = el.getAttribute('data-tip'); if(!txt) return;
+    tip.textContent = txt; tip.style.display = 'block';
+    const r = el.getBoundingClientRect();
+    const tw = tip.offsetWidth, th = tip.offsetHeight, M = 8;
+    // 基本はアイコンの右側。右に入らなければ左側へ。画面内に収める。
+    let x = r.right + 8;
+    if (x + tw > window.innerWidth - M) x = r.left - tw - 8;
+    if (x < M) x = M;
+    let y = r.top + r.height/2 - th/2;
+    if (y < M) y = M;
+    if (y + th > window.innerHeight - M) y = window.innerHeight - th - M;
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  }
+  function hide(){ tip.style.display = 'none'; }
+  document.addEventListener('mouseover', e => { const el = e.target.closest('.help-tip[data-tip]'); if(el) show(el); });
+  document.addEventListener('mouseout',  e => { if (e.target.closest('.help-tip[data-tip]')) hide(); });
+})();
+
+// ===== 左パネルの幅をドラッグで調整できるリサイザー =====
+(function setupLeftResizer(){
+  const handle = document.getElementById('left-resizer');
+  if (!handle) return;
+  const root = document.documentElement;
+  const setW = w => {
+    root.style.setProperty('--left-w', w + 'px'); handle.style.left = w + 'px';
+    try { resizeCanvas(); drawGrid(); } catch(e){}   // キャンバスを新しい幅に合わせる
+  };
+  const saved = parseInt(localStorage.getItem('yoheki_left_w'));
+  if (saved) setW(saved); else handle.style.left = '240px';
+  let dragging = false, lastW = saved || 240;
+  handle.addEventListener('mousedown', e => { dragging = true; e.preventDefault(); document.body.style.cursor = 'col-resize'; });
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    lastW = Math.max(180, Math.min(460, e.clientX));
+    setW(lastW);
+  });
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false; document.body.style.cursor = '';
+    localStorage.setItem('yoheki_left_w', lastW);
+  });
+})();
 
 // 初回ガイド
 setTimeout(() => {
