@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.09 (表題欄を四隅に配置可)</span>
+  <span class="ver">v1.10 (寸法線を選択して回転できる)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -2820,6 +2820,8 @@ canvas.on('mouse:down', (opt) => {
     // 寸法線の上でドラッグ → 端点に近ければ端点を、それ以外は数字(引き出し)を動かす
     const tgt = canvas.findTarget(opt.e);
     if (tgt && tgt._type === 'dimension') {
+      // 回転ハンドル(mtr)を掴んだときは fabric の回転に任せる(線のように角度変更)
+      if (tgt.__corner) { return; }
       tgt.lockMovementX = true; tgt.lockMovementY = true;
       canvas.setActiveObject(tgt);
       const p = canvas.getPointer(opt.e);
@@ -4429,9 +4431,36 @@ function focusToolSection(tool){
   });
 }
 
-canvas.on('object:modified', () => {
+canvas.on('object:modified', (e) => {
+  const o = e && e.target;
+  if (o && o._type === 'dimension') {
+    bakeDimensionTransform(o);   // 回転(や移動)を反映して作り直す。中でsaveHistory
+    return;
+  }
   saveHistory();
 });
+
+// 寸法線の回転/移動(fabricのハンドル操作)を _start/_end に焼き込み、角度0で作り直す。
+// これで以後の長さ変更・端点ドラッグ・保存/再オープンでも新しい角度が保たれる。
+function bakeDimensionTransform(o) {
+  if (!o._localStart || !o._localEnd) { saveHistory(); return; }
+  const m = o.calcTransformMatrix();
+  const ws = fabric.util.transformPoint(new fabric.Point(o._localStart.x, o._localStart.y), m);
+  const we = fabric.util.transformPoint(new fabric.Point(o._localEnd.x, o._localEnd.y), m);
+  // 文字の出し位置(オフセット)も同じ角度だけ回す→数字が線の同じ側に残る
+  const a = (o.angle || 0) * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+  const off0 = o._textOff || {x:0, y:0};
+  const newOff = { x: off0.x*ca - off0.y*sa, y: off0.x*sa + off0.y*ca };
+  canvas.remove(o);
+  const nd = createDimensionLine({x:ws.x, y:ws.y}, {x:we.x, y:we.y}, {
+    width:o._dimWidth, size:o._dimSize, textOff:newOff, extLen:o._extLen,
+    orient:o._textOrient, manualText:o._manualText, arrows:o._arrows, side:o._side
+  });
+  nd.selectable = true; nd.evented = true;
+  canvas.add(nd); canvas.setActiveObject(nd);
+  canvas.requestRenderAll(); saveHistory(); updateStats();
+  if (typeof updateSelectedProps === 'function') updateSelectedProps();
+}
 
 // --- ⑬ 移動方向の制限(水平/垂直/角度) ---
 function updateMoveConstraint() {
@@ -4886,10 +4915,16 @@ function createDimensionLine(start, end, opts) {
     _layer: state.activeLayer,
     selectable: state.tool === 'select',
     lockMovementX: true, lockMovementY: true,
-    lockScalingX: true, lockScalingY: true, lockRotation: true,
-    hasControls: false
+    lockScalingX: true, lockScalingY: true, lockRotation: false,   // 回転は許可(線のように角度を変えられる)
+    hasControls: true
   });
-  
+  // 回転ハンドルだけ表示(拡縮ハンドルは隠す=寸法の形が崩れない)
+  group.setControlsVisibility({ tl:false, tr:false, bl:false, br:false, ml:false, mr:false, mt:false, mb:false, mtr:true });
+  // 回転・移動を _start/_end へ焼き込むための基準(グループ中心からの相対座標)
+  group.setCoords();
+  const _c = group.getCenterPoint();
+  group._localStart = { x: start.x - _c.x, y: start.y - _c.y };
+  group._localEnd   = { x: end.x - _c.x,   y: end.y - _c.y };
   return group;
 }
 
@@ -5074,7 +5109,7 @@ function saveHistory() {
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
   const snap = withoutSelHighlight(() => {
-    const j = canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']);
+    const j = canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_localStart', '_localEnd', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']);
     if (j.objects) j.objects = j.objects.filter(o => !o._tb);   // 表題欄はupdatePaperFrameで再生成するので履歴から除外
     return JSON.stringify(j);
   });
@@ -5151,7 +5186,7 @@ function duplicateSelected() {
 }
 
 // クローン時に引き継ぐカスタムプロパティ
-const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_textOrient','_manualText','_arrows','_side','_vertical','_vtext','_filletV','_far1','_far2','_radius','_fstroke','_fwidth','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_partName','_face','_origStroke','_origFill'];
+const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_textOrient','_manualText','_arrows','_side','_vertical','_vtext','_filletV','_far1','_far2','_radius','_fstroke','_fwidth','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_localStart','_localEnd','_partName','_face','_origStroke','_origFill'];
 let _clipboard = null;   // 絶対座標の複製オブジェクト配列(回転も保持)
 
 // ⑫ コピー(Ctrl+C)
@@ -5937,7 +5972,7 @@ function buildDrawingData() {
       scale: document.getElementById('paper-scale').value,
       show: document.getElementById('frame-show').checked
     },
-    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']))
+    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_localStart', '_localEnd', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']))
   };
   // グリッド・図枠・表題欄(再生成するので)は保存対象から除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame && !o._tb);
