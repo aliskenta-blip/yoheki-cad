@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.07 (表題欄:右下に図面名・現場住所など)</span>
+  <span class="ver">v1.08 (複製の角度保持・作業の自動保存/復元)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -5068,6 +5068,7 @@ function saveHistory() {
     state.history.shift();
     state.historyIndex--;
   }
+  scheduleAutosave();   // 変更のたびブラウザに自動保存(リロードで消えないように) v1.08
 }
 
 function undo() {
@@ -5109,32 +5110,60 @@ function deleteSelected() {
 }
 
 function duplicateSelected() {
-  const active = canvas.getActiveObject();
-  if (!active) return;
-  // 複製元がピンク強調中でも元の線色で複製する。activeSelectionは分解せず正しく複製。
-  const off = dupOffset(active);
-  withoutSelHighlight(() => active.clone((cloned) => {
-    const made = addClone(cloned, off.dx, off.dy);
-    canvas.discardActiveObject();
-    const sel = made.length > 1 ? new fabric.ActiveSelection(made, {canvas}) : made[0];
-    if (sel) canvas.setActiveObject(sel);
-    canvas.requestRenderAll();
-    saveHistory();
-    updateStats();
-  }, CLONE_PROPS));
+  const objs = canvas.getActiveObjects().slice();
+  if (!objs.length) return;
+  // 選択を解除して各図形を絶対座標・角度に戻す(回転した複数選択でも角度・位置を保持)
+  canvas.discardActiveObject();
+  objs.forEach(o => o.setCoords());
+  const off = dupOffsetForObjs(objs);
+  const made = [];
+  withoutSelHighlight(() => {
+    objs.forEach(src => {
+      const sl = src.left, st = src.top;
+      src.clone(cl => {
+        // 角度・反転・拡縮はcloneが保持。位置だけ方向どおりにずらす
+        cl.set({ left: sl + off.dx, top: st + off.dy, evented: true, selectable: true });
+        cl.setCoords(); canvas.add(cl); made.push(cl);
+      }, CLONE_PROPS);
+    });
+  });
+  if (made.length) {
+    canvas.setActiveObject(made.length > 1 ? new fabric.ActiveSelection(made, {canvas}) : made[0]);
+    canvas.requestRenderAll(); saveHistory(); updateStats();
+  }
 }
 
 // クローン時に引き継ぐカスタムプロパティ
 const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_textOrient','_manualText','_arrows','_side','_vertical','_vtext','_filletV','_far1','_far2','_radius','_fstroke','_fwidth','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_partName','_face','_origStroke','_origFill'];
-let _clipboard = null;
+let _clipboard = null;   // 絶対座標の複製オブジェクト配列(回転も保持)
 
 // ⑫ コピー(Ctrl+C)
 function copySelected() {
-  const active = canvas.getActiveObject();
-  if (!active) return;
-  withoutSelHighlight(() => active.clone(cl => { _clipboard = cl; }, CLONE_PROPS));
-  const n = canvas.getActiveObjects().length;
-  document.getElementById('status-mode').textContent = `コピーしました(${n}個)。Ctrl+Vで貼り付け`;
+  const objs = canvas.getActiveObjects().slice();
+  if (!objs.length) return;
+  canvas.discardActiveObject();   // 絶対座標・角度に戻してから複製を取る
+  const arr = [];
+  withoutSelHighlight(() => {
+    objs.forEach(o => { o.setCoords(); o.clone(cl => { cl._cbLeft = o.left; cl._cbTop = o.top; arr.push(cl); }, CLONE_PROPS); });
+  });
+  _clipboard = arr;
+  // 選択を元に戻す
+  canvas.setActiveObject(objs.length > 1 ? new fabric.ActiveSelection(objs, {canvas}) : objs[0]);
+  canvas.requestRenderAll();
+  document.getElementById('status-mode').textContent = `コピーしました(${objs.length}個)。Ctrl+Vで貼り付け`;
+}
+
+// 複製・貼り付けのズラし量: 選択全体の外形＋1マスを、方向(右/左/下/上)へ
+function dupOffsetForObjs(objs) {
+  let minx=Infinity,miny=Infinity,maxx=-Infinity,maxy=-Infinity;
+  objs.forEach(o => { try{ o.setCoords(); }catch(e){} const b=o.getBoundingRect(true,true);
+    minx=Math.min(minx,b.left); miny=Math.min(miny,b.top); maxx=Math.max(maxx,b.left+b.width); maxy=Math.max(maxy,b.top+b.height); });
+  const w = (maxx-minx)||200, h = (maxy-miny)||200;
+  const dir = (document.getElementById('array-dir')||{}).value || 'right';
+  const gap = state.gridSize || 50;
+  const horizontal = (dir==='right' || dir==='left');
+  const sign = (dir==='right' || dir==='down') ? 1 : -1;
+  return horizontal ? { dx: sign*(w+gap), dy: 0 } : { dx: 0, dy: sign*(h+gap) };
 }
 
 // 1つのクローンをキャンバスへ追加(activeSelectionは展開)。追加した実体配列を返す。
@@ -5170,15 +5199,22 @@ function dupOffset(obj) {
 
 // ⑫ 貼り付け(Ctrl+V) — 下の【方向】設定に従い、真横/真上に1マス空けて貼り付け(dupOffset)
 function pasteClipboard() {
-  if (!_clipboard) return;
-  _clipboard.clone(cl => {
-    const off = dupOffset(cl);
-    const made = addClone(cl, off.dx, off.dy);
+  if (!_clipboard || !_clipboard.length) return;
+  const off = dupOffsetForObjs(_clipboard);
+  const made = [];
+  withoutSelHighlight(() => {
+    _clipboard.forEach(src => {
+      src.clone(cl => {
+        cl.set({ left: (src._cbLeft||0) + off.dx, top: (src._cbTop||0) + off.dy, evented: true, selectable: true });
+        cl.setCoords(); canvas.add(cl); made.push(cl);
+      }, CLONE_PROPS);
+    });
+  });
+  if (made.length) {
     canvas.discardActiveObject();
-    const sel = made.length > 1 ? new fabric.ActiveSelection(made, {canvas}) : made[0];
-    if (sel) canvas.setActiveObject(sel);
+    canvas.setActiveObject(made.length > 1 ? new fabric.ActiveSelection(made, {canvas}) : made[0]);
     canvas.requestRenderAll(); saveHistory(); updateStats();
-  }, CLONE_PROPS);
+  }
 }
 
 // ⑫ 連続複製。方向(右/左/下/上)に、間隔0なら「図形サイズ＋目地」で隣接、数値ならその間隔で。
@@ -5857,6 +5893,7 @@ document.addEventListener('keyup', (e) => {
 
 function newDrawing() {
   if (!confirm('現在の図面をクリアしますか?')) return;
+  try { localStorage.removeItem(AUTOSAVE_KEY); _autosaveWarned = false; } catch (e) {}   // 自動保存も消す
   canvas.clear();
   canvas.setBackgroundColor('#fafafa', canvas.renderAll.bind(canvas));
   state.framePos = {x:40, y:40};   // 図枠位置をリセット
@@ -5869,7 +5906,8 @@ function newDrawing() {
   updateStats();
 }
 
-function saveJSON() {
+// 図面データ(保存・自動保存で共通)を組み立てる
+function buildDrawingData() {
   const data = {
     type: 'yoheki-cad',
     version: '0.8',
@@ -5886,7 +5924,11 @@ function saveJSON() {
   };
   // グリッド・図枠・表題欄(再生成するので)は保存対象から除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame && !o._tb);
-  
+  return data;
+}
+
+function saveJSON() {
+  const data = buildDrawingData();
   const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -5894,6 +5936,69 @@ function saveJSON() {
   a.download = `yoheki_${Date.now()}.json`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ===== 自動保存(ブラウザに保持) — リロードや誤って閉じても作業が消えないように v1.08 =====
+const AUTOSAVE_KEY = 'yoheki-cad-autosave';
+let _autosaveTimer = null, _autosaveWarned = false, _suppressAutosave = false;
+function scheduleAutosave() {
+  if (_suppressAutosave || state.isLoadingHistory) return;
+  clearTimeout(_autosaveTimer);
+  _autosaveTimer = setTimeout(doAutosave, 1200);
+}
+function doAutosave() {
+  if (_suppressAutosave) return;
+  try {
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(buildDrawingData()));
+  } catch (e) {
+    // 容量超過など。1回だけ知らせて、以降は静かに(手動保存を促す)
+    if (!_autosaveWarned) {
+      _autosaveWarned = true;
+      const sm = document.getElementById('status-mode');
+      if (sm) sm.textContent = '⚠ 自動保存できません(図面が大きい可能性)。こまめに「💾保存」してください';
+    }
+  }
+}
+// ページを開いたとき、前回の作業が残っていれば自動で復元する
+function tryRestoreAutosave() {
+  let raw = null;
+  try { raw = localStorage.getItem(AUTOSAVE_KEY); } catch (e) {}
+  if (!raw) return;
+  let data;
+  try { data = JSON.parse(raw); } catch (e) { return; }
+  if (!data || !data.canvas || !Array.isArray(data.canvas.objects) || !data.canvas.objects.length) return;
+  _suppressAutosave = true;   // 復元中は自動保存を止める(空で上書きしない)
+  applyDrawingData(data, () => {
+    _suppressAutosave = false;
+    saveHistory();
+    const sm = document.getElementById('status-mode');
+    if (sm) sm.textContent = '前回の続きを自動復元しました（新しく始めるには「📄 新規」）';
+  });
+}
+
+// 図面データを画面に反映(ファイル読込・自動復元で共通)
+function applyDrawingData(data, done) {
+  if (!data || !data.canvas) { if (done) done(); return; }
+  if (data.layers) state.layers = data.layers;
+  if (data.framePos) state.framePos = data.framePos;
+  if (data.titleBlock && Array.isArray(data.titleBlock.rows)) {
+    state.titleBlock = data.titleBlock;
+    const cb = document.getElementById('tb-show'); if (cb) cb.checked = !!data.titleBlock.show;
+  }
+  if (data.paper) {
+    if (data.paper.size) document.getElementById('paper-size').value = data.paper.size;
+    if (data.paper.scale) document.getElementById('paper-scale').value = data.paper.scale;
+    document.getElementById('frame-show').checked = (data.paper.show !== false);
+  }
+  canvas.loadFromJSON(data.canvas, () => {
+    canvas.backgroundColor = '';   // 保存ファイルの背景色でグリッドが隠れないように
+    drawGrid();
+    renderLayerList();
+    updatePaperFrame();   // 図枠を保存位置・用紙設定で再描画
+    canvas.renderAll();
+    updateStats();
+    if (done) done();
+  });
 }
 
 function openJSON() {
@@ -5907,27 +6012,7 @@ function openJSON() {
     reader.onload = (ev) => {
       try {
         const data = JSON.parse(ev.target.result);
-        if (data.canvas) {
-          if (data.layers) state.layers = data.layers;
-          if (data.framePos) state.framePos = data.framePos;
-          if (data.titleBlock && Array.isArray(data.titleBlock.rows)) {
-            state.titleBlock = data.titleBlock;
-            const cb = document.getElementById('tb-show'); if (cb) cb.checked = !!data.titleBlock.show;
-          }
-          if (data.paper) {
-            if (data.paper.size) document.getElementById('paper-size').value = data.paper.size;
-            if (data.paper.scale) document.getElementById('paper-scale').value = data.paper.scale;
-            document.getElementById('frame-show').checked = (data.paper.show !== false);
-          }
-          canvas.loadFromJSON(data.canvas, () => {
-            canvas.backgroundColor = '';   // 保存ファイルの背景色でグリッドが隠れないように
-            drawGrid();
-            renderLayerList();
-            updatePaperFrame();   // 図枠を保存位置・用紙設定で再描画
-            canvas.renderAll();
-            updateStats();
-          });
-        }
+        if (data.canvas) applyDrawingData(data, () => { saveHistory(); });
       } catch (err) {
         alert('読み込みエラー: ' + err.message);
       }
@@ -9149,6 +9234,7 @@ updateStats();
 setTool('select');
 setupSwatches();   // 色スウォッチ(代表色・最近使った色)を初期描画
 renderRegionPanel();   // 自治体ルール(保安図・切下げの目安)を左パネルに初期描画
+tryRestoreAutosave();  // 前回の作業が残っていれば自動復元(リロードで消えない) v1.08
 
 // ===== ヘルプ(?)ツールチップを画面に被せて表示(左パネルで見切れない) =====
 (function setupHelpTips(){
