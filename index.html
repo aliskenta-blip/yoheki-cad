@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.08 (複製の角度保持・作業の自動保存/復元)</span>
+  <span class="ver">v1.09 (表題欄を四隅に配置可)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -514,7 +514,7 @@
         <span></span>
       </div>
       <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
-        <span>図枠の<b>右下</b>に出ます(図枠が必要・自動でON)。中身や大きさは編集で変更。</span>
+        <span>図枠の<b>四隅</b>(既定=右下)に出ます(図枠が必要・自動でON)。位置・中身・大きさは編集で変更。</span>
       </div>
       <button class="btn" style="width:100%; margin-top:4px;" onclick="openTitleBlock()">⚙ 表題欄を編集</button>
     </div>
@@ -1524,8 +1524,15 @@
     <p style="font-size:12px; color:#aaa;">図面の<b>右下</b>に出る欄です。大きさは<b>印刷時の実寸(mm)</b>で指定します（縮尺に関わらず紙の上で同じ大きさ）。内容・行・サイズはここで自由に変えられます。設定は<b>テンプレートとして保存</b>され次の図面でも出ます。</p>
 
     <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:8px;">
-      <h4 style="margin-top:0;">① 全体の大きさ（mm）</h4>
+      <h4 style="margin-top:0;">① 配置と全体の大きさ（mm）</h4>
       <div style="display:flex; gap:10px; flex-wrap:wrap; font-size:11px; align-items:flex-end;">
+        <div><label style="display:block; color:#aaa;">配置</label>
+          <select id="tb-pos" onchange="tbSetPos(this.value)">
+            <option value="br">右下</option>
+            <option value="bl">左下</option>
+            <option value="tr">右上</option>
+            <option value="tl">左上</option>
+          </select></div>
         <div><label style="display:block; color:#aaa;">全体の幅</label><input type="number" id="tb-w" style="width:80px;" onchange="tbSizeEdit('w',this.value)"></div>
         <div><label style="display:block; color:#aaa;">ラベル列の幅</label><input type="number" id="tb-labelw" style="width:80px;" onchange="tbSizeEdit('labelW',this.value)"></div>
         <div><label style="display:block; color:#aaa;">文字サイズ</label><input type="number" id="tb-font" style="width:70px;" step="0.5" onchange="tbSizeEdit('fontMm',this.value)"></div>
@@ -1960,6 +1967,7 @@ const TITLEBLOCK_KEY = 'yoheki-cad-titleblock';
 function defaultTitleBlock() {
   return {
     show: false,
+    pos: 'br',      // 配置: br=右下 / bl=左下 / tr=右上 / tl=左上
     w: 160,         // 全体幅(paper-mm)
     labelW: 42,     // ラベル列の幅(paper-mm)
     fontMm: 4,      // 文字サイズ(paper-mm)
@@ -1980,7 +1988,7 @@ function loadTitleBlock() {
     const t = JSON.parse(localStorage.getItem(TITLEBLOCK_KEY));
     if (!t || !Array.isArray(t.rows)) return defaultTitleBlock();
     const d = defaultTitleBlock();
-    return { show:!!t.show, w:t.w||d.w, labelW:t.labelW||d.labelW, fontMm:t.fontMm||d.fontMm,
+    return { show:!!t.show, pos:t.pos||d.pos, w:t.w||d.w, labelW:t.labelW||d.labelW, fontMm:t.fontMm||d.fontMm,
              margin:(t.margin!=null?t.margin:d.margin), rows:t.rows };
   } catch { return defaultTitleBlock(); }
 }
@@ -1996,12 +2004,16 @@ function buildTitleBlock() {
   if (!paperFrame || !paperFrame.rect) return;   // 図枠が無いと右下基準が決まらない
   const d = paperFrameDims();
   const S = d.S;
-  const frR = state.framePos.x + d.pxW, frB = state.framePos.y + d.pxH;   // 枠の右下
+  const frL = state.framePos.x, frT = state.framePos.y;
+  const frR = frL + d.pxW, frB = frT + d.pxH;   // 枠の四隅
   const W = (tb.w||160) * S;
   const totalMm = tb.rows.reduce((a,r)=>a+(+r.h||8),0) || 1;
   const H = totalMm * S;
   const m = (tb.margin||0) * S;
-  const left = frR - W - m, top = frB - H - m;
+  // 配置位置(四隅): br=右下(既定) / bl=左下 / tr=右上 / tl=左上
+  const pos = tb.pos || 'br';
+  const left = (pos === 'bl' || pos === 'tl') ? (frL + m) : (frR - W - m);
+  const top  = (pos === 'tr' || pos === 'tl') ? (frT + m) : (frB - H - m);
   const labelW = (tb.labelW||42) * S;
   const fs = Math.max(1,(tb.fontMm||4) * S);
   const pad = 1.2 * S;
@@ -2051,6 +2063,7 @@ function openTitleBlock() {
 }
 function renderTitleBlockModal() {
   const tb = state.titleBlock;
+  const posSel = document.getElementById('tb-pos'); if (posSel) posSel.value = tb.pos || 'br';
   document.getElementById('tb-w').value = tb.w;
   document.getElementById('tb-labelw').value = tb.labelW;
   document.getElementById('tb-font').value = tb.fontMm;
@@ -2073,6 +2086,10 @@ function tbCommit() {
 function tbSizeEdit(field, val) {
   const v = parseFloat(val); if (isNaN(v) || v <= 0) return;
   state.titleBlock[field] = v; tbCommit();
+}
+function tbSetPos(val) {
+  if (!['br','bl','tr','tl'].includes(val)) return;
+  state.titleBlock.pos = val; tbCommit();
 }
 function tbEdit(i, field, val) {
   const r = state.titleBlock.rows[i]; if (!r) return;
