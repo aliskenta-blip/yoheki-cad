@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.04 (斜めカット:目地を確実に・線太さ維持)</span>
+  <span class="ver">v1.05 (自治体ルール:保安図・切下げの目安表示)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -291,6 +291,7 @@
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="openRebarTools()">🔩 配筋ツール</span>
   <span class="menu-item" onclick="openMaster()">📚 マスタ登録</span>
+  <span class="menu-item" onclick="openRegion()">🏛 自治体ルール</span>
   <span class="menu-item" onclick="runValidation()">🔍 配筋検査</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="exportSVG()">SVG出力</span>
@@ -391,7 +392,20 @@
   
   <!-- 左パネル -->
   <div class="panel-left">
-    
+
+    <div class="panel-section" id="region-panel">
+      <h4>🏛 自治体ルール <span class="help-tip" data-tip="保安図・切下げ図を描くときの目安。最初に図面の市区町村を選ぶと、歩行者通路の最低幅員や許可の窓口など、国の基準＋その市の個別ルールを表示します。数値は地域で異なるので「ルールを編集・追加」で実際の値に直して使えます。図面チェックはしません(表示だけ)。">?</span></h4>
+      <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
+        <span>図面の<b>市区町村</b>を選ぶと、保安・切下げの<b>ルール(目安)</b>を表示します。</span>
+      </div>
+      <div class="prop-row">
+        <label>市区町村</label>
+        <select id="region-active" onchange="setActiveRegion(this.value)"></select>
+      </div>
+      <button class="btn" style="width:100%; margin-top:4px;" onclick="openRegion()">⚙ ルールを編集・追加</button>
+      <div id="region-rules-view" style="margin-top:6px; max-height:320px; overflow-y:auto;"></div>
+    </div>
+
     <div class="panel-section">
       <h4>表示設定</h4>
       <div class="prop-row">
@@ -1452,6 +1466,41 @@
     <div class="modal-actions" style="justify-content:space-between;">
       <button class="btn primary" onclick="saveMaster()">💾 保存</button>
       <button class="btn" onclick="closeModal('modal-master')">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 自治体ルール モーダル -->
+<div class="modal-bg" id="modal-region">
+  <div class="modal" style="max-width:760px;">
+    <h3>🏛 自治体ルール（保安図・切下げの目安）</h3>
+    <p style="font-size:12px; color:#aaa;">図面の<b>市区町村</b>を選ぶと、左パネルに保安・切下げのルール（歩行者通路の最低幅員など）が表示されます。<b style="color:#fc9;">数値は地域・所轄警察署で異なります。初期値は国の標準的な目安です。実際に役所・警察で確認した値に直してお使いください。</b>図面の自動チェックは行いません（表示のみ）。</p>
+
+    <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:8px;">
+      <h4 style="margin-top:0;">① 図面の市区町村</h4>
+      <div style="display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap; font-size:11px;">
+        <div><label style="display:block; color:#aaa;">選択中</label>
+          <select id="rg-active-sel" onchange="rgPickActive(this.value)"></select></div>
+        <div><label style="display:block; color:#aaa;">新しい市区町村を追加</label>
+          <input type="text" id="rg-new-name" placeholder="例: 印西市" style="width:130px;"></div>
+        <button class="btn primary" onclick="rgAddRegion()">追加</button>
+        <button class="btn" onclick="rgDeleteRegion()">🗑 選択中を削除</button>
+      </div>
+    </div>
+
+    <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:8px;">
+      <h4 style="margin-top:0;">② 選択中の市の窓口・個別ルール</h4>
+      <div id="rg-city-edit" style="font-size:11px;"></div>
+    </div>
+
+    <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:8px;">
+      <h4 style="margin-top:0;">③ 国（共通基準）<span style="font-size:11px; color:#999;"> — どの市でも共通で表示されます</span></h4>
+      <div id="rg-national-edit" style="font-size:11px;"></div>
+    </div>
+
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn" onclick="rgResetDefault()">初期値に戻す</button>
+      <button class="btn primary" onclick="closeModal('modal-region')">閉じる</button>
     </div>
   </div>
 </div>
@@ -8564,6 +8613,181 @@ function closeModal(id) {
   document.getElementById(id).classList.remove('show');
 }
 
+// ============================================================
+// 自治体ルール: 保安図・切下げ図の目安(歩行者通路幅員/許可窓口など)。
+// 国(共通基準)＋市区町村ごとの個別ルール。localStorageに保存。表示のみ。
+// 数値は国土交通省/警察庁の標準的な目安。地域で異なるためユーザー編集可。
+// ============================================================
+const REGION_KEY = 'yoheki-cad-region';
+const RULE_CATS = ['歩行者通路','車道','保安施設・標識','夜間','切下げ(乗入れ)','許可','その他'];
+function defaultRegionStore() {
+  return {
+    active: 'national',
+    national: { rules: [
+      {id:'n1',  cat:'歩行者通路', label:'標準(望ましい)有効幅員', value:'1.5m 以上', note:'歩行者が対面通行できる幅。歩行者の多い箇所は確保する。'},
+      {id:'n2',  cat:'歩行者通路', label:'最小有効幅員',           value:'0.75m 以上', note:'やむを得ない場合の最小。原則は1.5m以上。'},
+      {id:'n3',  cat:'歩行者通路', label:'車椅子配慮の幅員',       value:'1.0m 以上', note:'車椅子使用者の通行を考慮した有効幅員。'},
+      {id:'n4',  cat:'歩行者通路', label:'柵・段差',               value:'車道と隙間なく仕切る', note:'転落・落下防止。段差はすりつけ。'},
+      {id:'n5',  cat:'車道',       label:'片側交互通行(1車線確保)', value:'3.0m 以上 ※要確認', note:'制限を受ける車道の標準幅員。所轄警察・道路管理者で確認。'},
+      {id:'n6',  cat:'車道',       label:'2車線を確保する場合',     value:'5.5m 以上 ※要確認', note:'2車線確保時の標準幅員。'},
+      {id:'n7',  cat:'保安施設・標識', label:'工事予告標識',       value:'手前に予告を設置', note:'ドライバーが余裕をもって認知できる位置に。距離は道路状況・所轄の指示による。'},
+      {id:'n8',  cat:'保安施設・標識', label:'保安灯(点滅灯)',     value:'危険箇所・端部に設置', note:'夜間は端部・コーナーに。'},
+      {id:'n9',  cat:'夜間',       label:'照明',                   value:'通路に十分な照明', note:'歩行者通路・作業帯は夜間照明を確保。'},
+      {id:'n10', cat:'許可',       label:'道路使用許可',           value:'所轄警察署長 (道交法77条)', note:'交通以外の一時利用。申請は中2〜3日程度。'},
+      {id:'n11', cat:'許可',       label:'道路占用許可',           value:'道路管理者 国/県/市 (道路法32条)', note:'継続して設置する場合。申請は原則2〜3週間。'},
+      {id:'n12', cat:'切下げ(乗入れ)', label:'歩道切下げ',         value:'道路管理者の承認/占用', note:'乗入れ幅・すりつけ勾配・舗装構成は各管理者の構造基準による。市区町村で確認。'}
+    ]},
+    regions: [
+      {id:'kamagaya', name:'鎌ケ谷市', police:'鎌ケ谷警察署', roadmgr:'鎌ケ谷市 道路担当課(要確認)', note:'', rules:[]},
+      {id:'matsudo',  name:'松戸市',   police:'松戸警察署',   roadmgr:'松戸市 道路担当課(要確認)',   note:'', rules:[]},
+      {id:'kashiwa',  name:'柏市',     police:'柏警察署',     roadmgr:'柏市 道路担当課(要確認)',     note:'', rules:[]},
+      {id:'funabashi',name:'船橋市',   police:'船橋/船橋東警察署', roadmgr:'船橋市 道路担当課(要確認)', note:'', rules:[]},
+      {id:'ichikawa', name:'市川市',   police:'市川/行徳警察署', roadmgr:'市川市 道路担当課(要確認)', note:'', rules:[]},
+      {id:'shiroi',   name:'白井市',   police:'印西警察署',   roadmgr:'白井市 道路担当課(要確認)',   note:'', rules:[]}
+    ]
+  };
+}
+function loadRegion() {
+  try {
+    const r = JSON.parse(localStorage.getItem(REGION_KEY));
+    if (!r) return defaultRegionStore();
+    if (!r.national || !r.national.rules) r.national = defaultRegionStore().national;
+    if (!r.regions) r.regions = [];
+    if (!r.active) r.active = 'national';
+    return r;
+  } catch { return defaultRegionStore(); }
+}
+function saveRegionStore(r) {
+  try { localStorage.setItem(REGION_KEY, JSON.stringify(r)); }
+  catch (e) { alert('保存に失敗しました: ' + e.message); }
+}
+function rgEscAttr(s) {
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ---- 左パネルの表示(読み取り専用) ----
+function setActiveRegion(id) { const r = loadRegion(); r.active = id; saveRegionStore(r); renderRegionPanel(); }
+function rgRuleLine(x) {
+  return `<div style="font-size:11px; line-height:1.45; margin:2px 0;">
+    ・${escapeHtml(x.label)}: <b style="color:#ffd479;">${escapeHtml(x.value)}</b>
+    ${x.note ? `<div style="color:#999; font-size:10px; padding-left:10px;">${escapeHtml(x.note)}</div>` : ''}</div>`;
+}
+function renderRegionPanel() {
+  const r = loadRegion();
+  const sel = document.getElementById('region-active');
+  if (sel) {
+    sel.innerHTML = '<option value="national">国（共通のみ）</option>' +
+      r.regions.map(rg => `<option value="${rg.id}">${escapeHtml(rg.name)}</option>`).join('');
+    sel.value = r.active;
+  }
+  const view = document.getElementById('region-rules-view');
+  if (!view) return;
+  let html = '';
+  const city = r.regions.find(x => x.id === r.active);
+  if (city) {
+    html += `<div style="background:#23323a; border-radius:5px; padding:6px; margin-bottom:6px; font-size:11px; line-height:1.6;">
+      <b style="color:#7fd;">${escapeHtml(city.name)}</b><br>`;
+    if (city.police)  html += `🚓 道路使用許可: <b>${escapeHtml(city.police)}</b><br>`;
+    if (city.roadmgr) html += `🏢 道路占用/切下げ: <b>${escapeHtml(city.roadmgr)}</b><br>`;
+    if (city.note)    html += `📝 ${escapeHtml(city.note)}<br>`;
+    html += city.rules.length
+      ? city.rules.map(rgRuleLine).join('')
+      : `<span style="color:#9ab;">この市の個別ルールは未登録（下の国の基準を参照）。</span>`;
+    html += `</div>`;
+  }
+  RULE_CATS.forEach(cat => {
+    const items = r.national.rules.filter(x => x.cat === cat);
+    if (!items.length) return;
+    html += `<div style="font-size:10px; color:#8af; font-weight:bold; margin:5px 0 2px; border-bottom:1px solid #3a3a3a;">${cat}</div>`;
+    html += items.map(rgRuleLine).join('');
+  });
+  view.innerHTML = html || '<span style="color:#888; font-size:11px;">ルール未登録</span>';
+}
+
+// ---- モーダルでの編集 ----
+function openRegion() { renderRegionModal(); document.getElementById('modal-region').classList.add('show'); }
+function rgTargetRules(r, kind) {
+  if (kind === 'nat') return r.national.rules;
+  const c = r.regions.find(x => x.id === r.active);
+  return c ? c.rules : null;
+}
+function rgRuleRows(rules, kind) {
+  if (!rules.length) return '<div style="color:#888;">なし。「＋行を追加」で追加できます。</div>';
+  return rules.map(x => `
+    <div style="display:flex; gap:4px; margin-bottom:4px; align-items:center;">
+      <select onchange="rgEdit('${kind}','${x.id}','cat',this.value)" style="font-size:11px; width:92px;">${RULE_CATS.map(c => `<option ${c === x.cat ? 'selected' : ''}>${c}</option>`).join('')}</select>
+      <input value="${rgEscAttr(x.label)}" onchange="rgEdit('${kind}','${x.id}','label',this.value)" placeholder="項目" style="font-size:11px; width:130px;">
+      <input value="${rgEscAttr(x.value)}" onchange="rgEdit('${kind}','${x.id}','value',this.value)" placeholder="値" style="font-size:11px; width:120px;">
+      <input value="${rgEscAttr(x.note)}" onchange="rgEdit('${kind}','${x.id}','note',this.value)" placeholder="補足" style="font-size:11px; flex:1; min-width:80px;">
+      <button class="btn" style="padding:2px 6px;" onclick="rgDel('${kind}','${x.id}')">🗑</button>
+    </div>`).join('');
+}
+function renderRegionModal() {
+  const r = loadRegion();
+  const sel = document.getElementById('rg-active-sel');
+  sel.innerHTML = '<option value="national">（市を選ばない＝国の共通基準のみ）</option>' +
+    r.regions.map(rg => `<option value="${rg.id}">${escapeHtml(rg.name)}</option>`).join('');
+  sel.value = r.active;
+  const cityDiv = document.getElementById('rg-city-edit');
+  const c = r.regions.find(x => x.id === r.active);
+  if (!c) {
+    cityDiv.innerHTML = '<div style="color:#9ab;">上で市区町村を選ぶ（または追加する）と、その市の窓口や個別ルールを設定できます。</div>';
+  } else {
+    cityDiv.innerHTML = `
+      <div style="display:grid; grid-template-columns:auto 1fr; gap:6px; align-items:center; margin-bottom:8px;">
+        <label style="color:#aaa;">🚓 道路使用許可(警察署)</label><input value="${rgEscAttr(c.police)}" onchange="rgCity('police',this.value)">
+        <label style="color:#aaa;">🏢 道路占用/切下げ(役所)</label><input value="${rgEscAttr(c.roadmgr)}" onchange="rgCity('roadmgr',this.value)">
+        <label style="color:#aaa;">📝 メモ</label><input value="${rgEscAttr(c.note)}" onchange="rgCity('note',this.value)">
+      </div>
+      <div style="color:#9cf; margin-bottom:4px;">この市だけの個別ルール（国の基準と別に上へ表示されます）</div>
+      ${rgRuleRows(c.rules, 'city')}
+      <button class="btn" style="margin-top:6px;" onclick="rgAdd('city')">＋ 行を追加</button>`;
+  }
+  document.getElementById('rg-national-edit').innerHTML =
+    rgRuleRows(r.national.rules, 'nat') + `<button class="btn" style="margin-top:6px;" onclick="rgAdd('nat')">＋ 行を追加</button>`;
+}
+function rgEdit(kind, id, field, val) {
+  const r = loadRegion(); const rules = rgTargetRules(r, kind); if (!rules) return;
+  const it = rules.find(x => x.id === id); if (it) { it[field] = val; saveRegionStore(r); renderRegionPanel(); }
+}
+function rgDel(kind, id) {
+  const r = loadRegion(); const rules = rgTargetRules(r, kind); if (!rules) return;
+  const i = rules.findIndex(x => x.id === id);
+  if (i >= 0) { rules.splice(i, 1); saveRegionStore(r); renderRegionModal(); renderRegionPanel(); }
+}
+function rgAdd(kind) {
+  const r = loadRegion(); const rules = rgTargetRules(r, kind);
+  if (!rules) { alert('先に市区町村を選んでください'); return; }
+  rules.push({ id: 'r' + Date.now() + Math.floor(Math.random()*1000), cat:'歩行者通路', label:'', value:'', note:'' });
+  saveRegionStore(r); renderRegionModal();
+}
+function rgCity(field, val) {
+  const r = loadRegion(); const c = r.regions.find(x => x.id === r.active);
+  if (c) { c[field] = val; saveRegionStore(r); renderRegionPanel(); }
+}
+function rgPickActive(id) { const r = loadRegion(); r.active = id; saveRegionStore(r); renderRegionModal(); renderRegionPanel(); }
+function rgAddRegion() {
+  const name = document.getElementById('rg-new-name').value.trim();
+  if (!name) { alert('市区町村名を入力してください'); return; }
+  const r = loadRegion(); const id = 'rg' + Date.now();
+  r.regions.push({ id, name, police:'', roadmgr:'', note:'', rules:[] });
+  r.active = id; saveRegionStore(r);
+  document.getElementById('rg-new-name').value = '';
+  renderRegionModal(); renderRegionPanel();
+}
+function rgDeleteRegion() {
+  const r = loadRegion();
+  if (r.active === 'national') { alert('国の共通基準は削除できません。市区町村を選んでから削除してください。'); return; }
+  const c = r.regions.find(x => x.id === r.active); if (!c) return;
+  if (!confirm(c.name + ' を削除しますか？')) return;
+  r.regions = r.regions.filter(x => x.id !== r.active); r.active = 'national';
+  saveRegionStore(r); renderRegionModal(); renderRegionPanel();
+}
+function rgResetDefault() {
+  if (!confirm('自治体ルールを初期状態（国の標準値＋千葉県内の市）に戻します。追加・編集した内容は消えます。よろしいですか？')) return;
+  saveRegionStore(defaultRegionStore()); renderRegionModal(); renderRegionPanel();
+}
+
 document.querySelectorAll('.modal-bg').forEach(bg => {
   bg.addEventListener('click', (e) => {
     if (e.target === bg) bg.classList.remove('show');
@@ -8586,6 +8810,7 @@ saveHistory();
 updateStats();
 setTool('select');
 setupSwatches();   // 色スウォッチ(代表色・最近使った色)を初期描画
+renderRegionPanel();   // 自治体ルール(保安図・切下げの目安)を左パネルに初期描画
 
 // ===== ヘルプ(?)ツールチップを画面に被せて表示(左パネルで見切れない) =====
 (function setupHelpTips(){
