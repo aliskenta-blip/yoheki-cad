@@ -1677,8 +1677,15 @@
 
     <p style="font-size:11px; color:#888; margin-top:6px;">取り込み後、左パネル「縮尺補正」→「📐2点で実距離を指定」で、地図の縮尺バーや既知の長さに合わせると実寸になります。選択モードで移動・拡大縮小もできます。</p>
 
-    <div class="modal-actions" style="justify-content:space-between;">
-      <button class="btn primary" id="pdf-import-btn" onclick="importPDF()" disabled>取り込む</button>
+    <div style="background:#23323a; border-radius:5px; padding:8px; margin-top:8px; font-size:11px; line-height:1.6;">
+      <b style="color:#7fd;">🧬 線データで取り込む（ベクターPDFのみ）</b><br>
+      CADから書き出した<b>ベクターPDF</b>なら、中の線を<b>1本ずつ編集できる線データ</b>として取り込めます（写真・スキャンPDFは不可＝上の下敷きをどうぞ）。<br>
+      <span style="color:#fc9;">※線数が多い図面は重くなることがあります。取込前に本数を確認します。</span>
+    </div>
+
+    <div class="modal-actions" style="justify-content:space-between; gap:6px; flex-wrap:wrap;">
+      <button class="btn primary" id="pdf-import-btn" onclick="importPDF()" disabled>🖼 下敷き画像で取込</button>
+      <button class="btn" id="pdf-vec-btn" onclick="importPDFVector()" disabled>🧬 線データで取込</button>
       <button class="btn" onclick="closeModal('modal-pdf')">閉じる</button>
     </div>
   </div>
@@ -7802,6 +7809,7 @@ function openPDFImport(){
   document.getElementById('pdf-fname').textContent = '未選択';
   document.getElementById('pdf-page-row').style.display = 'none';
   document.getElementById('pdf-import-btn').disabled = true;
+  const vb = document.getElementById('pdf-vec-btn'); if (vb) vb.disabled = true;
   pdfImportState = { pdf:null, name:'' };
   document.getElementById('modal-pdf').classList.add('show');
 }
@@ -7824,6 +7832,7 @@ function pickPDFFile(){
         document.getElementById('pdf-pagecount').textContent = `/ 全${pdf.numPages}ページ`;
         document.getElementById('pdf-page-row').style.display = pdf.numPages > 1 ? 'flex' : 'none';
         document.getElementById('pdf-import-btn').disabled = false;
+        const vb = document.getElementById('pdf-vec-btn'); if (vb) vb.disabled = false;
       }catch(err){ alert('PDF読込エラー: ' + (err.message||err)); }
     };
     r.readAsArrayBuffer(f);
@@ -7875,6 +7884,122 @@ async function importPDF(){
       alert(`PDF「${nm}」p.${pn} を下敷きとして取り込みました。\n\n・この上から線やハッチをなぞって作図できます\n・選択(S)モードで移動・拡大縮小できます\n・実寸に合わせるには 左の「縮尺補正」→「📐2点で実距離を指定」を使ってください（地図の縮尺バーなどで合わせられます）\n・位置が決まったら 左「画像・地図(PDF)」→「🔒下地として固定」で固定すると、上から描いてもズレません`);
     });
   }catch(err){ alert('PDF取り込みエラー: ' + (err.message||err)); }
+  finally{ btn.disabled=false; btn.textContent=oldLabel; }
+}
+
+// ----- ベクターPDF取込 (v1.06) -----
+// CAD由来のベクターPDFから、線(パス)を1本ずつ編集できるfabricのポリラインとして取り込む。
+// PDF.jsのオペレータリストを走査し、CTM(変換行列)を追跡して点をmm座標へ変換。
+// 連続する線分は次数2連結でポリラインにまとめ、本数を抑える。画像・文字は対象外。
+async function importPDFVector(){
+  const pdf = pdfImportState.pdf;
+  if (!pdf){ alert('先に「📂 PDFファイルを選択」してください'); return; }
+  if (typeof pdfjsLib === 'undefined'){ alert('PDF機能の読み込み中です。少し待って再度お試しください。'); return; }
+  const btn = document.getElementById('pdf-vec-btn');
+  const oldLabel = btn.textContent; btn.disabled = true; btn.textContent = '解析中…';
+  try{
+    let pageNum = parseInt(document.getElementById('pdf-page').value,10) || 1;
+    pageNum = Math.min(pdf.numPages, Math.max(1, pageNum));
+    const page = await pdf.getPage(pageNum);
+    const OPS = pdfjsLib.OPS;
+    const view = page.view;                       // [x0,y0,x1,y1] (pt)
+    const ol = await page.getOperatorList();
+
+    // --- CTM追跡 + 点→mm変換(キャンバスは1単位=1mm・原点左上) ---
+    const mul = (A,B)=>[A[0]*B[0]+A[1]*B[2], A[0]*B[1]+A[1]*B[3], A[2]*B[0]+A[3]*B[2], A[2]*B[1]+A[3]*B[3], A[4]*B[0]+A[5]*B[2]+B[4], A[4]*B[1]+A[5]*B[3]+B[5]];
+    let ctm=[1,0,0,1,0,0]; const stack=[];
+    const T=(x,y)=>{ const px=x*ctm[0]+y*ctm[2]+ctm[4], py=x*ctm[1]+y*ctm[3]+ctm[5]; return [ (px-view[0])*25.4/72, (view[3]-py)*25.4/72 ]; };
+
+    const subpaths=[]; let imgCount=0;
+    for(let i=0;i<ol.fnArray.length;i++){
+      const fn=ol.fnArray[i], a=ol.argsArray[i];
+      if(fn===OPS.save){ stack.push(ctm.slice()); }
+      else if(fn===OPS.restore){ if(stack.length) ctm=stack.pop(); }
+      else if(fn===OPS.transform){ ctm=mul([a[0],a[1],a[2],a[3],a[4],a[5]], ctm); }
+      else if(fn===OPS.paintImageXObject||fn===OPS.paintInlineImageXObject||fn===OPS.paintImageMaskXObject){ imgCount++; }
+      else if(fn===OPS.constructPath){
+        const ops=a[0], co=a[1]; let ci=0; let cur=null;
+        const flush=()=>{ if(cur&&cur.length>=2)subpaths.push(cur); cur=null; };
+        for(const o of ops){
+          if(o===OPS.moveTo){ flush(); cur=[T(co[ci++],co[ci++])]; }
+          else if(o===OPS.lineTo){ const p=T(co[ci++],co[ci++]); if(cur)cur.push(p); else cur=[p]; }
+          else if(o===OPS.curveTo){ ci+=4; const p=T(co[ci++],co[ci++]); if(cur)cur.push(p); }
+          else if(o===OPS.curveTo2){ ci+=2; const p=T(co[ci++],co[ci++]); if(cur)cur.push(p); }
+          else if(o===OPS.curveTo3){ ci+=2; const p=T(co[ci++],co[ci++]); if(cur)cur.push(p); }
+          else if(o===OPS.rectangle){ const x=co[ci++],y=co[ci++],w=co[ci++],h=co[ci++]; flush(); subpaths.push([T(x,y),T(x+w,y),T(x+w,y+h),T(x,y+h),T(x,y)]); }
+          else if(o===OPS.closePath){ if(cur&&cur.length>=2){ cur.push(cur[0].slice()); flush(); } }
+        }
+        flush();
+      }
+    }
+
+    if(!subpaths.length){
+      alert(`このページ(p.${pageNum})には取り込める線データがありませんでした。\n\n` +
+        (imgCount>0 ? `画像が${imgCount}個見つかりました＝写真・スキャンのページのようです。\n「🖼 下敷き画像で取込」をお使いください。` : 'ベクターの線が含まれていません。'));
+      return;
+    }
+
+    // --- 次数2連結: 端点を0.1mmに量子化し、ちょうど2本が出会う端だけ繋ぐ(交差点では繋がない) ---
+    const Q=v=>Math.round(v*10), key=p=>Q(p[0])+'_'+Q(p[1]);
+    const endMap=new Map();
+    subpaths.forEach((sp,idx)=>{ for(const e of [sp[0],sp[sp.length-1]]){ const k=key(e); (endMap.get(k)||endMap.set(k,[]).get(k)).push(idx); } });
+    const used=new Array(subpaths.length).fill(false);
+    const chains=[];
+    for(let i=0;i<subpaths.length;i++){
+      if(used[i])continue; used[i]=true;
+      let chain=subpaths[i].slice();
+      for(let dir=0;dir<2;dir++){
+        let extend=true;
+        while(extend){ extend=false;
+          const tail=chain[chain.length-1], k=key(tail);
+          const cand=(endMap.get(k)||[]).filter(j=>!used[j]);
+          if(cand.length===1){
+            const j=cand[0]; let seg=subpaths[j].slice();
+            if(key(seg[0])!==k) seg=seg.reverse();
+            used[j]=true; for(let t=1;t<seg.length;t++)chain.push(seg[t]); extend=true;
+          }
+        }
+        chain.reverse();
+      }
+      chains.push(chain);
+    }
+
+    // --- 本数を確認(多いと重い) ---
+    const n = chains.length;
+    let msg = `ベクターPDF p.${pageNum} を解析しました。\n\n・取り込める線: 約 ${n.toLocaleString()} 本`;
+    if(imgCount>0) msg += `\n・画像 ${imgCount}個(写真等)は線取込では取り込みません(必要なら「下敷き画像」で別途)`;
+    msg += `\n\nこの線を「1本ずつ編集できる線」として取り込みます。`;
+    if(n > 4000) msg += `\n\n⚠ 線が多い(${n.toLocaleString()}本)ため、動作が重くなる場合があります。\n位置合わせ・トレースだけが目的なら「🖼 下敷き画像」の方が軽快です。`;
+    msg += `\n\n取り込みますか？`;
+    if(!confirm(msg)) return;
+
+    btn.textContent = '取り込み中…';
+    await new Promise(r=>setTimeout(r,10));   // ラベル更新を反映
+
+    // --- fabricのポリラインを生成(描画中は再描画を止めて高速化) ---
+    const layer = (typeof state!=='undefined' && state.activeLayer) || 0;
+    const prevAdd = canvas.renderOnAddRemove; canvas.renderOnAddRemove = false;
+    const added = [];
+    for(const ch of chains){
+      const pts = ch.map(p=>({x:p[0], y:p[1]}));
+      const pl = new fabric.Polyline(pts, {
+        stroke:'#000', strokeWidth:2, strokeUniform:true, fill:'',
+        strokeLineCap:'round', strokeLineJoin:'round',
+        objectCaching:false, _type:'pdfvec', _layer:layer
+      });
+      canvas.add(pl); added.push(pl);
+    }
+    canvas.renderOnAddRemove = prevAdd;
+    canvas.renderAll();
+    if (typeof saveHistory==='function') saveHistory();
+    if (typeof updateStats==='function') updateStats();
+    closeModal('modal-pdf');
+    setTimeout(()=>{ try{ zoomFitObjects(added); }catch(_){} }, 50);
+    alert(`ベクターPDF p.${pageNum} を ${n.toLocaleString()} 本の線として取り込みました。\n\n` +
+      `・「選択(S)」で線をクリックすると1本ずつ選べます。Deleteで削除、ドラッグで移動できます。\n` +
+      `・線は黒・実寸(mm)で入っています。縮尺が違う場合は左「縮尺補正」で合わせてください。\n` +
+      `・重い場合は不要な線を範囲選択して消すと軽くなります。`);
+  }catch(err){ alert('ベクターPDF取り込みエラー: ' + (err && err.message || err)); }
   finally{ btn.disabled=false; btn.textContent=oldLabel; }
 }
 
