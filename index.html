@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.06 (ベクターPDFの線取込)</span>
+  <span class="ver">v1.07 (表題欄:右下に図面名・現場住所など)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -505,6 +505,18 @@
       </div>
       <button class="btn" style="width:100%; margin-top:4px;" onclick="fitToFrame()">図枠を画面にフィット</button>
       <button class="btn" style="width:100%; margin-top:4px;" onclick="startMoveFrame()">✥ 図枠を移動</button>
+    </div>
+
+    <div class="panel-section">
+      <h4>📋 表題欄(タイトル) <span class="help-tip" data-tip="図面の右下に、図面名・現場住所などを書き込む欄(表題欄)を入れます。図枠の右下に自動で配置されます。枠の大きさ・行・文字の大きさは「表題欄を編集」で自由に変えられます。会社名などはテンプレートとして保存され、次の図面でも出ます。">?</span></h4>
+      <div class="prop-row">
+        <label><input type="checkbox" id="tb-show" onchange="toggleTitleBlock(this.checked)"> 表題欄を表示</label>
+        <span></span>
+      </div>
+      <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
+        <span>図枠の<b>右下</b>に出ます(図枠が必要・自動でON)。中身や大きさは編集で変更。</span>
+      </div>
+      <button class="btn" style="width:100%; margin-top:4px;" onclick="openTitleBlock()">⚙ 表題欄を編集</button>
     </div>
 
     <div class="panel-section">
@@ -1505,6 +1517,36 @@
   </div>
 </div>
 
+<!-- 表題欄 モーダル -->
+<div class="modal-bg" id="modal-titleblock">
+  <div class="modal" style="max-width:680px;">
+    <h3>📋 表題欄(タイトルブロック)の編集</h3>
+    <p style="font-size:12px; color:#aaa;">図面の<b>右下</b>に出る欄です。大きさは<b>印刷時の実寸(mm)</b>で指定します（縮尺に関わらず紙の上で同じ大きさ）。内容・行・サイズはここで自由に変えられます。設定は<b>テンプレートとして保存</b>され次の図面でも出ます。</p>
+
+    <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:8px;">
+      <h4 style="margin-top:0;">① 全体の大きさ（mm）</h4>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; font-size:11px; align-items:flex-end;">
+        <div><label style="display:block; color:#aaa;">全体の幅</label><input type="number" id="tb-w" style="width:80px;" onchange="tbSizeEdit('w',this.value)"></div>
+        <div><label style="display:block; color:#aaa;">ラベル列の幅</label><input type="number" id="tb-labelw" style="width:80px;" onchange="tbSizeEdit('labelW',this.value)"></div>
+        <div><label style="display:block; color:#aaa;">文字サイズ</label><input type="number" id="tb-font" style="width:70px;" step="0.5" onchange="tbSizeEdit('fontMm',this.value)"></div>
+        <div><label style="display:block; color:#aaa;">枠からの余白</label><input type="number" id="tb-margin" style="width:70px;" onchange="tbSizeEdit('margin',this.value)"></div>
+      </div>
+    </div>
+
+    <div class="panel-section" style="background:#2b2b2b; border-radius:5px; padding:10px; margin-top:8px;">
+      <h4 style="margin-top:0;">② 行（ラベルと内容）</h4>
+      <div style="font-size:11px; color:#9cf; margin-bottom:6px;">左の<b>ラベル</b>(項目名)と右の<b>内容</b>を入力。各行の<b>高さ(mm)</b>も変えられます。</div>
+      <div id="tb-rows"></div>
+      <button class="btn" style="margin-top:6px;" onclick="tbAddRow()">＋ 行を追加</button>
+    </div>
+
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn" onclick="tbReset()">既定に戻す</button>
+      <button class="btn primary" onclick="closeModal('modal-titleblock')">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <!-- 形状寸法(ラフ形→実寸化)モーダル -->
 <div class="modal-bg" id="modal-shapedim">
   <div class="modal" style="max-width:440px;">
@@ -1786,6 +1828,7 @@ let state = {
   ],
   activeLayer: 0,
   framePos: {x:40, y:40},   // 図枠の左上位置(移動可能) v0.70
+  titleBlock: null,         // 表題欄(タイトルブロック)設定 v1.07。initで loadTitleBlock() を入れる
   scale: 0.15  // 1mm = 0.15px (描画・mm換算の共通基準)
 };
 
@@ -1811,6 +1854,7 @@ let gridLines = [];
 //   用紙寸法(mm) × 縮尺S = 枠が収める実寸(mm)。実寸×state.scaleでpx化。
 // ============================================================
 let paperFrame = null;  // {rect, labels:[...]}
+let titleBlockGroup = null;  // 表題欄のfabric.Group(再生成して差し替え) v1.07
 
 const PAPER_MM = {
   'A4L': {w:297, h:210}, 'A4P': {w:210, h:297},
@@ -1889,6 +1933,7 @@ function updatePaperFrame() {
   paperFrame = {rect, labels:[labelTop, labelDim]};
   canvas.add(rect); canvas.add(labelTop); canvas.add(labelDim);
   syncFrameStroke();
+  buildTitleBlock();   // 図枠の右下に表題欄(あれば)を再配置
   canvas.renderAll();
 }
 
@@ -1900,7 +1945,160 @@ function positionFrame() {
   paperFrame.rect.set({ left: ox, top: oy }); paperFrame.rect.setCoords();
   if (paperFrame.labels[0]) { paperFrame.labels[0].set({ left: ox, top: oy - 22 }); paperFrame.labels[0].setCoords(); }
   if (paperFrame.labels[1]) { paperFrame.labels[1].set({ left: ox, top: oy + d.pxH + 6 }); paperFrame.labels[1].setCoords(); }
+  buildTitleBlock();   // 表題欄も図枠の右下へ追従
   canvas.renderAll();
+}
+
+// ============================================================
+// 表題欄(タイトルブロック) v1.07
+//   図枠の右下に、図面名・現場住所などの欄を表示。寸法はpaper-mm(印刷時の実寸)で
+//   持ち、図枠の縮尺Sを掛けてキャンバス座標へ。設定はlocalStorageにテンプレ保存。
+//   図形は _isFrame:true(操作・保存から除外=state.titleBlockから毎回再生成)＋
+//   _tb:true(エクスポートでは残す)＋ excludeFromExport:false(PNG/印刷/SVGに出る)。
+// ============================================================
+const TITLEBLOCK_KEY = 'yoheki-cad-titleblock';
+function defaultTitleBlock() {
+  return {
+    show: false,
+    w: 160,         // 全体幅(paper-mm)
+    labelW: 42,     // ラベル列の幅(paper-mm)
+    fontMm: 4,      // 文字サイズ(paper-mm)
+    margin: 0,      // 図枠内側からの余白(paper-mm)
+    rows: [
+      {label:'会社名',   value:'アイル建設', h:9},
+      {label:'図面名',   value:'',         h:9},
+      {label:'現場住所', value:'',         h:9},
+      {label:'縮尺',     value:'',         h:8},
+      {label:'図番',     value:'',         h:8},
+      {label:'日付',     value:'',         h:8},
+      {label:'作成者',   value:'',         h:8}
+    ]
+  };
+}
+function loadTitleBlock() {
+  try {
+    const t = JSON.parse(localStorage.getItem(TITLEBLOCK_KEY));
+    if (!t || !Array.isArray(t.rows)) return defaultTitleBlock();
+    const d = defaultTitleBlock();
+    return { show:!!t.show, w:t.w||d.w, labelW:t.labelW||d.labelW, fontMm:t.fontMm||d.fontMm,
+             margin:(t.margin!=null?t.margin:d.margin), rows:t.rows };
+  } catch { return defaultTitleBlock(); }
+}
+function saveTitleBlockStore() {
+  try { localStorage.setItem(TITLEBLOCK_KEY, JSON.stringify(state.titleBlock)); } catch (e) {}
+}
+
+// 図枠の右下に表題欄を生成して差し替える
+function buildTitleBlock() {
+  if (titleBlockGroup) { canvas.remove(titleBlockGroup); titleBlockGroup = null; }
+  const tb = state.titleBlock;
+  if (!tb || !tb.show) return;
+  if (!paperFrame || !paperFrame.rect) return;   // 図枠が無いと右下基準が決まらない
+  const d = paperFrameDims();
+  const S = d.S;
+  const frR = state.framePos.x + d.pxW, frB = state.framePos.y + d.pxH;   // 枠の右下
+  const W = (tb.w||160) * S;
+  const totalMm = tb.rows.reduce((a,r)=>a+(+r.h||8),0) || 1;
+  const H = totalMm * S;
+  const m = (tb.margin||0) * S;
+  const left = frR - W - m, top = frB - H - m;
+  const labelW = (tb.labelW||42) * S;
+  const fs = Math.max(1,(tb.fontMm||4) * S);
+  const pad = 1.2 * S;
+  const lw = Math.max(0.3, 0.22 * S);     // 罫線の太さ(実寸基準)
+  const els = [];
+  els.push(new fabric.Rect({ left, top, width:W, height:H, fill:'#ffffff', stroke:'#000',
+    strokeWidth: Math.max(0.4, 0.35*S), selectable:false, evented:false }));
+  let y = top;
+  tb.rows.forEach((r,idx) => {
+    const rh = (+r.h||8) * S;
+    if (idx > 0) els.push(new fabric.Line([left, y, left+W, y], { stroke:'#000', strokeWidth:lw, selectable:false, evented:false }));
+    els.push(new fabric.Line([left+labelW, y, left+labelW, y+rh], { stroke:'#000', strokeWidth:lw, selectable:false, evented:false }));
+    const mkText = (txt, x, avail) => {
+      const t = new fabric.Text(String(txt||''), { left:x, top:y+rh/2, fontSize:fs, fill:'#000',
+        fontFamily:'Yu Gothic, sans-serif', originX:'left', originY:'center', selectable:false, evented:false });
+      if (avail > 4 && t.width > avail) t.scaleToWidth(avail);   // セル幅に収める(長い住所等)
+      return t;
+    };
+    els.push(mkText(r.label, left + pad, labelW - pad*2));
+    els.push(mkText(r.value, left + labelW + pad, W - labelW - pad*2));
+    y += rh;
+  });
+  const g = new fabric.Group(els, { selectable:false, evented:false, hoverCursor:'default',
+    _isFrame:true, _tb:true });
+  g.excludeFromExport = false;   // PNG/印刷/SVGには出す
+  titleBlockGroup = g;
+  canvas.add(g); canvas.bringToFront(g);
+}
+
+// 左パネルの表示ON/OFF
+function toggleTitleBlock(show) {
+  if (!state.titleBlock) state.titleBlock = loadTitleBlock();
+  state.titleBlock.show = !!show;
+  saveTitleBlockStore();
+  if (show && !document.getElementById('frame-show').checked) {
+    // 表題欄は図枠の右下基準。図枠が必要なので自動でON
+    document.getElementById('frame-show').checked = true;
+  }
+  updatePaperFrame();
+}
+
+// ---- 表題欄モーダル(編集) ----
+function openTitleBlock() {
+  if (!state.titleBlock) state.titleBlock = loadTitleBlock();
+  renderTitleBlockModal();
+  document.getElementById('modal-titleblock').classList.add('show');
+}
+function renderTitleBlockModal() {
+  const tb = state.titleBlock;
+  document.getElementById('tb-w').value = tb.w;
+  document.getElementById('tb-labelw').value = tb.labelW;
+  document.getElementById('tb-font').value = tb.fontMm;
+  document.getElementById('tb-margin').value = tb.margin;
+  const div = document.getElementById('tb-rows');
+  div.innerHTML = tb.rows.map((r,i) => `
+    <div style="display:flex; gap:4px; margin-bottom:4px; align-items:center;">
+      <input value="${rgEscAttr(r.label)}" onchange="tbEdit(${i},'label',this.value)" placeholder="ラベル" style="font-size:11px; width:110px;">
+      <input value="${rgEscAttr(r.value)}" onchange="tbEdit(${i},'value',this.value)" placeholder="内容" style="font-size:11px; flex:1; min-width:90px;">
+      <input type="number" value="${r.h}" onchange="tbEdit(${i},'h',this.value)" title="高さ(mm)" style="font-size:11px; width:54px;">
+      <button class="btn" style="padding:2px 6px;" onclick="tbMoveRow(${i},-1)" title="上へ">↑</button>
+      <button class="btn" style="padding:2px 6px;" onclick="tbMoveRow(${i},1)" title="下へ">↓</button>
+      <button class="btn" style="padding:2px 6px;" onclick="tbDelRow(${i})">🗑</button>
+    </div>`).join('');
+}
+function tbCommit() {
+  saveTitleBlockStore();
+  if (state.titleBlock.show) { buildTitleBlock(); canvas.renderAll(); }
+}
+function tbSizeEdit(field, val) {
+  const v = parseFloat(val); if (isNaN(v) || v <= 0) return;
+  state.titleBlock[field] = v; tbCommit();
+}
+function tbEdit(i, field, val) {
+  const r = state.titleBlock.rows[i]; if (!r) return;
+  if (field === 'h') { const v = parseFloat(val); r.h = (isNaN(v)||v<=0) ? r.h : v; }
+  else r[field] = val;
+  tbCommit();
+}
+function tbAddRow() {
+  state.titleBlock.rows.push({label:'', value:'', h:8});
+  tbCommit(); renderTitleBlockModal();
+}
+function tbDelRow(i) {
+  state.titleBlock.rows.splice(i,1);
+  tbCommit(); renderTitleBlockModal();
+}
+function tbMoveRow(i, dir) {
+  const rows = state.titleBlock.rows; const j = i + dir;
+  if (j < 0 || j >= rows.length) return;
+  const t = rows[i]; rows[i] = rows[j]; rows[j] = t;
+  tbCommit(); renderTitleBlockModal();
+}
+function tbReset() {
+  if (!confirm('表題欄を既定の内容・大きさに戻します。よろしいですか？(表示ON/OFFはそのまま)')) return;
+  const show = state.titleBlock.show;
+  state.titleBlock = defaultTitleBlock(); state.titleBlock.show = show;
+  tbCommit(); renderTitleBlockModal();
 }
 
 // 図枠の移動モード(ドラッグで図枠を動かす)
@@ -4858,7 +5056,11 @@ function saveHistory() {
   if (state.isLoadingHistory) return;
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
-  const snap = withoutSelHighlight(() => JSON.stringify(canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked'])));
+  const snap = withoutSelHighlight(() => {
+    const j = canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']);
+    if (j.objects) j.objects = j.objects.filter(o => !o._tb);   // 表題欄はupdatePaperFrameで再生成するので履歴から除外
+    return JSON.stringify(j);
+  });
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
   state.historyIndex++;
@@ -5674,15 +5876,16 @@ function saveJSON() {
     created: new Date().toISOString(),
     layers: state.layers,
     framePos: state.framePos,
+    titleBlock: state.titleBlock,
     paper: {
       size: document.getElementById('paper-size').value,
       scale: document.getElementById('paper-scale').value,
       show: document.getElementById('frame-show').checked
     },
-    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked']))
+    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']))
   };
-  // グリッドは除外
-  data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame);
+  // グリッド・図枠・表題欄(再生成するので)は保存対象から除外
+  data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame && !o._tb);
   
   const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
@@ -5707,6 +5910,10 @@ function openJSON() {
         if (data.canvas) {
           if (data.layers) state.layers = data.layers;
           if (data.framePos) state.framePos = data.framePos;
+          if (data.titleBlock && Array.isArray(data.titleBlock.rows)) {
+            state.titleBlock = data.titleBlock;
+            const cb = document.getElementById('tb-show'); if (cb) cb.checked = !!data.titleBlock.show;
+          }
           if (data.paper) {
             if (data.paper.size) document.getElementById('paper-size').value = data.paper.size;
             if (data.paper.scale) document.getElementById('paper-scale').value = data.paper.scale;
@@ -5735,8 +5942,8 @@ function exportSVG() {
   const svg = withoutSelHighlight(() => canvas.toSVG({
     suppressPreamble: false
   }, function(o) {
-    // グリッドはスキップ
-    if (o._isGrid || o._isFrame) return false;
+    // グリッド・図枠はスキップ。ただし表題欄(_tb)は出力する
+    if ((o._isGrid || o._isFrame) && !o._tb) return false;
     return o;
   }));
   const blob = new Blob([svg], {type: 'image/svg+xml'});
@@ -8929,6 +9136,12 @@ document.getElementById('ortho').addEventListener('change', (e) => {
 // ============================================================
 
 renderLayerList();
+state.titleBlock = loadTitleBlock();   // 表題欄テンプレ(localStorage)を読み込み v1.07
+(function(){
+  const cb = document.getElementById('tb-show'); if (cb) cb.checked = !!state.titleBlock.show;
+  // 表題欄ONなら図枠も必要(右下基準)→図枠を表示に
+  if (state.titleBlock.show) { const fs = document.getElementById('frame-show'); if (fs) fs.checked = true; }
+})();
 drawGrid();
 updatePaperFrame();
 saveHistory();
