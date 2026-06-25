@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.10 (寸法線を選択して回転できる)</span>
+  <span class="ver">v1.11 (角丸めで破線が実線になる不具合を修正)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -4682,7 +4682,9 @@ function buildFillet(V, far1, far2, r, stroke, sw, dash){
   const N=24, arcPts=[];
   for(let i=0;i<=N;i++){ const a=a0+sweep*i/N; arcPts.push({x:C.x+r*Math.cos(a), y:C.y+r*Math.sin(a)}); }
   const lay = state.activeLayer;
-  const mk = extra => ({stroke, strokeWidth:sw, fill:'', strokeDashArray:dash||null, strokeLineCap:'round', strokeLineJoin:'round', _layer:lay, selectable:true, evented:true, ...extra});
+  // 破線のときは線端を butt に(round だと太線で丸端が隙間を埋めて実線に見える)
+  const cap = (dash && dash.length) ? 'butt' : 'round';
+  const mk = extra => ({stroke, strokeWidth:sw, fill:'', strokeDashArray:dash||null, strokeLineCap:cap, strokeLineJoin:'round', _layer:lay, selectable:true, evented:true, ...extra});
   // グループ化しない: 直線2本 + 曲線(円弧)1本 を別々のオブジェクトとして返す(個別選択できるように)
   const seg1=new fabric.Line([far1.x,far1.y,P1.x,P1.y], mk());
   const arc =new fabric.Polyline(arcPts, mk());
