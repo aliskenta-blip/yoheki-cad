@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.16 (プロパティの色を代表色から選択可)</span>
+  <span class="ver">v1.17 (Shift+移動で直交=上下左右に固定)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -4501,27 +4501,35 @@ canvas.on('mouse:down', (opt) => {
   });
 })();
 
-// ドラッグ中に、選んだ向き以外の移動を打ち消す。Shift押下中は8方向(45°)に固定。
+// ドラッグ中に、選んだ向き以外の移動を打ち消す。
+// Shift押下中は「直交(上下左右)」=ドラッグの主軸(水平/垂直)に固定。角度は変えず平行移動。
 canvas.on('object:moving', (opt) => {
   const o = opt.target;
   if (!o || !o._moveStart) return;
-  const shift = window.shiftPressed || (opt.e && opt.e.shiftKey);
-  let c = state.moveConstraint || 'free';
-  if (shift) c = 'angle';            // Shift中は水平/垂直/斜め45°の8方向に固定
-  if (c === 'free') return;
   const s = o._moveStart;
+  const shift = window.shiftPressed || (opt.e && opt.e.shiftKey);
+  if (shift) {
+    // 直交モード: 横移動が大きければ水平に、縦移動が大きければ垂直に固定(上下左右)
+    const dx = o.left - s.left, dy = o.top - s.top;
+    if (Math.abs(dx) >= Math.abs(dy)) o.set('top', s.top);   // 水平移動(上下を固定)
+    else o.set('left', s.left);                               // 垂直移動(左右を固定)
+    o.setCoords();
+    return;
+  }
+  let c = state.moveConstraint || 'free';
+  if (c === 'free') return;
   if (c === 'h') {
     o.set('top', s.top);
   } else if (c === 'v') {
     o.set('left', s.left);
   } else if (c === 'angle') {
-    // 指定角の倍数の向き(45なら8方向)へスナップして移動 — 全方位対応
+    // 左パネルで角度指定した場合は、その倍数角の向きへ投影移動
     const dx = o.left - s.left, dy = o.top - s.top;
-    const step = (shift ? 45 : (state.moveAngle || 45)) * Math.PI / 180;   // Shift中は45°固定
+    const step = (state.moveAngle || 45) * Math.PI / 180;
     if (step > 0 && (dx || dy)) {
-      const snapped = Math.round(Math.atan2(dy, dx) / step) * step;  // ドラッグ方向を最寄りの倍数角へ
+      const snapped = Math.round(Math.atan2(dy, dx) / step) * step;
       const ux = Math.cos(snapped), uy = Math.sin(snapped);
-      const proj = dx * ux + dy * uy;                                 // その向きへの移動量
+      const proj = dx * ux + dy * uy;
       o.set({ left: s.left + proj * ux, top: s.top + proj * uy });
     } else {
       o.set({ left: s.left, top: s.top });
