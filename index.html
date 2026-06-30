@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.24 (グループ図形の線の太さ・色を変更可)</span>
+  <span class="ver">v1.25 (節間消し:矩形/連続線/円を交点で削除)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -2560,27 +2560,97 @@ function addTrimLineSeg(p0, p1, props) {
   return ln;
 }
 
+// 線分が円と交わる点(0〜2個)。{x,y}を返す。
+function circleSegHits(cx, cy, r, A, B){
+  const dx=B.x-A.x, dy=B.y-A.y, fx=A.x-cx, fy=A.y-cy;
+  const a=dx*dx+dy*dy, b=2*(fx*dx+fy*dy), c=fx*fx+fy*fy-r*r, disc=b*b-4*a*c;
+  const out=[]; if (disc < 0 || a < 1e-9) return out;
+  const sd=Math.sqrt(disc);
+  [(-b-sd)/(2*a), (-b+sd)/(2*a)].forEach(t => { if (t>=-0.0001 && t<=1.0001){ const tt=Math.max(0,Math.min(1,t)); out.push({x:A.x+tt*dx, y:A.y+tt*dy}); } });
+  return out;
+}
+// 線分A→Bが他オブジェクト(線分・円)と交わる/接するt値(0..1)。0,1含む昇順・重複除去。
+function segTrimTs(A, B, excludeObj){
+  const dx=B.x-A.x, dy=B.y-A.y, L2=dx*dx+dy*dy;
+  const ts=[0,1]; if (L2 < 1e-9) return ts;
+  const TOL = Math.max(((excludeObj && excludeObj.strokeWidth)||2)*1.2, 12/(canvas.getZoom()||1));
+  const addT = p => { const t=((p.x-A.x)*dx+(p.y-A.y)*dy)/L2; if (t>0.0008 && t<0.9992) ts.push(t); };
+  canvas.forEachObject(other => {
+    if (other===excludeObj || other._isGrid || other._isSnapMarker || other._isFrame || !other.visible) return;
+    if (other.type==='circle'){ circleSegHits(other.left, other.top, other.radius*(other.scaleX||1), A, B).forEach(addT); return; }
+    worldSegsOf(other).forEach(cs => {
+      const ip=segIntersect([A,B], cs); if (ip) addT(ip);
+      [cs[0],cs[1]].forEach(ep => { if (pointSegDist(ep,[A,B]) <= TOL) addT(ep); });
+    });
+  });
+  return [...new Set(ts.map(t=>Math.round(t*1e6)/1e6))].sort((p,q)=>p-q);
+}
+// 連続セグメント図形(矩形/連続線/多角形)の、クリックした辺を「交点まで」切り、残りを再構成。
+function trimSegmentedShape(obj, segs, segIdx, clickPt, props){
+  const [A,B]=segs[segIdx];
+  const dx=B.x-A.x, dy=B.y-A.y, L2=dx*dx+dy*dy;
+  const keep=[];
+  for (let i=0;i<segs.length;i++){ if (i!==segIdx) keep.push(segs[i]); }
+  if (L2 >= 1e-9){
+    const ts=segTrimTs(A, B, obj);
+    if (ts.length > 2){      // 交点あり → クリックした区間(交点〜交点)だけ消す
+      let ct=((clickPt.x-A.x)*dx+(clickPt.y-A.y)*dy)/L2; ct=Math.max(0,Math.min(1,ct));
+      let k=0; for (let i=0;i<ts.length-1;i++){ if (ct>=ts[i] && ct<=ts[i+1]){ k=i; break; } }
+      const tL=ts[k], tR=ts[k+1], at=t=>({x:A.x+t*dx, y:A.y+t*dy});
+      if (tL>0.0008) keep.push([A, at(tL)]);
+      if (tR<0.9992) keep.push([at(tR), B]);
+    }
+    // 交点なし → クリック辺をまるごと削除(keepに足さない)=従来動作
+  }
+  canvas.remove(obj);
+  chainSegments(keep).forEach(poly => { if (poly.length>=2) addTrimResult(poly, props, obj); });
+  canvas.renderAll(); saveHistory(); updateStats();
+}
+// 円の節間消し: 他オブジェクトとの交点で円弧に分け、クリックした弧だけ削除。残りは円弧で再生成。
+function trimCircle(obj, clickPt){
+  const cx=obj.left, cy=obj.top, r=obj.radius*(obj.scaleX||1);
+  const angs=[];
+  canvas.forEachObject(other => {
+    if (other===obj || other._isGrid || other._isSnapMarker || other._isFrame || !other.visible) return;
+    if (other.type==='circle') return;   // 円×円は省略
+    worldSegsOf(other).forEach(cs => { circleSegHits(cx, cy, r, cs[0], cs[1]).forEach(h => angs.push((Math.atan2(h.y-cy, h.x-cx)+2*Math.PI)%(2*Math.PI))); });
+  });
+  const props=sharedRebarProps(obj);
+  const a=[...new Set(angs.map(x=>Math.round(x*1e5)/1e5))].sort((p,q)=>p-q);
+  if (a.length < 2){ canvas.remove(obj); canvas.renderAll(); saveHistory(); updateStats(); return; }  // 交点<2は円ごと削除
+  let cc=(Math.atan2(clickPt.y-cy, clickPt.x-cx)+2*Math.PI)%(2*Math.PI); if (cc < a[0]) cc+=2*Math.PI;
+  const n=a.length; let k=0;
+  for (let i=0;i<n;i++){ const lo=a[i], hi=(i+1<n)?a[i+1]:(a[0]+2*Math.PI); if (cc>=lo && cc<hi){ k=i; break; } }
+  canvas.remove(obj);
+  for (let i=0;i<n;i++){
+    if (i===k) continue;       // クリックした弧は消す
+    const lo=a[i], hi=(i+1<n)?a[i+1]:(a[0]+2*Math.PI), span=hi-lo;
+    const steps=Math.max(4, Math.round(span/(Math.PI/36)));
+    const pts=[]; for (let s=0;s<=steps;s++){ const t=lo+span*s/steps; pts.push({x:cx+r*Math.cos(t), y:cy+r*Math.sin(t)}); }
+    if (pts.length>=2) addTrimResult(pts, props, obj);
+  }
+  canvas.renderAll(); saveHistory(); updateStats();
+}
+
 // --- 節間消し: 折れ点間の1区間だけ削除し、残りを再構成 ---
 function trimAt(pt) {
   const hit = pickObjectAt(pt);
   if (!hit) return;
   const obj = hit.obj;
 
-  // 矩形(四角): クリックした1辺だけ消して開いた折れ線(コの字)に再構成
+  // 円: 他の線との交点で円弧に分け、クリックした弧だけ削除(円×四角で ( ) なども作れる)
+  if (obj.type === 'circle') { trimCircle(obj, pt); return; }
+
+  // 矩形(四角): クリックした辺を、他の線との交点まで削る(交点が無ければ辺ごと=コの字)
   if (obj.type === 'rect') {
     obj.setCoords();
     const a = obj.aCoords;                 // 回転も考慮した実座標の4隅
     const c = [a.tl, a.tr, a.br, a.bl];
     const edges = [];
     for (let i=0;i<4;i++) edges.push([c[i], c[(i+1)%4]]);
-    // クリックに最も近い辺を1本選ぶ
     let segIdx = 0, bd = Infinity;
     edges.forEach((s,i)=>{ const d = pointSegDist(pt, s); if (d < bd) { bd = d; segIdx = i; } });
-    const props = sharedRebarProps(obj);
-    canvas.remove(obj);
-    const remain = edges.filter((_,i)=> i !== segIdx);
-    chainSegments(remain).forEach(poly => { if (poly.length >= 2) addTrimResult(poly, props, obj); });
-    canvas.renderAll(); saveHistory(); updateStats();
+    trimSegmentedShape(obj, edges, segIdx, pt, sharedRebarProps(obj));
     return;
   }
 
@@ -2591,21 +2661,8 @@ function trimAt(pt) {
     const dx = B.x - A.x, dy = B.y - A.y;
     const L2 = dx*dx + dy*dy;
     if (L2 < 1e-9) { canvas.remove(obj); canvas.renderAll(); saveHistory(); updateStats(); return; }
-    // 他オブジェクトとの交点・接点を、線A→B上の媒介変数 t(0..1) で収集
-    const ts = [0, 1];
-    // 「くっついている」とみなす近接しきい値(画面で約12px。手描きの微小な隙間でも接合扱い)
-    const TOL = Math.max((obj.strokeWidth||2)*1.2, 12/(canvas.getZoom()||1));
-    const addT = (p) => { const t = ((p.x - A.x)*dx + (p.y - A.y)*dy) / L2; if (t > 0.0008 && t < 0.9992) ts.push(t); };
-    canvas.forEachObject(other => {
-      if (other === obj || other._isGrid || other._isSnapMarker || other._isFrame || !other.visible) return;
-      worldSegsOf(other).forEach(cs => {
-        const ip = segIntersect([A, B], cs);
-        if (ip) addT(ip);
-        // T字接合: 相手の線の端点が、この線の上(近く)に乗っている場合も切り取り点にする
-        [cs[0], cs[1]].forEach(ep => { if (pointSegDist(ep, [A, B]) <= TOL) addT(ep); });
-      });
-    });
-    const uniq = [...new Set(ts.map(t => Math.round(t*1e6)/1e6))].sort((a,b)=>a-b);
+    // 他オブジェクト(線分・円)との交点・接点を t(0..1) で収集(円との交点にも対応)
+    const uniq = segTrimTs(A, B, obj);
     // 交点が無ければ従来どおり線ごと削除
     if (uniq.length <= 2) {
       canvas.remove(obj); canvas.renderAll(); saveHistory(); updateStats(); return;
@@ -2635,27 +2692,13 @@ function trimAt(pt) {
     if (obj.type === 'polygon') segs.push([pts[pts.length-1], pts[0]]);
 
     let segIdx = hit.segIdx;
-    if (segIdx < 0) {
+    if (segIdx < 0 || segIdx >= segs.length) {
       let bd = Infinity;
       segs.forEach((s,i)=>{ const d=pointSegDist(pt,s); if(d<bd){bd=d; segIdx=i;} });
     }
     if (segIdx < 0) return;
-
-    const props = sharedRebarProps(obj);
-    canvas.remove(obj);
-
-    if (obj.type === 'polygon') {
-      const remain = [];
-      for (let i=0;i<segs.length;i++) { if (i===segIdx) continue; remain.push(segs[i]); }
-      const chain = chainSegments(remain);
-      chain.forEach(poly => { if (poly.length>=2) addTrimResult(poly, props, obj); });
-    } else {
-      const left = pts.slice(0, segIdx+1);
-      const right = pts.slice(segIdx+1);
-      if (left.length >= 2) addTrimResult(left, props, obj);
-      if (right.length >= 2) addTrimResult(right, props, obj);
-    }
-    canvas.renderAll(); saveHistory(); updateStats();
+    // クリックした区間を「交点まで」削る(交点が無ければ区間ごと削除し残りを分割)
+    trimSegmentedShape(obj, segs, segIdx, pt, sharedRebarProps(obj));
     return;
   }
 
