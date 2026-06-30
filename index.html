@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.20 (連続寸法の総寸法=合計線を追加)</span>
+  <span class="ver">v1.21 (寸法:既定値変更・数字ドラッグ/反転で角度維持)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -817,11 +817,11 @@
       <h4>寸法線設定</h4>
       <div class="prop-row">
         <label>文字サイズ <span class="help-tip" data-tip="寸法の数値の文字の大きさ。縮尺に合わせて自動設定されます(A4 1/100で400)。引いた後も、寸法線を選択(S)→プロパティの「文字サイズ」で個別に変えられます。">?</span></label>
-        <input type="number" id="dim-size" value="400" min="8" max="20000" step="10">
+        <input type="number" id="dim-size" value="350" min="8" max="20000" step="10">
       </div>
       <div class="prop-row">
         <label>線の太さ</label>
-        <input type="number" id="dim-width" value="30" min="0.5" max="2000" step="1">
+        <input type="number" id="dim-width" value="20" min="0.5" max="2000" step="1">
       </div>
       <div class="prop-row">
         <label>単位</label>
@@ -833,7 +833,7 @@
       </div>
       <div class="prop-row">
         <label>補助線の長さ(mm) <span class="help-tip" data-tip="端の返し線(足)の長さ。縮尺に合わせて自動設定されます(A4 1/100で800)。">?</span></label>
-        <input type="number" id="dim-ext" value="800" min="0" max="40000" step="10">
+        <input type="number" id="dim-ext" value="400" min="0" max="40000" step="10">
       </div>
       <div class="prop-row">
         <label><input type="checkbox" id="dim-arrows"> 矢印を付ける <span class="help-tip" data-tip="ONで寸法線の両端に矢印を付けます。既定OFF(矢印なし)。後から選択した寸法線でも切り替えられます。">?</span></label>
@@ -1912,9 +1912,9 @@ function updateScaleDims(force){
   _lastScaleForDims = S;
   const f = S / 100;
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-  set('dim-width', Math.round(30*f*10)/10);
-  set('dim-size',  Math.round(400*f));
-  set('dim-ext',   Math.round(800*f));
+  set('dim-width', Math.round(20*f*10)/10);
+  set('dim-size',  Math.round(350*f));
+  set('dim-ext',   Math.round(400*f));
   set('default-text-size', Math.round(300*f));   // 注記・引き出し線の文字も縮尺連動で読める大きさに
 }
 
@@ -2854,6 +2854,7 @@ canvas.on('mouse:down', (opt) => {
       state.dimDrag = tgt;
       state.dimDragMode = mode;
       state.dimDragOrig = { start:{x:tgt._start.x,y:tgt._start.y}, end:{x:tgt._end.x,y:tgt._end.y}, grab:{x:p.x,y:p.y} };
+      state.dimDragTextAngle = currentDimTextAngle(tgt);   // 数字ドラッグ中はこの角度を保つ
       state.dimDragMoved = false;
     }
     return;
@@ -3235,7 +3236,7 @@ canvas.on('mouse:up', (opt) => {
   // 寸法のドラッグ終了
   if (state.dimDrag) {
     const moved = state.dimDragMoved;
-    state.dimDrag = null; state.dimDragMode = null; state.dimDragOrig = null; state.dimDragMoved = false;
+    state.dimDrag = null; state.dimDragMode = null; state.dimDragOrig = null; state.dimDragMoved = false; state.dimDragTextAngle = null;
     hideSnapMarker();
     if (moved) { saveHistory(); updateStats(); }
     return;
@@ -5774,11 +5775,20 @@ function rebuildDimension(ov) {
   canvas.renderAll(); saveHistory(); updateStats(); updateSelectedProps();
 }
 // ドラッグ中の数字位置ライブ更新(履歴は残さず、mouse:upでまとめて保存)
+// 寸法の文字(数字)の現在の表示角度。手動角度があればそれ、無ければ文字オブジェクトの実角度。
+function currentDimTextAngle(dim){
+  if (!dim) return null;
+  if (dim._textAngle != null) return dim._textAngle;
+  const t = (dim._objects || []).find(o => o.type === 'text');
+  return t ? Math.round(t.angle || 0) : 0;
+}
 function liveUpdateDimLeader(dim, off) {
   const s = dim._start, e = dim._end;
   if (!s || !e) return;
+  // 数字をドラッグで動かすときは、いまの角度のまま動かす(横/縦に勝手に変わらない。角度は回転で直す)
+  const ta = (state.dimDragTextAngle != null) ? state.dimDragTextAngle : dim._textAngle;
   canvas.remove(dim);
-  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off, extLen: dim._extLen, orient: dim._textOrient, textAngle: dim._textAngle, manualText: dim._manualText, arrows: dim._arrows});
+  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off, extLen: dim._extLen, orient: dim._textOrient, textAngle: ta, manualText: dim._manualText, arrows: dim._arrows});
   nd.selectable = true; nd.evented = true;
   nd.lockMovementX = true; nd.lockMovementY = true;
   canvas.add(nd);
@@ -5903,7 +5913,8 @@ function flipDimSide(){
   const obj = canvas.getActiveObject();
   if (!obj || obj._type !== 'dimension') { alert('向きを変える寸法線を選択してください'); return; }
   const off = obj._textOff || {x:0, y:0};
-  rebuildDimension({textOff: {x:-off.x, y:-off.y}});
+  // 向きを反転しても文字は今の角度のまま(逆さ・360°回転しない。角度は回転/「文字の角度」で直す)
+  rebuildDimension({textOff: {x:-off.x, y:-off.y}, textAngle: currentDimTextAngle(obj)});
 }
 
 // ===== 連続寸法(チェーン): クリックで点を継いで寸法線を連続作成 =====
