@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.17 (Shift+移動で直交=上下左右に固定)</span>
+  <span class="ver">v1.18 (ハッチで文字を前面に=避ける)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -1635,6 +1635,11 @@
       <label>透過率</label>
       <input type="range" id="hatch-opacity" min="10" max="100" value="100" style="flex:1;" oninput="document.getElementById('hatch-opacity-val').textContent=this.value+'%'">
       <span id="hatch-opacity-val" style="min-width:40px; text-align:right;">100%</span>
+    </div>
+
+    <div class="prop-row" style="margin-top:6px;">
+      <label><input type="checkbox" id="hatch-avoid-text" checked> 文字を避ける(文字を前面に出す) <span class="help-tip" data-tip="ONにすると、ハッチを塗った後に図面の文字を前面に出して、ハッチの下に文字が隠れず読めるようにします。既存の図面は下の『文字を前面に』ボタンでまとめて前面化できます。">?</span></label>
+      <button class="btn" style="padding:3px 8px;" onclick="bringTextsToFront(true)">文字を前面に</button>
     </div>
 
     <div class="modal-actions" style="justify-content:space-between; flex-wrap:wrap; gap:6px;">
@@ -7180,12 +7185,28 @@ function makeBlockHatchGroup(regionShape, p){
 }
 
 // 領域shape(rect/ellipse/polygon, キャンバス座標)に、選んだ塗り方を適用してキャンバスに追加
+// ハッチ「文字を避ける」設定: ONなら文字を前面に出す
+function hatchAvoidText(){ const el = document.getElementById('hatch-avoid-text'); return !el || el.checked; }
+// 図面の文字をすべて前面に出す(ハッチの下に隠れないように)。図枠・表題欄は最前面に戻す。
+function bringTextsToFront(manual){
+  const texts = canvas.getObjects().filter(o => (o.type === 'i-text' || o.type === 'text') && !o._isFrame && !o._tb && !o._isGrid);
+  texts.forEach(t => canvas.bringToFront(t));
+  if (paperFrame && paperFrame.rect) { canvas.bringToFront(paperFrame.rect); paperFrame.labels.forEach(l => canvas.bringToFront(l)); }
+  if (titleBlockGroup) canvas.bringToFront(titleBlockGroup);
+  canvas.renderAll();
+  if (manual) {
+    saveHistory();
+    const sm = document.getElementById('status-mode'); if (sm) sm.textContent = '文字を前面に出しました(ハッチの下に文字が隠れません)';
+  }
+}
+
 function applyHatchRegion(shape) {
   const param = hatchParamOf(hatchSelected);
   const p = readHatchParams();
   if (hatchSelected === 'brick') {            // ブロックは実寸で割付
     const grp = makeBlockHatchGroup(shape, p);
     canvas.add(grp); canvas.setActiveObject(grp);
+    if (hatchAvoidText()) bringTextsToFront(false);
     canvas.renderAll(); saveHistory(); updateStats();
     return;
   }
@@ -7206,6 +7227,7 @@ function applyHatchRegion(shape) {
     canvas.add(shape);
     canvas.setActiveObject(shape);
   }
+  if (hatchAvoidText()) bringTextsToFront(false);
   canvas.renderAll();
   saveHistory(); updateStats();
 }
@@ -7223,6 +7245,7 @@ function applyHatchToSelected() {
     obj.clone(clip => {
       const grp = makeBlockHatchGroup(clip, p);
       canvas.add(grp); canvas.setActiveObject(grp);
+      if (hatchAvoidText()) bringTextsToFront(false);
       canvas.renderAll(); saveHistory(); updateStats();
       closeModal('modal-hatch');
     });
@@ -7234,6 +7257,7 @@ function applyHatchToSelected() {
       const grp = makeLineHatchGroup(clip, p);
       canvas.add(grp);
       canvas.setActiveObject(grp);
+      if (hatchAvoidText()) bringTextsToFront(false);
       canvas.renderAll(); saveHistory(); updateStats();
       closeModal('modal-hatch');
     });
@@ -7245,6 +7269,7 @@ function applyHatchToSelected() {
     obj.set({ fill: makeHatchPattern(), opacity: p.opacity });
     obj._hatch = hatchSelected; obj._hatchOpacity = p.opacity;
   }
+  if (hatchAvoidText()) bringTextsToFront(false);
   canvas.renderAll(); saveHistory();
   closeModal('modal-hatch');
 }
