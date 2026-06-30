@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.12 (選択して線種を変更できる)</span>
+  <span class="ver">v1.13 (寸法の文字角度を単体で微調整)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -4454,7 +4454,7 @@ function bakeDimensionTransform(o) {
   canvas.remove(o);
   const nd = createDimensionLine({x:ws.x, y:ws.y}, {x:we.x, y:we.y}, {
     width:o._dimWidth, size:o._dimSize, textOff:newOff, extLen:o._extLen,
-    orient:o._textOrient, manualText:o._manualText, arrows:o._arrows, side:o._side
+    orient:o._textOrient, textAngle:o._textAngle, manualText:o._manualText, arrows:o._arrows, side:o._side
   });
   nd.selectable = true; nd.evented = true;
   canvas.add(nd); canvas.setActiveObject(nd);
@@ -4777,6 +4777,7 @@ function regenDimension(group, changes){
     size: group._dimSize, width: group._dimWidth, extLen: group._extLen,
     textOff: (changes.textOff !== undefined) ? changes.textOff : group._textOff,
     orient: (changes.orient != null) ? changes.orient : (group._textOrient || 'auto'),
+    textAngle: (changes.textAngle !== undefined) ? changes.textAngle : group._textAngle,
     manualText: (changes.manualText !== undefined) ? changes.manualText : group._manualText,
     arrows: (changes.arrows != null) ? changes.arrows : group._arrows
   });
@@ -4889,6 +4890,9 @@ function createDimensionLine(start, end, opts) {
     else { textStr = numStr.split('').concat(unitStr ? [unitStr] : []).join('\n'); }
   }
   else { textAngle = pulledOut ? 0 : (angle > 90 || angle < -90 ? angle + 180 : angle); }
+  // 文字角度の手動上書き(線と独立して微調整)。指定があれば文字向き計算より優先。
+  const taOverride = (opts.textAngle != null && !isNaN(opts.textAngle)) ? opts.textAngle : null;
+  if (taOverride != null) textAngle = taOverride;
 
   const text = new fabric.Text(textStr, {
     left: textPos.x, top: textPos.y,
@@ -4909,6 +4913,7 @@ function createDimensionLine(start, end, opts) {
     _extLen: ext,
     _textOff: off,
     _textOrient: orient,
+    _textAngle: taOverride,
     _manualText: manualStored,
     _arrows: arrows,
     _side: side,
@@ -5111,7 +5116,7 @@ function saveHistory() {
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
   const snap = withoutSelHighlight(() => {
-    const j = canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_localStart', '_localEnd', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']);
+    const j = canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_textAngle', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_localStart', '_localEnd', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']);
     if (j.objects) j.objects = j.objects.filter(o => !o._tb);   // 表題欄はupdatePaperFrameで再生成するので履歴から除外
     return JSON.stringify(j);
   });
@@ -5188,7 +5193,7 @@ function duplicateSelected() {
 }
 
 // クローン時に引き継ぐカスタムプロパティ
-const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_textOrient','_manualText','_arrows','_side','_vertical','_vtext','_filletV','_far1','_far2','_radius','_fstroke','_fwidth','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_localStart','_localEnd','_partName','_face','_origStroke','_origFill'];
+const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_textOrient','_textAngle','_manualText','_arrows','_side','_vertical','_vtext','_filletV','_far1','_far2','_radius','_fstroke','_fwidth','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_localStart','_localEnd','_partName','_face','_origStroke','_origFill'];
 let _clipboard = null;   // 絶対座標の複製オブジェクト配列(回転も保持)
 
 // ⑫ コピー(Ctrl+C)
@@ -5447,6 +5452,13 @@ function updateSelectedProps() {
           <option value="horizontal" ${obj._textOrient==='horizontal'?'selected':''}>横書き</option>
           <option value="vertical" ${obj._textOrient==='vertical'?'selected':''}>縦書き</option>
         </select></div>
+      <div class="prop-row"><label>文字の角度(度) <span class="help-tip" data-tip="数値の文字だけを好きな角度に回します(線とは独立)。0=水平。空欄にすると上の「文字向き」に従います。下のボタンや矢印で微調整できます。">?</span></label>
+        <input type="number" step="5" value="${obj._textAngle != null ? Math.round(obj._textAngle) : ''}" placeholder="自動" onchange="updateDimTextAngle(this.value)"></div>
+      <div class="prop-row" style="gap:4px;">
+        <button class="btn" style="flex:1;padding:3px;" onclick="nudgeDimTextAngle(-5)">⟲ −5°</button>
+        <button class="btn" style="flex:1;padding:3px;" onclick="nudgeDimTextAngle(5)">＋5° ⟳</button>
+        <button class="btn" style="flex:1;padding:3px;" onclick="updateDimTextAngle('')">自動</button>
+      </div>
       <div class="prop-row"><label>数値(手入力) <span class="help-tip" data-tip="数値を自由に書き換えます(例:全長や記号入り)。空欄にすると実測値に戻ります。寸法線のダブルクリックでも編集できます。">?</span></label>
         <input type="text" value="${obj._manualText != null ? String(obj._manualText).replace(/"/g,'&quot;') : ''}" placeholder="空=実測値" onchange="updateDimManual(this.value)"></div>
       <div class="prop-row"><label>矢印 <span class="help-tip" data-tip="寸法線の両端の矢印。OFF(既定)で矢印なし。">?</span></label>
@@ -5630,7 +5642,7 @@ function updateDimLength(val) {
   const newEnd = { x: s2.x + Math.cos(ang) * newLen, y: s2.y + Math.sin(ang) * newLen };
   canvas.remove(obj);
   // 長さを指定し直したら表示数値もその実寸にする(手入力の上書きは解除)
-  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize, textOff: obj._textOff, extLen: obj._extLen, orient: obj._textOrient, manualText: null, arrows: obj._arrows});
+  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize, textOff: obj._textOff, extLen: obj._extLen, orient: obj._textOrient, textAngle: obj._textAngle, manualText: null, arrows: obj._arrows});
   dim.selectable = true; dim.evented = true;
   canvas.add(dim);
   canvas.setActiveObject(dim);
@@ -5653,6 +5665,7 @@ function rebuildDimension(ov) {
     textOff: ov.textOff != null ? ov.textOff : obj._textOff,
     extLen: ov.extLen != null ? ov.extLen : obj._extLen,
     orient: ov.orient != null ? ov.orient : obj._textOrient,
+    textAngle: ov.textAngle !== undefined ? ov.textAngle : obj._textAngle,
     manualText: ov.manualText !== undefined ? ov.manualText : obj._manualText,
     arrows: ov.arrows != null ? ov.arrows : obj._arrows
   };
@@ -5667,7 +5680,7 @@ function liveUpdateDimLeader(dim, off) {
   const s = dim._start, e = dim._end;
   if (!s || !e) return;
   canvas.remove(dim);
-  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off, extLen: dim._extLen, orient: dim._textOrient, manualText: dim._manualText, arrows: dim._arrows});
+  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off, extLen: dim._extLen, orient: dim._textOrient, textAngle: dim._textAngle, manualText: dim._manualText, arrows: dim._arrows});
   nd.selectable = true; nd.evented = true;
   nd.lockMovementX = true; nd.lockMovementY = true;
   canvas.add(nd);
@@ -5679,7 +5692,7 @@ function liveUpdateDimLeader(dim, off) {
 function liveUpdateDimEndpoints(dim, s, e) {
   if (!s || !e) return;
   canvas.remove(dim);
-  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: dim._textOff, extLen: dim._extLen, orient: dim._textOrient, manualText: dim._manualText, arrows: dim._arrows});
+  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: dim._textOff, extLen: dim._extLen, orient: dim._textOrient, textAngle: dim._textAngle, manualText: dim._manualText, arrows: dim._arrows});
   nd.selectable = true; nd.evented = true;
   nd.lockMovementX = true; nd.lockMovementY = true;
   canvas.add(nd);
@@ -5690,7 +5703,25 @@ function liveUpdateDimEndpoints(dim, s, e) {
 function updateDimWidth(val){ const w=parseFloat(val); if(!isNaN(w)) rebuildDimension({width: Math.max(0.5, w)}); }
 function updateDimSize(val){ const s=parseFloat(val); if(!isNaN(s)) rebuildDimension({size: Math.max(6, s)}); }
 function updateDimExt(val){ const x=parseFloat(val); if(!isNaN(x)) rebuildDimension({extLen: Math.max(0, x)}); }
-function updateDimOrient(val){ rebuildDimension({orient: val}); }
+function updateDimOrient(val){ rebuildDimension({orient: val, textAngle: null}); }   // 文字向きを変えたら角度の手動上書きは解除
+// 文字の角度を手動で設定(空=自動に戻す)。線と独立して微調整できる。
+function updateDimTextAngle(val){
+  const empty = (val === '' || val == null);
+  const v = empty ? null : parseFloat(val);
+  rebuildDimension({ textAngle: (empty || isNaN(v)) ? null : v });
+}
+// 文字の角度を相対的にずらす(±度)。自動(未設定)なら現在の見た目角度を基準にする。
+function nudgeDimTextAngle(d){
+  const obj = canvas.getActiveObject();
+  if (!obj || obj._type !== 'dimension') return;
+  let base = obj._textAngle;
+  if (base == null) {
+    // 自動表示時の実効角度(文字オブジェクトの現在角度)を基準に
+    const t = (obj._objects || []).find(o => o.type === 'text');
+    base = t ? (t.angle || 0) : 0;
+  }
+  updateDimTextAngle(base + d);
+}
 function updateDimManual(val){ rebuildDimension({manualText: (val||'').trim()}); }
 function updateDimArrows(checked){ rebuildDimension({arrows: !!checked}); }
 function flipDimSide(){
@@ -6005,7 +6036,7 @@ function buildDrawingData() {
       scale: document.getElementById('paper-scale').value,
       show: document.getElementById('frame-show').checked
     },
-    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_localStart', '_localEnd', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']))
+    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_textAngle', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_localStart', '_localEnd', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']))
   };
   // グリッド・図枠・表題欄(再生成するので)は保存対象から除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame && !o._tb);
