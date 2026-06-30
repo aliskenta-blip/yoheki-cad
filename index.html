@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.27 (左欄を整理:既定で畳む/並替/文字設定分離/Shift回転45°)</span>
+  <span class="ver">v1.28 (DXFを軽い画像部品に登録)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -8904,7 +8904,13 @@ function openDXFImport(){
       }catch(err){ alert('DXF読込エラー: '+err.message); return; }
       try{
         const baseName=(f.name||'DXF').replace(/\.[^.]+$/,'');
-        const asPart=confirm(`「${f.name}」を取り込みます。\n\n[OK] 部品として登録（キャンバスに出さず、部品ライブラリに保存）\n[キャンセル] キャンバスに展開`);
+        const useImg=confirm(`「${f.name}」を取り込みます。\n\n[OK] 画像として軽い部品に登録（おすすめ・図形が多いDXFはこれ。見た目そのまま・軽い）\n[キャンセル] 別の方法を選ぶ`);
+        if(useImg){
+          const nm=prompt('部品名を入力:', baseName) || baseName;
+          importDXFAsImage(text, nm, ok=>{ if(ok) alert(`画像部品「${nm}」を登録しました。\n「🧩部品」→ 一覧から配置できます。`); });
+          return;
+        }
+        const asPart=confirm(`別の方法を選びます。\n\n[OK] そのまま部品として登録（ベクター・図形が少ないDXF向け。多いと重い/保存できないことあり）\n[キャンセル] キャンバスに展開`);
         if(asPart){
           const nm=prompt('部品名を入力:', baseName) || baseName;
           if(importDXFAsPart(text, nm)) alert(`部品「${nm}」を登録しました。\n「🧩部品」→ 一覧から配置できます。`);
@@ -9030,6 +9036,41 @@ function importDXFAsPart(text, name){
     scale:UNITS_PER_MM, w:(maxx-minx), h:(maxy-miny), objects:serial, created:new Date().toISOString() });
   try{ savePartsStore(parts); }catch(e){ alert('保存に失敗(容量超過の可能性): '+e.message); return false; }
   return true;
+}
+
+// DXFを「画像」としてラスタ化し、1枚の軽い部品として登録(2万図形でも1オブジェクトで軽い)
+function importDXFAsImage(text, name, done){
+  const parsed=parseDXF(text); const prims=dxfToPrimitives(parsed);
+  if(!prims.length){ alert('DXFから図形を取得できませんでした。'); if(done)done(false); return; }
+  const objs=dxfPrimsToObjects(prims);
+  if(!objs.length){ alert('図形がありませんでした。'); if(done)done(false); return; }
+  // 外形(実寸mm)
+  let minx=Infinity,miny=Infinity,maxx=-Infinity,maxy=-Infinity;
+  objs.forEach(o=>{ o.setCoords(); const b=o.getBoundingRect(true,true); minx=Math.min(minx,b.left);miny=Math.min(miny,b.top);maxx=Math.max(maxx,b.left+b.width);maxy=Math.max(maxy,b.top+b.height); });
+  const W=(maxx-minx)||1, H=(maxy-miny)||1;
+  // 解像度: 長辺を約2000pxに(線画なら十分くっきり)。上限4000pxでブラウザ対策。
+  let sc=2000/Math.max(W,H);
+  let cw=Math.round(W*sc), ch=Math.round(H*sc);
+  if(Math.max(cw,ch)>4000){ sc=4000/Math.max(W,H); cw=Math.round(W*sc); ch=Math.round(H*sc); }
+  cw=Math.max(1,cw); ch=Math.max(1,ch);
+  let dataURL;
+  try{
+    const tmp=new fabric.StaticCanvas(null,{width:cw,height:ch,enableRetinaScaling:false});
+    tmp.setViewportTransform([sc,0,0,sc,-minx*sc,-miny*sc]);
+    objs.forEach(o=>tmp.add(o));
+    tmp.renderAll();
+    dataURL=tmp.toDataURL({format:'png'});
+    try{ tmp.dispose(); }catch(_){}
+  }catch(e){ alert('画像化に失敗しました: '+(e.message||e)); if(done)done(false); return; }
+  fabric.Image.fromURL(dataURL, img=>{
+    img.set({ scaleX:W/cw, scaleY:H/ch, _type:'part' });
+    const json=img.toObject(PART_PROPS); json._relLeft=0; json._relTop=0;   // Image.toObjectはsrc(dataURL)を含む
+    const parts=loadPartsStore();
+    parts.push({ id:'p_'+Date.now()+'_dxfimg', name:name||'DXF画像', category:'DXF',
+      scale:UNITS_PER_MM, w:W, h:H, objects:[json], created:new Date().toISOString() });
+    try{ savePartsStore(parts); if(done)done(true); }
+    catch(e){ alert('保存に失敗(容量超過の可能性): '+e.message+'\n他のDXF画像部品を減らすか、別途PNGで保存してください。'); if(done)done(false); }
+  });
 }
 
 // ライブラリをファイルに書き出し
