@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.11 (角丸めで破線が実線になる不具合を修正)</span>
+  <span class="ver">v1.12 (選択して線種を変更できる)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -5501,6 +5501,13 @@ function updateSelectedProps() {
     } else {
       html += `<div class="prop-row"><label>色${obj.type==='activeSelection'?'(一括)':''}</label><input type="color" value="${obj.stroke || '#000000'}" onchange="updateObjProp('stroke', this.value)"></div>`;
     html += `<div class="prop-row"><label>太さ${obj.type==='activeSelection'?'(一括)':''}</label><input type="number" value="${obj.strokeWidth || 1}" onchange="updateObjProp('strokeWidth', this.value)"></div>`;
+    // 線種(実線/破線/点線/一点鎖線): 線・図形・部品・複数選択で変更可
+    if (['line','polyline','polygon','rect','circle','ellipse','path','group','activeSelection'].includes(obj.type)) {
+      const curDash = (obj.strokeDashArray && obj.strokeDashArray.length) ? obj.strokeDashArray.join(',') : '';
+      const styleOpts = [['','実線'],['10,5','破線'],['3,3','点線'],['15,5,3,5','一点鎖線']]
+        .map(([v,l]) => `<option value="${v}" ${curDash===v?'selected':''}>${l}</option>`).join('');
+      html += `<div class="prop-row"><label>線種${obj.type==='activeSelection'?'(一括)':''}</label><select onchange="updateObjStyle(this.value)">${styleOpts}</select></div>`;
+    }
     if (obj.type === 'activeSelection') {
       // 複数選択: 文字サイズ・塗り色・大きさ(倍率)を一括変更
       html += `<div class="prop-row"><label>文字サイズ(一括) <span class="help-tip" data-tip="選択した中の文字すべてに適用します。">?</span></label><input type="number" min="5" max="20000" step="10" value="" placeholder="まとめて変更" onchange="updateObjProp('fontSize', this.value)"></div>`;
@@ -5777,6 +5784,30 @@ function updateObjProp(key, val) {
     obj.set(key, isNaN(val) ? val : parseFloat(val));
   }
   obj.setCoords();
+  canvas.renderAll();
+  saveHistory();
+}
+
+// 選択した図形の線種(実線/破線/点線/一点鎖線)を変える。破線時は線端をbuttに
+// (丸端だと太線で破線の隙間が埋まり実線に見えるため)。グループ・複数選択は子へ適用。
+function updateObjStyle(styleStr) {
+  const obj = canvas.getActiveObject();
+  if (!obj) return;
+  const dash = styleStr ? styleStr.split(',').map(Number) : null;
+  const cap = dash ? 'butt' : 'round';
+  const apply = o => {
+    if (!o) return;
+    if (o.type === 'i-text' || o.type === 'text') return;   // 文字は対象外
+    if (o.type === 'group' || o.type === 'activeSelection') {
+      const kids = o.getObjects ? o.getObjects() : (o._objects || []);
+      kids.forEach(apply);
+      o.dirty = true;   // グループのキャッシュを更新
+      return;
+    }
+    o.set({ strokeDashArray: dash, strokeLineCap: cap });
+    if (o.setCoords) o.setCoords();
+  };
+  apply(obj);
   canvas.renderAll();
   saveHistory();
 }
