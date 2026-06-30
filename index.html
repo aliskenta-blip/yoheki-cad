@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.28 (DXFを軽い画像部品に登録)</span>
+  <span class="ver">v1.29 (寸法の出す向き/文字向きを左欄選択でも変更可)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -845,15 +845,15 @@
         <span></span>
       </div>
       <div class="prop-row">
-        <label>出す向き <span class="help-tip" data-tip="寸法線・数値を引き出す側。自動=横線は上・縦線は左。反対=横線は下・縦線は右。描いた後も、選択して『向きを反転』やプロパティで変えられます。">?</span></label>
-        <select id="dim-side">
+        <label>出す向き <span class="help-tip" data-tip="寸法線・数値を引き出す側。自動=横線は上・縦線は左。反対=横線は下・縦線は右。寸法線を選択中に変えると、その寸法に即適用されます。">?</span></label>
+        <select id="dim-side" onchange="onDimSidePanel(this.value)">
           <option value="auto" selected>自動(上 / 左)</option>
           <option value="flip">反対(下 / 右)</option>
         </select>
       </div>
       <div class="prop-row">
-        <label>文字向き <span class="help-tip" data-tip="寸法の数値の向き。自動=線に沿って回る(縦の寸法線は数字も縦向き)。横書き=常に水平で読みやすい。縦書き=数字を縦に積む。">?</span></label>
-        <select id="dim-orient">
+        <label>文字向き <span class="help-tip" data-tip="寸法の数値の向き。自動=線に沿って回る(縦の寸法線は数字も縦向き)。横書き=常に水平で読みやすい。縦書き=縦に積む。寸法線を選択中に変えると、その寸法に即適用されます。">?</span></label>
+        <select id="dim-orient" onchange="onDimOrientPanel(this.value)">
           <option value="auto" selected>自動(線に沿う)</option>
           <option value="horizontal">横書き(水平)</option>
           <option value="vertical">縦書き(縦に積む)</option>
@@ -6000,6 +6000,26 @@ function flipDimSide(){
   // 向きを反転しても文字は今の角度のまま(逆さ・360°回転しない。角度は回転/「文字の角度」で直す)
   rebuildDimension({textOff: {x:-off.x, y:-off.y}, textAngle: currentDimTextAngle(obj)});
 }
+// 選択中の寸法を指定した「出す向き」に作り直す(textOffを向きから再計算)
+function setDimSideSelected(side){
+  const obj = canvas.getActiveObject();
+  if (!obj || obj._type !== 'dimension') return false;
+  const s = obj._start, e = obj._end; if (!s || !e) return false;
+  canvas.remove(obj);
+  const nd = createDimensionLine(s, e, {            // textOffを省略 → side から自動計算
+    width:obj._dimWidth, size:obj._dimSize, extLen:obj._extLen,
+    orient:obj._textOrient, textAngle:currentDimTextAngle(obj), dimLabel:obj._dimLabel,
+    manualText:obj._manualText, arrows:obj._arrows, side:side
+  });
+  nd.selectable = true; nd.evented = true;
+  canvas.add(nd); canvas.setActiveObject(nd);
+  canvas.renderAll(); saveHistory(); updateStats(); updateSelectedProps();
+  return true;
+}
+// 左パネルの「出す向き」変更: 寸法を選択中ならその寸法に即適用(未選択なら新規の既定)
+function onDimSidePanel(val){ const o = canvas.getActiveObject(); if (o && o._type === 'dimension') setDimSideSelected(val); }
+// 左パネルの「文字向き」変更: 寸法を選択中ならその寸法に即適用
+function onDimOrientPanel(val){ const o = canvas.getActiveObject(); if (o && o._type === 'dimension') updateDimOrient(val); }
 
 // ===== 連続寸法(チェーン): クリックで点を継いで寸法線を連続作成 =====
 function dimChainMode(){ return state.tool === 'dim' && !!((document.getElementById('dim-chain')||{}).checked); }
