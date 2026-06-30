@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.15 (寸法線の設定を基本(既定)にできる)</span>
+  <span class="ver">v1.16 (プロパティの色を代表色から選択可)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -5572,9 +5572,11 @@ function updateSelectedProps() {
     // テキスト(注記・引き出し文字)は文字サイズ・文字色を編集
     if (obj.type === 'i-text' || obj.type === 'text') {
       html += `<div class="prop-row"><label>文字サイズ(mm)</label><input type="number" min="5" max="5000" step="5" value="${Math.round(obj.fontSize||100)}" onchange="updateObjProp('fontSize', this.value)"></div>`;
-      html += `<div class="prop-row"><label>文字色</label><input type="color" value="${obj.fill || '#000000'}" onchange="updateObjProp('fill', this.value)"></div>`;
+      html += `<div class="prop-row"><label>文字色</label><input type="color" value="${obj.fill || '#000000'}" onchange="applyPropColor('fill', this.value)"></div>`;
+      html += propSwatchHtml('fill');
     } else {
-      html += `<div class="prop-row"><label>色${obj.type==='activeSelection'?'(一括)':''}</label><input type="color" value="${obj.stroke || '#000000'}" onchange="updateObjProp('stroke', this.value)"></div>`;
+      html += `<div class="prop-row"><label>色${obj.type==='activeSelection'?'(一括)':''}</label><input type="color" value="${obj.stroke || '#000000'}" onchange="applyPropColor('stroke', this.value)"></div>`;
+      html += propSwatchHtml('stroke');
     html += `<div class="prop-row"><label>太さ${obj.type==='activeSelection'?'(一括)':''}</label><input type="number" value="${obj.strokeWidth || 1}" onchange="updateObjProp('strokeWidth', this.value)"></div>`;
     // 線種(実線/破線/点線/一点鎖線): 線・図形・部品・複数選択で変更可
     if (['line','polyline','polygon','rect','circle','ellipse','path','group','activeSelection'].includes(obj.type)) {
@@ -5586,7 +5588,8 @@ function updateSelectedProps() {
     if (obj.type === 'activeSelection') {
       // 複数選択: 文字サイズ・塗り色・大きさ(倍率)を一括変更
       html += `<div class="prop-row"><label>文字サイズ(一括) <span class="help-tip" data-tip="選択した中の文字すべてに適用します。">?</span></label><input type="number" min="5" max="20000" step="10" value="" placeholder="まとめて変更" onchange="updateObjProp('fontSize', this.value)"></div>`;
-      html += `<div class="prop-row"><label>塗り色(一括)</label><input type="color" value="#ffffff" onchange="updateObjProp('fill', this.value)"></div>`;
+      html += `<div class="prop-row"><label>塗り色(一括)</label><input type="color" value="#ffffff" onchange="applyPropColor('fill', this.value)"></div>`;
+      html += propSwatchHtml('fill');
       html += `<div class="prop-row"><label>大きさ(倍率%) <span class="help-tip" data-tip="選択した図形全体をまとめて拡大・縮小します(100で等倍)。配置の間隔も比例して変わります。角のハンドルをドラッグしても拡大縮小できます。">?</span></label><input type="number" min="1" step="5" value="100" onchange="scaleSelection(this.value)"></div>`;
     }
     if (obj.type === 'line' || obj.type === 'polyline' || obj.type === 'polygon' || obj.type === 'activeSelection') {
@@ -7033,6 +7036,21 @@ function renderAllSwatches(){
   });
 }
 function setupSwatches(){ renderAllSwatches(); }
+
+// プロパティパネル用: 代表色＋最近使った色のスウォッチHTML(クリックでその色に)
+function propSwatchHtml(prop){
+  const recent = getRecentColors();
+  const sw = hex => `<span class="swatch${String(hex).toLowerCase()==='#ffffff'?' sw-white':''}" style="background:${hex}" title="${hex}" onclick="applyPropColor('${prop}','${hex}')"></span>`;
+  let html = '<div class="swatches" style="margin:-2px 0 4px;">' + PRESET_COLORS.map(sw).join('');
+  if (recent.length) html += recent.map(sw).join('');
+  return html + '</div>';
+}
+// 選択図形に色を適用(代表色クリック/カラー入力)。最近使った色に記録しパネル更新。
+function applyPropColor(prop, hex){
+  updateObjProp(prop, hex);
+  pushRecentColor(hex);
+  if (typeof updateSelectedProps === 'function') updateSelectedProps();
+}
 
 function openHatchTool() {
   renderHatchPalette();
