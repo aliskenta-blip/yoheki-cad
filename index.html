@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.23 (節間消し:回転した矩形に対応)</span>
+  <span class="ver">v1.24 (グループ図形の線の太さ・色を変更可)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -6022,6 +6022,17 @@ function updateObjProp(key, val) {
       return;
     }
     // left/top/angle 等は選択全体に適用(下の通常処理へ)
+  }
+  // グループ(部品・矢印・フィレット等)は見た目の属性を子図形へ適用(グループ自体に付けても見えないため)
+  if (obj.type === 'group' && ['stroke','strokeWidth','fill'].includes(key)) {
+    const v = (key === 'strokeWidth') ? parseFloat(val) : val;
+    (obj.getObjects ? obj.getObjects() : (obj._objects || [])).forEach(o => {
+      if (key === 'fill') { if (o.type === 'i-text' || o.type === 'text' || o.fill) o.set('fill', v); }
+      else if (key === 'strokeWidth') { if (!isNaN(v)) o.set('strokeWidth', v); }
+      else { o.set('stroke', v); o._preSelStroke = v; }
+    });
+    obj.dirty = true; obj.setCoords(); canvas.renderAll(); saveHistory();
+    return;
   }
   if (key === '_kind') {
     obj._kind = val;
