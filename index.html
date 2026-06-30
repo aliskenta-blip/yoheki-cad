@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.19 (矢印キーで選択図形を微調整移動)</span>
+  <span class="ver">v1.20 (連続寸法の総寸法=合計線を追加)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -861,6 +861,14 @@
       <div class="prop-row" style="font-size:10px; color:#999; line-height:1.5;">
         <span>数値は<b>あとから変更できます</b>: 寸法線を<b>ダブルクリック</b>→好きな数値を入力(空欄で実測値に戻る)。手書き図など実測がズレるときに。</span>
       </div>
+      <div class="prop-row" style="border-top:1px solid #444; padding-top:6px;">
+        <label>総寸法(合計線) <span class="help-tip" data-tip="区間の寸法線(例:600×4)を複数選択(範囲ドラッグかShift+クリック)してから下のボタンを押すと、全体の合計(例:2,400)を示す総寸法線を外側に平行に追加します。位置はあとからドラッグで調整できます。">?</span></label>
+      </div>
+      <div class="prop-row">
+        <label style="font-size:11px;">外側へのオフセット(mm)</label>
+        <input type="number" id="total-dim-offset" value="1500" step="100" style="width:80px;">
+      </div>
+      <button class="btn primary" style="width:100%; margin-top:2px;" onclick="addTotalDimension()">Σ 選択した寸法の総寸法を追加</button>
     </div>
 
     <div class="panel-section" id="coneline-settings" style="display:none">
@@ -5794,6 +5802,42 @@ function updateDimWidth(val){ const w=parseFloat(val); if(!isNaN(w)) rebuildDime
 function updateDimSize(val){ const s=parseFloat(val); if(!isNaN(s)) rebuildDimension({size: Math.max(6, s)}); }
 function updateDimExt(val){ const x=parseFloat(val); if(!isNaN(x)) rebuildDimension({extLen: Math.max(0, x)}); }
 function updateDimOrient(val){ rebuildDimension({orient: val, textAngle: null}); }   // 文字向きを変えたら角度の手動上書きは解除
+
+// ===== 総寸法(合計線): 選択した複数の寸法線の全体長を示す寸法を外側に平行追加 =====
+function addTotalDimension(){
+  const sel = canvas.getActiveObjects().filter(o => o._type === 'dimension' && o._start && o._end);
+  if (sel.length < 2) { alert('合計したい区間の寸法線を2本以上選択してください(範囲ドラッグか Shift+クリック)'); return; }
+  const d0 = sel[0];
+  let dir = { x: d0._end.x - d0._start.x, y: d0._end.y - d0._start.y };
+  const dl = Math.hypot(dir.x, dir.y) || 1; dir = { x: dir.x/dl, y: dir.y/dl };
+  const nrm = { x: -dir.y, y: dir.x };                       // 法線(外側方向)
+  // 全端点を集め、線方向への射影で両端(最小・最大)を求める
+  const pts = []; sel.forEach(d => { pts.push(d._start, d._end); });
+  const o0 = pts[0];
+  let tmin = Infinity, tmax = -Infinity, pmin = o0, pmax = o0;
+  pts.forEach(p => {
+    const t = (p.x - o0.x) * dir.x + (p.y - o0.y) * dir.y;
+    if (t < tmin) { tmin = t; pmin = p; }
+    if (t > tmax) { tmax = t; pmax = p; }
+  });
+  // 区間寸法の文字が出ている側(=外側)へオフセット
+  let sideSign = 0;
+  sel.forEach(d => { const o = d._textOff || {x:0,y:0}; sideSign += (o.x*nrm.x + o.y*nrm.y); });
+  sideSign = (sideSign >= 0) ? 1 : -1;
+  const off = parseFloat((document.getElementById('total-dim-offset')||{}).value) || 1500;
+  const ox = nrm.x * off * sideSign, oy = nrm.y * off * sideSign;
+  const A = { x: pmin.x + ox, y: pmin.y + oy };
+  const B = { x: pmax.x + ox, y: pmax.y + oy };
+  const dim = createDimensionLine(A, B, {
+    width: d0._dimWidth, size: d0._dimSize, extLen: d0._extLen,
+    orient: d0._textOrient, textAngle: d0._textAngle, arrows: true, side: d0._side
+  });
+  dim.selectable = true; dim.evented = true;
+  canvas.add(dim);
+  canvas.discardActiveObject(); canvas.setActiveObject(dim);
+  canvas.requestRenderAll(); saveHistory(); updateStats();
+  const sm = document.getElementById('status-mode'); if (sm) sm.textContent = `総寸法 ${dim._length}mm を追加しました(位置はドラッグで調整できます)`;
+}
 
 // ===== 寸法線の「基本設定」: 選んだ寸法線の値を新しい寸法線の既定にする =====
 const DIM_DEFAULTS_KEY = 'yoheki-cad-dim-defaults';
