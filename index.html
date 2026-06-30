@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.22 (寸法にラベル(注記)をセットで付ける)</span>
+  <span class="ver">v1.23 (節間消し:回転した矩形に対応)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -2272,9 +2272,17 @@ function objToSegments(obj) {
   if (t === 'line') {
     segs.push([{x: obj.x1, y: obj.y1}, {x: obj.x2, y: obj.y2}]);
   } else if (t === 'rect') {
-    const x = obj.left, y = obj.top, w = obj.width * (obj.scaleX||1), h = obj.height * (obj.scaleY||1);
-    const c = [{x:x,y:y},{x:x+w,y:y},{x:x+w,y:y+h},{x:x,y:y+h}];
-    for (let i=0;i<4;i++) segs.push([c[i], c[(i+1)%4]]);
+    // 回転・拡縮・原点を考慮した実4隅(aCoords)で辺を作る。これをしないと回転矩形が拾えない
+    obj.setCoords();
+    const a = obj.aCoords;
+    if (a && a.tl) {
+      const c = [a.tl, a.tr, a.br, a.bl];
+      for (let i=0;i<4;i++) segs.push([c[i], c[(i+1)%4]]);
+    } else {
+      const x = obj.left, y = obj.top, w = obj.width * (obj.scaleX||1), h = obj.height * (obj.scaleY||1);
+      const c = [{x:x,y:y},{x:x+w,y:y},{x:x+w,y:y+h},{x:x,y:y+h}];
+      for (let i=0;i<4;i++) segs.push([c[i], c[(i+1)%4]]);
+    }
   } else if (t === 'polyline' || t === 'polygon') {
     const pts = obj.points.map(p => fabric.util.transformPoint({x:p.x - obj.pathOffset.x, y:p.y - obj.pathOffset.y},
       obj.calcTransformMatrix()));
