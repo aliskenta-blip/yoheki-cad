@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.21 (寸法:既定値変更・数字ドラッグ/反転で角度維持)</span>
+  <span class="ver">v1.22 (寸法にラベル(注記)をセットで付ける)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -4468,7 +4468,7 @@ function bakeDimensionTransform(o) {
   canvas.remove(o);
   const nd = createDimensionLine({x:ws.x, y:ws.y}, {x:we.x, y:we.y}, {
     width:o._dimWidth, size:o._dimSize, textOff:newOff, extLen:o._extLen,
-    orient:o._textOrient, textAngle:o._textAngle, manualText:o._manualText, arrows:o._arrows, side:o._side
+    orient:o._textOrient, textAngle:o._textAngle, dimLabel:o._dimLabel, manualText:o._manualText, arrows:o._arrows, side:o._side
   });
   nd.selectable = true; nd.evented = true;
   canvas.add(nd); canvas.setActiveObject(nd);
@@ -4855,6 +4855,7 @@ function regenDimension(group, changes){
     textOff: (changes.textOff !== undefined) ? changes.textOff : group._textOff,
     orient: (changes.orient != null) ? changes.orient : (group._textOrient || 'auto'),
     textAngle: (changes.textAngle !== undefined) ? changes.textAngle : group._textAngle,
+    dimLabel: (changes.dimLabel !== undefined) ? changes.dimLabel : group._dimLabel,
     manualText: (changes.manualText !== undefined) ? changes.manualText : group._manualText,
     arrows: (changes.arrows != null) ? changes.arrows : group._arrows
   });
@@ -4986,9 +4987,26 @@ function createDimensionLine(start, end, opts) {
   });
   dimParts.push(text);
 
+  // 寸法のラベル(注記): 数字より外側に、同じ角度・同じ文字サイズで自動配置(寸法とセットで動く)
+  const labelStr = (opts.dimLabel != null && String(opts.dimLabel).trim() !== '') ? String(opts.dimLabel) : null;
+  if (labelStr) {
+    const offMag2 = Math.hypot(off.x, off.y);
+    let lux, luy;
+    if (offMag2 > 1) { lux = off.x/offMag2; luy = off.y/offMag2; }
+    else { lux = Math.cos(perpAngle); luy = Math.sin(perpAngle); if (luy > 0){ lux=-lux; luy=-luy; } }
+    const labelDist = (offMag2 || dimSize) + dimSize * 1.6;   // 数字の外側
+    const labelText = new fabric.Text(labelStr, {
+      left: mid.x + lux*labelDist, top: mid.y + luy*labelDist,
+      fontSize: dimSize, fontFamily: 'Yu Gothic, sans-serif', fill: '#000',
+      originX: 'center', originY: 'center', textAlign: 'center', angle: textAngle
+    });
+    dimParts.push(labelText);
+  }
+
   const group = new fabric.Group(dimParts, {
     _type: 'dimension',
     _length: realLen,
+    _dimLabel: labelStr,
     _dimWidth: lineW,
     _dimSize: dimSize,
     _extLen: ext,
@@ -5197,7 +5215,7 @@ function saveHistory() {
   // グリッドは除外
   const objs = canvas.getObjects().filter(o => !o._isGrid && !o._isFrame);
   const snap = withoutSelHighlight(() => {
-    const j = canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_textAngle', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_localStart', '_localEnd', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']);
+    const j = canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_textAngle', '_dimLabel', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_localStart', '_localEnd', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']);
     if (j.objects) j.objects = j.objects.filter(o => !o._tb);   // 表題欄はupdatePaperFrameで再生成するので履歴から除外
     return JSON.stringify(j);
   });
@@ -5274,7 +5292,7 @@ function duplicateSelected() {
 }
 
 // クローン時に引き継ぐカスタムプロパティ
-const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_textOrient','_textAngle','_manualText','_arrows','_side','_vertical','_vtext','_filletV','_far1','_far2','_radius','_fstroke','_fwidth','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_localStart','_localEnd','_partName','_face','_origStroke','_origFill'];
+const CLONE_PROPS = ['_type','_dia','_grade','_hookL','_hookR','_length','_dimWidth','_dimSize','_extLen','_textOff','_textOrient','_textAngle','_dimLabel','_manualText','_arrows','_side','_vertical','_vtext','_filletV','_far1','_far2','_radius','_fstroke','_fwidth','_layer','_role','_pitch','_customColor','_customWidth','_hatch','_hatchOpacity','_kind','_depth','_start','_end','_localStart','_localEnd','_partName','_face','_origStroke','_origFill'];
 let _clipboard = null;   // 絶対座標の複製オブジェクト配列(回転も保持)
 
 // ⑫ コピー(Ctrl+C)
@@ -5542,6 +5560,8 @@ function updateSelectedProps() {
       </div>
       <div class="prop-row"><label>数値(手入力) <span class="help-tip" data-tip="数値を自由に書き換えます(例:全長や記号入り)。空欄にすると実測値に戻ります。寸法線のダブルクリックでも編集できます。">?</span></label>
         <input type="text" value="${obj._manualText != null ? String(obj._manualText).replace(/"/g,'&quot;') : ''}" placeholder="空=実測値" onchange="updateDimManual(this.value)"></div>
+      <div class="prop-row"><label>ラベル(注記) <span class="help-tip" data-tip="寸法とセットの説明文(例:既設歩車道ブロック 撤去)。数字の外側に同じ角度・同じ文字サイズで自動配置され、寸法と一緒に動きます。空欄で消えます。連続寸法では各寸法に個別に入れられます。">?</span></label>
+        <input type="text" value="${obj._dimLabel != null ? String(obj._dimLabel).replace(/"/g,'&quot;') : ''}" placeholder="例: 既設ブロック撤去" onchange="updateDimLabel(this.value)"></div>
       <div class="prop-row"><label>矢印 <span class="help-tip" data-tip="寸法線の両端の矢印。OFF(既定)で矢印なし。">?</span></label>
         <label style="font-size:11px;"><input type="checkbox" ${obj._arrows?'checked':''} onchange="updateDimArrows(this.checked)"> 付ける</label></div>
       <div class="prop-row"><label>出す向き <span class="help-tip" data-tip="寸法線・数値を出す側を反対にします(上⇔下 / 左⇔右)。">?</span></label>
@@ -5741,7 +5761,7 @@ function updateDimLength(val) {
   const newEnd = { x: s2.x + Math.cos(ang) * newLen, y: s2.y + Math.sin(ang) * newLen };
   canvas.remove(obj);
   // 長さを指定し直したら表示数値もその実寸にする(手入力の上書きは解除)
-  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize, textOff: obj._textOff, extLen: obj._extLen, orient: obj._textOrient, textAngle: obj._textAngle, manualText: null, arrows: obj._arrows});
+  const dim = createDimensionLine(s2, newEnd, {width: obj._dimWidth, size: obj._dimSize, textOff: obj._textOff, extLen: obj._extLen, orient: obj._textOrient, textAngle: obj._textAngle, dimLabel: obj._dimLabel, manualText: null, arrows: obj._arrows});
   dim.selectable = true; dim.evented = true;
   canvas.add(dim);
   canvas.setActiveObject(dim);
@@ -5765,6 +5785,7 @@ function rebuildDimension(ov) {
     extLen: ov.extLen != null ? ov.extLen : obj._extLen,
     orient: ov.orient != null ? ov.orient : obj._textOrient,
     textAngle: ov.textAngle !== undefined ? ov.textAngle : obj._textAngle,
+    dimLabel: ov.dimLabel !== undefined ? ov.dimLabel : obj._dimLabel,
     manualText: ov.manualText !== undefined ? ov.manualText : obj._manualText,
     arrows: ov.arrows != null ? ov.arrows : obj._arrows
   };
@@ -5788,7 +5809,7 @@ function liveUpdateDimLeader(dim, off) {
   // 数字をドラッグで動かすときは、いまの角度のまま動かす(横/縦に勝手に変わらない。角度は回転で直す)
   const ta = (state.dimDragTextAngle != null) ? state.dimDragTextAngle : dim._textAngle;
   canvas.remove(dim);
-  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off, extLen: dim._extLen, orient: dim._textOrient, textAngle: ta, manualText: dim._manualText, arrows: dim._arrows});
+  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: off, extLen: dim._extLen, orient: dim._textOrient, textAngle: ta, dimLabel: dim._dimLabel, manualText: dim._manualText, arrows: dim._arrows});
   nd.selectable = true; nd.evented = true;
   nd.lockMovementX = true; nd.lockMovementY = true;
   canvas.add(nd);
@@ -5800,7 +5821,7 @@ function liveUpdateDimLeader(dim, off) {
 function liveUpdateDimEndpoints(dim, s, e) {
   if (!s || !e) return;
   canvas.remove(dim);
-  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: dim._textOff, extLen: dim._extLen, orient: dim._textOrient, textAngle: dim._textAngle, manualText: dim._manualText, arrows: dim._arrows});
+  const nd = createDimensionLine(s, e, {width: dim._dimWidth, size: dim._dimSize, textOff: dim._textOff, extLen: dim._extLen, orient: dim._textOrient, textAngle: dim._textAngle, dimLabel: dim._dimLabel, manualText: dim._manualText, arrows: dim._arrows});
   nd.selectable = true; nd.evented = true;
   nd.lockMovementX = true; nd.lockMovementY = true;
   canvas.add(nd);
@@ -5908,6 +5929,7 @@ function nudgeDimTextAngle(d){
   updateDimTextAngle(base + d);
 }
 function updateDimManual(val){ rebuildDimension({manualText: (val||'').trim()}); }
+function updateDimLabel(val){ rebuildDimension({dimLabel: (val||'').trim() || null}); }   // 寸法のラベル(注記)
 function updateDimArrows(checked){ rebuildDimension({arrows: !!checked}); }
 function flipDimSide(){
   const obj = canvas.getActiveObject();
@@ -6246,7 +6268,7 @@ function buildDrawingData() {
       scale: document.getElementById('paper-scale').value,
       show: document.getElementById('frame-show').checked
     },
-    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_textAngle', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_localStart', '_localEnd', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']))
+    canvas: withoutSelHighlight(() => canvas.toJSON(['_type', '_dia', '_grade', '_hookL', '_hookR', '_length', '_dimWidth', '_dimSize', '_extLen', '_textOff', '_textOrient', '_textAngle', '_dimLabel', '_manualText', '_arrows', '_side', '_vertical', '_vtext', '_filletV', '_far1', '_far2', '_radius', '_fstroke', '_fwidth', '_layer', '_role', '_pitch', '_customColor', '_customWidth', '_hatch', '_hatchOpacity', '_kind', '_depth', '_start', '_end', '_localStart', '_localEnd', '_face', '_origStroke', '_origFill', '_pdf', '_locked', '_tb']))
   };
   // グリッド・図枠・表題欄(再生成するので)は保存対象から除外
   data.canvas.objects = data.canvas.objects.filter(o => !o._isGrid && !o._isFrame && !o._tb);
