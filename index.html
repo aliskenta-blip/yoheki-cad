@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.13 (寸法の文字角度を単体で微調整)</span>
+  <span class="ver">v1.14 (線の平行コピー・端部直角線)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -4604,6 +4604,61 @@ function makeArrowLine(srcLine, which){
   return g;
 }
 
+// ----- 平行コピー・直角線 (v1.14) -----
+// 選択中の直線のワールド端点A(始点)/B(終点)と表示スタイルを取得
+function lineWorldAB(line){
+  // getCenterPoint()/calcTransformMatrix()は0高さ(水平)・0幅(垂直)線でstrokeWidth分ずれる。
+  // left/top と x1..y2 は strokeWidth に影響されない正確値。左上原点で回転・拡縮を手計算する。
+  const minx = Math.min(line.x1, line.x2), miny = Math.min(line.y1, line.y2);
+  const sx = line.scaleX || 1, sy = line.scaleY || 1, ang = (line.angle || 0) * Math.PI/180;
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const left = (line.left != null ? line.left : minx), top = (line.top != null ? line.top : miny);
+  const tx = (px, py) => {
+    const lx = (px - minx) * sx, ly = (py - miny) * sy;   // 左上原点からのローカル
+    return { x: left + (lx*ca - ly*sa), y: top + (lx*sa + ly*ca) };
+  };
+  const A = tx(line.x1, line.y1);
+  const B = tx(line.x2, line.y2);
+  const color = (line.stroke === SEL_PINK ? (line._preSelStroke || '#000') : line.stroke) || '#000';
+  return { A:{x:A.x,y:A.y}, B:{x:B.x,y:B.y}, color, sw: line.strokeWidth||2,
+           dash: line.strokeDashArray||null, layer: (line._layer != null ? line._layer : state.activeLayer) };
+}
+function _ppDist(){ const el=document.getElementById('pp-dist'); const v=parseFloat(el && el.value); return isNaN(v) ? (state.gridSize||100) : v; }
+function _newStyledLine(x1,y1,x2,y2,s){
+  return new fabric.Line([x1,y1,x2,y2], { stroke:s.color, strokeWidth:s.sw, fill:'',
+    strokeDashArray:s.dash, strokeLineCap:(s.dash?'butt':'round'), strokeLineJoin:'round',
+    _layer:s.layer, selectable:true, evented:true });
+}
+// 同じ角度で平行にずらして複製(平行線)。side ±1 で出す側。
+function parallelCopyLine(side){
+  const obj = canvas.getActiveObject();
+  if (!obj || obj.type !== 'line') { alert('平行に複製する直線を1本だけ選んでください'); return; }
+  const L = lineWorldAB(obj);
+  const dx = L.B.x - L.A.x, dy = L.B.y - L.A.y;
+  const len = Math.hypot(dx,dy) || 1;
+  const nx = -dy/len, ny = dx/len;                 // 線に直角な方向(法線)
+  const d = _ppDist() * (side || 1);
+  const ln = _newStyledLine(L.A.x+nx*d, L.A.y+ny*d, L.B.x+nx*d, L.B.y+ny*d, L);
+  canvas.add(ln); canvas.discardActiveObject(); canvas.setActiveObject(ln);
+  canvas.requestRenderAll(); saveHistory(); updateStats();
+  document.getElementById('status-mode').textContent = `平行線を ${Math.abs(_ppDist())}mm ずらして複製しました`;
+}
+// 端部から直角(90°)に線を引く。which='start'|'end'。長さ=入力値(マイナスで反対側)。
+function perpLineAtEnd(which){
+  const obj = canvas.getActiveObject();
+  if (!obj || obj.type !== 'line') { alert('直角線を引く直線を1本だけ選んでください'); return; }
+  const L = lineWorldAB(obj);
+  const dx = L.B.x - L.A.x, dy = L.B.y - L.A.y;
+  const len = Math.hypot(dx,dy) || 1;
+  const nx = -dy/len, ny = dx/len;                 // 法線(直角方向)
+  const P = (which === 'start') ? L.A : L.B;
+  const d = _ppDist();
+  const ln = _newStyledLine(P.x, P.y, P.x+nx*d, P.y+ny*d, L);
+  canvas.add(ln); canvas.discardActiveObject(); canvas.setActiveObject(ln);
+  canvas.requestRenderAll(); saveHistory(); updateStats();
+  document.getElementById('status-mode').textContent = `${which==='start'?'始点':'終点'}から直角に ${Math.abs(d)}mm の線を引きました`;
+}
+
 // 連続線(折れ線)に矢印を付ける。端(=折れ点でもある両端)に、その向きの矢じりを付ける。
 function makeArrowPolyline(poly, which){
   const pts = objWorldPoints(poly);
@@ -5528,6 +5583,17 @@ function updateSelectedProps() {
     }
     if (obj.type === 'line' || obj.type === 'polyline' || obj.type === 'polygon' || obj.type === 'activeSelection') {
       html += `<div class="prop-row"><button class="btn" style="width:100%;" onclick="openShapeDims()">📏 各辺の距離を入力(補正・実寸化)</button></div>`;
+    }
+    // 平行・直角(単体の直線のみ): 同じ角度で平行に複製 / 端部に直角線
+    if (obj.type === 'line') {
+      html += `<div class="prop-row" style="border-top:1px solid #444; padding-top:6px;"><label>平行・直角 距離(mm) <span class="help-tip" data-tip="平行＝この線と同じ角度で、指定した距離だけ横にずらして複製します(平行線)。直角＝線の端から直角(90°)に、指定した長さの線を引きます。反対側に出したいときはマイナスの値を入れてください。">?</span></label>
+        <input type="number" id="pp-dist" step="10" value="${state.gridSize || 100}" style="width:80px;"></div>`;
+      html += `<div class="prop-row" style="gap:4px;">
+        <button class="btn" style="flex:1;padding:4px;" onclick="parallelCopyLine(1)">‖ 平行に複製</button>
+        <button class="btn" style="flex:1;padding:4px;" onclick="parallelCopyLine(-1)">‖ 反対側</button></div>`;
+      html += `<div class="prop-row" style="gap:4px;">
+        <button class="btn" style="flex:1;padding:4px;" onclick="perpLineAtEnd('start')">⊥ 始点に直角</button>
+        <button class="btn" style="flex:1;padding:4px;" onclick="perpLineAtEnd('end')">⊥ 終点に直角</button></div>`;
     }
     // 面積・中心点(四角・円・楕円・多角形・選択)
     const _area = objAreaM2(obj);
