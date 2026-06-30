@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.18 (ハッチで文字を前面に=避ける)</span>
+  <span class="ver">v1.19 (矢印キーで選択図形を微調整移動)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -6069,6 +6069,10 @@ function updateStats() {
 // キーボード
 // ============================================================
 
+// 矢印キー微調整の履歴はまとめて保存(連打で履歴が増えすぎないように)
+let _nudgeTimer = null;
+function scheduleNudgeHistory(){ clearTimeout(_nudgeTimer); _nudgeTimer = setTimeout(() => { saveHistory(); updateStats(); }, 400); }
+
 document.addEventListener('keydown', (e) => {
   // 入力フィールドではショートカットを無効
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
@@ -6091,7 +6095,27 @@ document.addEventListener('keydown', (e) => {
     else if (e.key === 's') { saveJSON(); e.preventDefault(); }
     return;
   }
-  
+
+  // 矢印キーで選択図形を微調整移動(通常=1/10マス、Shift=1マス)
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    const objs = canvas.getActiveObjects();
+    const act = canvas.getActiveObject();
+    if (act && objs.length) {
+      const grid = state.gridSize || 100;
+      const step = e.shiftKey ? grid : Math.max(1, Math.round(grid/10));
+      let dx = 0, dy = 0;
+      if (e.key === 'ArrowLeft') dx = -step; else if (e.key === 'ArrowRight') dx = step;
+      else if (e.key === 'ArrowUp') dy = -step; else dy = step;
+      act.left += dx; act.top += dy; act.setCoords();
+      // 寸法線は _start/_end も同じだけ動かして整合を保つ
+      objs.forEach(o => { if (o._type === 'dimension' && o._start && o._end) { o._start.x += dx; o._start.y += dy; o._end.x += dx; o._end.y += dy; } });
+      canvas.requestRenderAll();
+      scheduleNudgeHistory();
+      e.preventDefault();
+    }
+    return;
+  }
+
   if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); e.preventDefault(); }
   else if (e.key === 'Escape') {
     canvas.discardActiveObject();
