@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.14 (線の平行コピー・端部直角線)</span>
+  <span class="ver">v1.15 (寸法線の設定を基本(既定)にできる)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -4946,7 +4946,11 @@ function createDimensionLine(start, end, opts) {
   }
   else { textAngle = pulledOut ? 0 : (angle > 90 || angle < -90 ? angle + 180 : angle); }
   // 文字角度の手動上書き(線と独立して微調整)。指定があれば文字向き計算より優先。
-  const taOverride = (opts.textAngle != null && !isNaN(opts.textAngle)) ? opts.textAngle : null;
+  // textAngle: 明示指定(undefined以外)はそれを使う(null=自動)。新規(未指定)は基本設定の既定を使う。
+  let taOverride;
+  if (opts.textAngle !== undefined) taOverride = opts.textAngle;
+  else taOverride = (state.dimDefaultTextAngle != null ? state.dimDefaultTextAngle : null);
+  if (taOverride == null || isNaN(taOverride)) taOverride = null;
   if (taOverride != null) textAngle = taOverride;
 
   const text = new fabric.Text(textStr, {
@@ -5526,6 +5530,10 @@ function updateSelectedProps() {
         <input type="number" min="0" max="3000" step="2" value="${Math.round(Math.hypot((obj._textOff||{x:0,y:0}).x,(obj._textOff||{x:0,y:0}).y))}" onchange="updateDimLeader('len', this.value)"></div>
       <div class="prop-row"><label>数字の引き出し角度 <span class="help-tip" data-tip="数字を引き出す向き(度)。90=上、0=右、180=左、-90=下。斜めにも引けます。">?</span></label>
         <input type="number" step="5" value="${Math.round(Math.atan2(-(obj._textOff||{x:0,y:0}).y,(obj._textOff||{x:0,y:0}).x)*180/Math.PI)}" onchange="updateDimLeader('ang', this.value)"></div>
+      <div class="prop-row" style="margin-top:6px; border-top:1px solid #444; padding-top:6px;">
+        <button class="btn primary" style="width:100%;" onclick="setDimDefaults()">⭐ この設定を新しい寸法線の基本にする</button></div>
+      <div class="prop-row" style="font-size:10px;color:#999;">
+        <span>線の太さ・文字サイズ・文字向き・文字角度・補助線・矢印を既定として保存し、次に引く寸法線に適用します。</span></div>
       <div class="prop-row" style="font-size:10px;color:#999;">
         <span>※ ドラッグ：端点=端点移動(図形に吸着)／数字=引き出し／線=全体移動</span>
       </div>
@@ -5770,6 +5778,47 @@ function updateDimWidth(val){ const w=parseFloat(val); if(!isNaN(w)) rebuildDime
 function updateDimSize(val){ const s=parseFloat(val); if(!isNaN(s)) rebuildDimension({size: Math.max(6, s)}); }
 function updateDimExt(val){ const x=parseFloat(val); if(!isNaN(x)) rebuildDimension({extLen: Math.max(0, x)}); }
 function updateDimOrient(val){ rebuildDimension({orient: val, textAngle: null}); }   // 文字向きを変えたら角度の手動上書きは解除
+
+// ===== 寸法線の「基本設定」: 選んだ寸法線の値を新しい寸法線の既定にする =====
+const DIM_DEFAULTS_KEY = 'yoheki-cad-dim-defaults';
+function setDimDefaults(){
+  const obj = canvas.getActiveObject();
+  if (!obj || obj._type !== 'dimension') { alert('基本にする寸法線を選択してください'); return; }
+  const setV = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+  setV('dim-size',  Math.round(obj._dimSize));
+  setV('dim-width', obj._dimWidth);
+  setV('dim-ext',   Math.round(obj._extLen != null ? obj._extLen : 10));
+  const orEl = document.getElementById('dim-orient'); if (orEl) orEl.value = obj._textOrient || 'auto';
+  const sdEl = document.getElementById('dim-side');   if (sdEl) sdEl.value = obj._side || 'auto';
+  const arEl = document.getElementById('dim-arrows'); if (arEl) arEl.checked = !!obj._arrows;
+  state.dimDefaultTextAngle = (obj._textAngle != null) ? obj._textAngle : null;   // 文字角度の既定
+  saveDimDefaults();
+  const sm = document.getElementById('status-mode'); if (sm) sm.textContent = '⭐ この設定を新しい寸法線の基本にしました';
+}
+function saveDimDefaults(){
+  try {
+    localStorage.setItem(DIM_DEFAULTS_KEY, JSON.stringify({
+      size:   (document.getElementById('dim-size')||{}).value,
+      width:  (document.getElementById('dim-width')||{}).value,
+      ext:    (document.getElementById('dim-ext')||{}).value,
+      orient: (document.getElementById('dim-orient')||{}).value,
+      side:   (document.getElementById('dim-side')||{}).value,
+      arrows: !!(document.getElementById('dim-arrows')||{}).checked,
+      textAngle: (state.dimDefaultTextAngle != null) ? state.dimDefaultTextAngle : null
+    }));
+  } catch (e) {}
+}
+function loadDimDefaults(){
+  let raw; try { raw = localStorage.getItem(DIM_DEFAULTS_KEY); } catch (e) { return; }
+  if (!raw) return;
+  let d; try { d = JSON.parse(raw); } catch (e) { return; }
+  const setV = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; };
+  setV('dim-size', d.size); setV('dim-width', d.width); setV('dim-ext', d.ext);
+  const orEl = document.getElementById('dim-orient'); if (orEl && d.orient) orEl.value = d.orient;
+  const sdEl = document.getElementById('dim-side');   if (sdEl && d.side)   sdEl.value = d.side;
+  const arEl = document.getElementById('dim-arrows'); if (arEl) arEl.checked = !!d.arrows;
+  state.dimDefaultTextAngle = (d.textAngle != null) ? d.textAngle : null;
+}
 // 文字の角度を手動で設定(空=自動に戻す)。線と独立して微調整できる。
 function updateDimTextAngle(val){
   const empty = (val === '' || val == null);
@@ -9416,6 +9465,7 @@ updateStats();
 setTool('select');
 setupSwatches();   // 色スウォッチ(代表色・最近使った色)を初期描画
 renderRegionPanel();   // 自治体ルール(保安図・切下げの目安)を左パネルに初期描画
+loadDimDefaults();     // 寸法線の基本設定(既定値)を復元 v1.15
 tryRestoreAutosave();  // 前回の作業が残っていれば自動復元(リロードで消えない) v1.08
 
 // ===== ヘルプ(?)ツールチップを画面に被せて表示(左パネルで見切れない) =====
