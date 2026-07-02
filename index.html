@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.36 (敷地作成:辺の向きを矢印ボタンで一発選択)</span>
+  <span class="ver">v1.37 (敷地作成:辺の長さを線上の平行ラベルに・境界は色変更可)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -6198,12 +6198,21 @@ function createParcelFromEdges(){
   if (closeIt){ for(let i=0;i<n;i++) edges.push([verts[i], verts[(i+1)%n]]); }
   else { for(let i=0;i<n-1;i++) edges.push([verts[i], verts[i+1]]); }
   if (document.getElementById('parcel-dim').checked){
-    // 入力単位がmなら寸法もmで表示する
-    if (document.getElementById('parcel-unit').value==='m') { const du=document.getElementById('dim-unit'); if(du) du.value='m'; }
+    // 各辺の長さは「テキストラベル」で辺の中央に平行に置く(寸法オブジェクトにしない=境界線を選んで色替え可)
+    const inM = document.getElementById('parcel-unit').value === 'm';
+    const dimSz = parseFloat((document.getElementById('dim-size')||{}).value) || 350;
+    const offD = dimSz * 0.6;   // 辺から少しだけ外側
     edges.forEach(([a,b])=>{
-      const mx=(a.x+b.x)/2, my=(a.y+b.y)/2; let nx=mx-cx, ny=my-cy; const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl;
-      const dim=createDimensionLine(a,b,{textOff:{x:nx*600, y:ny*600}, orient:'auto', arrows:false});   // 数字は辺に平行・矢印なし
-      dim.selectable=true; dim.evented=true; canvas.add(dim); made.push(dim);
+      const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+      let nx=mx-cx, ny=my-cy; const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl;
+      const L = Math.hypot(b.x-a.x, b.y-a.y);
+      const txt = inM ? (L/1000).toFixed(2)+' m' : Math.round(L)+' mm';
+      let ang = Math.atan2(b.y-a.y, b.x-a.x) * 180/Math.PI;
+      if (ang > 90 || ang < -90) ang += 180;   // 上下逆さ防止(読みやすい向きに)
+      const t = new fabric.IText(txt, { left:mx+nx*offD, top:my+ny*offD, originX:'center', originY:'center',
+        angle:ang, fontSize:dimSz, fill:'#000', fontFamily:'Yu Gothic, sans-serif',
+        _layer:state.activeLayer, selectable:(state.tool==='select'), _type:'edge-label' });
+      canvas.add(t); made.push(t);
     });
   }
   // 角に境界標(⊕)を置く
