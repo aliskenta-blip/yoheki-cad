@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.32 (使い方ガイドに「現況図の描き方」を追加)</span>
+  <span class="ver">v1.33 (敷地作成:閉合自動調整/境界標/m表示・寸法とShift直交の修正)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -1588,11 +1588,15 @@
       <label><input type="checkbox" id="parcel-close" checked> 最後に閉じる</label>
       <label><input type="checkbox" id="parcel-dim" checked> 各辺に寸法</label>
       <label><input type="checkbox" id="parcel-area" checked> 面積を記入</label>
+      <label><input type="checkbox" id="parcel-mark" checked> 角に境界標</label>
     </div>
     <div style="font-size:11px; color:#9cf; margin-bottom:4px; line-height:1.5;">角度: <b>0=右 / 90=上 / 180=左 / 270(=-90)=下</b>。「＋辺を追加」を押すと前の辺から90°回った角度が入るので、四角形なら長さを入れるだけ。斜めの辺は角度を直接入力。</div>
-    <div id="parcel-rows" style="max-height:250px; overflow:auto; font-size:12px;"></div>
+    <div id="parcel-rows" style="max-height:230px; overflow:auto; font-size:12px;"></div>
     <button class="btn" style="margin-top:4px;" onclick="parcelAddRow()">＋ 辺を追加</button>
-    <div class="modal-actions" style="justify-content:space-between;">
+    <div id="parcel-gap" style="font-size:11px; margin:6px 0; color:#fc9; line-height:1.5;"></div>
+    <div style="font-size:11px; color:#9cf; margin-bottom:4px;">角度が概算でも、辺長が正しければ↓で自動的に閉じる角度に微調整します(1辺目の向きは固定)。</div>
+    <button class="btn" style="width:100%;" onclick="solveParcelClosure()">📐 閉じるように角度を自動調整</button>
+    <div class="modal-actions" style="justify-content:space-between; margin-top:8px;">
       <button class="btn primary" onclick="createParcelFromEdges()">敷地を作成</button>
       <button class="btn" onclick="closeModal('modal-parcel')">閉じる</button>
     </div>
@@ -3137,7 +3141,8 @@ canvas.on('mouse:move', (opt) => {
   const e = opt.e;
   // 連続寸法モード: 前の点→カーソルのプレビューを出す
   if (dimChainMode() && state.dimChainPrev) {
-    const p = snapPoint(canvas.getPointer(opt.e));
+    let p = snapPoint(canvas.getPointer(opt.e));
+    if (state.orthoMode || window.shiftPressed) p = orthoPoint(state.dimChainPrev, p);   // Shift/直交で水平垂直に固定
     if (state.dimChainPreview) canvas.remove(state.dimChainPreview);
     state.dimChainPreview = createDimensionLine(state.dimChainPrev, p);
     state.dimChainPreview.selectable = false; state.dimChainPreview.evented = false;
@@ -3167,6 +3172,8 @@ canvas.on('mouse:move', (opt) => {
     } else if (state.dimDragMode === 'move') {
       const o = state.dimDragOrig;
       const d = { x: p.x - o.grab.x, y: p.y - o.grab.y };
+      // Shift/直交モード中は上下左右のどちらかに固定して平行移動(角度は保つ)
+      if (state.orthoMode || window.shiftPressed) { if (Math.abs(d.x) >= Math.abs(d.y)) d.y = 0; else d.x = 0; }
       liveUpdateDimEndpoints(dim, {x:o.start.x+d.x, y:o.start.y+d.y}, {x:o.end.x+d.x, y:o.end.y+d.y});
     } else {
       const mid = { x:(dim._start.x+dim._end.x)/2, y:(dim._start.y+dim._end.y)/2 };
@@ -6115,6 +6122,15 @@ function onDimOrientPanel(val){ const o = canvas.getActiveObject(); if (o && o._
 
 // ===== 敷地を辺長で作成 (v1.31) =====
 let parcelEdges = [];
+// 境界標(⊕: 円＋十字)。敷地の角に置く。
+function makeBoundaryMark(x, y){
+  const r = 70, sw = 10;
+  const c = new fabric.Circle({ left:0, top:0, radius:r, originX:'center', originY:'center', fill:'', stroke:'#000', strokeWidth:sw });
+  const l1 = new fabric.Line([-r-20,0, r+20,0], { stroke:'#000', strokeWidth:sw, originX:'center', originY:'center' });
+  const l2 = new fabric.Line([0,-r-20, 0,r+20], { stroke:'#000', strokeWidth:sw, originX:'center', originY:'center' });
+  return new fabric.Group([c, l1, l2], { left:x, top:y, originX:'center', originY:'center',
+    _type:'part', _partName:'境界標', _layer:state.activeLayer, selectable:(state.tool==='select'), evented:true });
+}
 function openParcelBuilder(){
   if (!parcelEdges.length) parcelEdges = [{len:'',ang:0},{len:'',ang:90},{len:'',ang:180},{len:'',ang:270}];
   renderParcelRows();
@@ -6133,6 +6149,7 @@ function renderParcelRows(){
       <button class="btn" style="padding:2px 6px;" onclick="parcelDelRow(${i})">🗑</button>
     </div>`;
   }).join('');
+  updateParcelGap();
 }
 function parcelRow(i,f,v){ if (parcelEdges[i]) parcelEdges[i][f]=v; if (f==='ang') renderParcelRows(); }
 function parcelAddRow(){ const last=parcelEdges[parcelEdges.length-1]; const prevA=last?(parseFloat(last.ang)||0):0; parcelEdges.push({len:'', ang:((prevA+90)%360)}); renderParcelRows(); }
@@ -6165,11 +6182,17 @@ function createParcelFromEdges(){
   if (closeIt){ for(let i=0;i<n;i++) edges.push([verts[i], verts[(i+1)%n]]); }
   else { for(let i=0;i<n-1;i++) edges.push([verts[i], verts[i+1]]); }
   if (document.getElementById('parcel-dim').checked){
+    // 入力単位がmなら寸法もmで表示する
+    if (document.getElementById('parcel-unit').value==='m') { const du=document.getElementById('dim-unit'); if(du) du.value='m'; }
     edges.forEach(([a,b])=>{
       const mx=(a.x+b.x)/2, my=(a.y+b.y)/2; let nx=mx-cx, ny=my-cy; const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl;
-      const dim=createDimensionLine(a,b,{textOff:{x:nx*600, y:ny*600}});
+      const dim=createDimensionLine(a,b,{textOff:{x:nx*600, y:ny*600}, orient:'auto', arrows:false});   // 数字は辺に平行・矢印なし
       dim.selectable=true; dim.evented=true; canvas.add(dim); made.push(dim);
     });
+  }
+  // 角に境界標(⊕)を置く
+  if (document.getElementById('parcel-mark').checked){
+    verts.forEach(p => { const m=makeBoundaryMark(p.x, p.y); canvas.add(m); made.push(m); });
   }
   if (document.getElementById('parcel-area').checked && closeIt){
     let s=0; for(let i=0;i<n;i++){ const p=verts[i], q=verts[(i+1)%n]; s+=p.x*q.y-q.x*p.y; }
@@ -6183,6 +6206,47 @@ function createParcelFromEdges(){
   const sm=document.getElementById('status-mode'); if(sm) sm.textContent=`敷地を作成しました（${edges.length}辺）`;
   setTimeout(()=>{ try{ zoomFitObjects(made); }catch(_){} },60);
 }
+// 有効な辺(長さ>0・角度あり)を、元のparcelEdges添字つきで返す
+function parcelValidRows(){
+  const mult = ((document.getElementById('parcel-unit')||{}).value==='m') ? 1000 : 1;
+  const rows=[], idx=[];
+  parcelEdges.forEach((e,i)=>{ const L=parseFloat(e.len)*mult, A=parseFloat(e.ang); if(L>0 && !isNaN(A)){ rows.push({len:L, ang:A}); idx.push(i); } });
+  return {rows, idx};
+}
+// 閉合誤差(始点と最終点の差, mm)。辺2本未満はnull。
+function parcelClosureGap(){
+  const {rows}=parcelValidRows(); if(rows.length<2) return null;
+  let px=0, py=0; rows.forEach(r=>{ const a=r.ang*Math.PI/180; px+=r.len*Math.cos(a); py+=r.len*(-Math.sin(a)); });
+  return Math.hypot(px,py);
+}
+function updateParcelGap(){
+  const el=document.getElementById('parcel-gap'); if(!el) return;
+  const g=parcelClosureGap();
+  if(g==null){ el.textContent=''; return; }
+  el.textContent = g < 2 ? '✅ ぴったり閉じています' : `閉合誤差(始点との差): ${(g/1000).toFixed(3)}m (${Math.round(g)}mm)`;
+}
+// 辺長を保ったまま、角度を微調整して敷地を閉じる(1辺目の向きは固定・最小ノルム調整)
+function solveParcelClosure(){
+  const {rows, idx}=parcelValidRows();
+  if(rows.length<3){ alert('辺を3つ以上、長さと角度を入れてください'); return; }
+  const L=rows.map(r=>r.len); const N=rows.length;
+  let ang=rows.map(r=>r.ang*Math.PI/180);
+  for(let iter=0; iter<15; iter++){
+    let px=0, py=0; for(let i=0;i<N;i++){ px+=L[i]*Math.cos(ang[i]); py+=L[i]*(-Math.sin(ang[i])); }
+    if(Math.hypot(px,py) < 0.5) break;
+    const Jx=new Array(N).fill(0), Jy=new Array(N).fill(0); let a=0,b=0,d=0;
+    for(let i=1;i<N;i++){ Jx[i]=-L[i]*Math.sin(ang[i]); Jy[i]=-L[i]*Math.cos(ang[i]); a+=Jx[i]*Jx[i]; b+=Jx[i]*Jy[i]; d+=Jy[i]*Jy[i]; }
+    const det=a*d-b*b; if(Math.abs(det)<1e-6) break;
+    const rx=-px, ry=-py;
+    const lx=(d*rx-b*ry)/det, ly=(-b*rx+a*ry)/det;   // 最小ノルム: Δθ=J^T(JJ^T)^-1(-pN)
+    for(let i=1;i<N;i++){ ang[i]+= Jx[i]*lx + Jy[i]*ly; }
+  }
+  ang.forEach((a,k)=>{ let deg=((a*180/Math.PI)%360+360)%360; parcelEdges[idx[k]].ang = Math.round(deg*100)/100; });
+  renderParcelRows();
+  const g=parcelClosureGap();
+  alert(g<2 ? '角度を微調整して敷地が閉じました。プレビューを確認して「敷地を作成」を押してください。'
+            : `調整しましたが誤差が ${Math.round(g)}mm 残りました。辺長や角度・辺の数を見直してください。`);
+}
 
 // ===== 連続寸法(チェーン): クリックで点を継いで寸法線を連続作成 =====
 function dimChainMode(){ return state.tool === 'dim' && !!((document.getElementById('dim-chain')||{}).checked); }
@@ -6192,7 +6256,9 @@ function handleDimChainClick(pt){
     document.getElementById('status-mode').textContent = '連続寸法: 次の点をクリック(右クリック/Escで終了)';
     return;
   }
-  const s = state.dimChainPrev, e = {x:pt.x, y:pt.y};
+  const s = state.dimChainPrev;
+  let e = {x:pt.x, y:pt.y};
+  if (state.orthoMode || window.shiftPressed) e = orthoPoint(s, e);   // Shift/直交で水平垂直に固定
   if (Math.hypot(e.x-s.x, e.y-s.y) < 1) return;   // 同じ点は無視
   if (state.dimChainPreview) { canvas.remove(state.dimChainPreview); state.dimChainPreview = null; }
   const dim = createDimensionLine(s, e);
