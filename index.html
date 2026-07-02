@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.29 (寸法の出す向き/文字向きを左欄選択でも変更可)</span>
+  <span class="ver">v1.30 (実測入力:長さを打って線を引く・長さ/角度をリアルタイム表示)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -2784,6 +2784,7 @@ function setTool(tool) {
   state.tool = tool;
   state.hatchPoly = false;                    // 多角形ハッチモードを解除
   state.polygonPoints = [];
+  state.lenEntry = '';                        // 実測入力(距離入力)をリセット
   if (state.dimChainPreview) { canvas.remove(state.dimChainPreview); state.dimChainPreview = null; }
   state.dimChainPrev = null;                   // 連続寸法を解除
   if (typeof restorePanelOrder === 'function') restorePanelOrder();   // 左欄の並びを元に戻す
@@ -2839,7 +2840,7 @@ function setTool(tool) {
   // ステータス
   const labels = {
     'select': '選択', 'line': '直線', 'rect': '矩形', 'circle': '円', 'ellipse': '楕円（対角にドラッグ）',
-    'polygon': '多角形', 'polyline': '連続線（クリックで点→右クリックで確定(Enterも可)）', 'coneline': 'コーン線（クリックで点→右クリックで確定。折れ点・末端・一定間隔にコーン配置）', 'freehand': 'フリーハンド', 'curve': '曲線（クリックで通過点→右クリックで確定(Enterも可)）', 'dim': '寸法線',
+    'polygon': '多角形', 'polyline': '連続線（クリックで点、または長さを打って↵で正確に。例 5500／5.5m／5500<90。右クリックで確定）', 'coneline': 'コーン線（クリックで点→右クリックで確定。折れ点・末端・一定間隔にコーン配置）', 'freehand': 'フリーハンド', 'curve': '曲線（クリックで通過点→右クリックで確定(Enterも可)）', 'dim': '寸法線',
     'rebar': '鉄筋', 'text': 'テキスト', 'eraser': '消しゴム', 'trim': '節間消し',
     'rebardot': '横筋○', 'hatch': 'ハッチ', 'leader': '引き出し線', 'facepen': '面指定ペン', 'rolepen': '縦横指定ペン',
     'calib': '縮尺補正（実距離のわかる2点をドラッグ）',
@@ -3139,8 +3140,22 @@ canvas.on('mouse:move', (opt) => {
   }
   let pt = canvas.getPointer(opt.e);
   pt = snapPoint(pt);
-  
-  document.getElementById('status-coord').textContent = `X: ${Math.round(pt.x)}  Y: ${Math.round(pt.y)}`;
+  state.lastMovePt = pt;   // 実測入力(距離入力)で使う現在のカーソル方向
+
+  // 描画中は「今引いている線の長さ・角度」をリアルタイム表示(実測しながら描ける)
+  let coordTxt = `X: ${Math.round(pt.x)}  Y: ${Math.round(pt.y)}`;
+  let anchor = null;
+  if (polyDrawing() && state.polygonPoints.length >= 1) anchor = state.polygonPoints[state.polygonPoints.length-1];
+  else if (state.isDrawing && state.startPoint && (state.tool==='line'||state.tool==='dim'||state.tool==='calib')) anchor = state.startPoint;
+  if (anchor) {
+    let ep = pt; if (state.orthoMode || window.shiftPressed) ep = orthoPoint(anchor, pt);
+    const len = Math.hypot(ep.x-anchor.x, ep.y-anchor.y);
+    let deg = Math.atan2(-(ep.y-anchor.y), ep.x-anchor.x) * 180/Math.PI;   // 0=右,90=上
+    deg = Math.round(deg); if (deg < 0) deg += 360;
+    coordTxt = `長さ ${(len/1000).toFixed(2)}m (${Math.round(len)}mm)  角度 ${deg}°   ` + coordTxt;
+    if (state.lenEntry) coordTxt = `⌨ 入力中: ${state.lenEntry}  ↵で確定   ` + coordTxt;
+  }
+  document.getElementById('status-coord').textContent = coordTxt;
 
   // 消しゴムドラッグ中は連続削除 (スナップマーカーは出さない)
   if (state.tool === 'eraser') {
@@ -3497,7 +3512,48 @@ function conelineDrawing() { return state.tool === 'coneline'; }
 function polyDrawing() { return state.tool === 'polygon' || rebarPolyMode() || hatchPolyMode() || curveDrawing() || polylineDrawing() || conelineDrawing(); }
 function polyMinPts() { return (rebarPolyMode() || curveDrawing() || polylineDrawing() || conelineDrawing()) ? 2 : 3; }
 
+// 実測入力(距離入力): 連続線を描いている最中の入力中表示
+function refreshLenEntryStatus(){
+  const sm = document.getElementById('status-mode'); if (!sm) return;
+  if (state.lenEntry) sm.textContent = `実測入力: ${state.lenEntry}  (例 5500 ／ 5.5m ／ 5500<90=角度指定) ↵で点を確定`;
+  else sm.textContent = '実測入力: 長さを入力して↵、またはクリックで点を打つ（右クリックで完成）';
+}
+// 入力した長さ(+角度)で次の点を確定する
+function commitPolyLengthEntry(){
+  if (!polyDrawing() || !state.polygonPoints.length) { state.lenEntry=''; return; }
+  const s = state.polygonPoints[state.polygonPoints.length-1];
+  const raw = String(state.lenEntry||'').trim();
+  const parts = raw.split('<');
+  let numStr = parts[0];
+  let mult = 1;
+  if (/m$/i.test(numStr) && !/mm$/i.test(numStr)) mult = 1000;   // 末尾 m はメートル
+  const L = parseFloat(numStr) * mult;
+  if (!(L > 0)) { state.lenEntry=''; refreshLenEntryStatus(); return; }
+  let ep;
+  if (parts.length >= 2 && parts[1] !== '' && !isNaN(parseFloat(parts[1]))) {
+    const a = parseFloat(parts[1]) * Math.PI/180;                // 0=右,90=上,180=左,-90/270=下
+    ep = { x: s.x + Math.cos(a)*L, y: s.y - Math.sin(a)*L };
+  } else {
+    const c = state.lastMovePt || { x:s.x+1, y:s.y };            // カーソル方向へ
+    let dx=c.x-s.x, dy=c.y-s.y;
+    if (state.orthoMode || window.shiftPressed) { const o=orthoPoint(s,c); dx=o.x-s.x; dy=o.y-s.y; }
+    const d = Math.hypot(dx,dy) || 1; dx/=d; dy/=d;
+    ep = { x: s.x + dx*L, y: s.y + dy*L };
+  }
+  state.polygonPoints.push(ep);
+  state.lenEntry = '';
+  // プレビュー更新(次のmouse:moveで正式なスタイルに置き換わる)
+  if (state.tempObject) { canvas.remove(state.tempObject); state.tempObject=null; }
+  const tmp = new fabric.Polyline(state.polygonPoints.map(p=>({x:p.x,y:p.y})), {
+    stroke: document.getElementById('stroke-color').value,
+    strokeWidth: parseFloat(document.getElementById('stroke-width').value)||20,
+    fill:'', selectable:false, evented:false, _layer:state.activeLayer });
+  canvas.add(tmp); state.tempObject=tmp; canvas.renderAll();
+  const sm=document.getElementById('status-mode'); if(sm) sm.textContent = `点を確定（${Math.round(L)}mm）。続けて長さ入力かクリック、右クリックで完成`;
+}
+
 function finishPolygon() {
+  state.lenEntry = '';   // 実測入力をリセット
   if (state.polygonPoints.length < polyMinPts()) return;
   if (state.tempObject) { canvas.remove(state.tempObject); state.tempObject = null; }
   if (rebarPolyMode()) { finishRebarPoly(); return; }
@@ -6246,7 +6302,17 @@ function scheduleNudgeHistory(){ clearTimeout(_nudgeTimer); _nudgeTimer = setTim
 document.addEventListener('keydown', (e) => {
   // 入力フィールドではショートカットを無効
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
-  
+
+  // 実測入力: 連続線を描いている最中に、長さ(+角度)を打って↵で点を確定できる
+  if (polyDrawing() && state.polygonPoints.length >= 1 && !e.ctrlKey && !e.metaKey) {
+    if ((e.key >= '0' && e.key <= '9') || e.key === '.') { state.lenEntry = (state.lenEntry||'') + e.key; refreshLenEntryStatus(); e.preventDefault(); return; }
+    if (e.key === ',' || e.key === '<') { state.lenEntry = (state.lenEntry||'') + '<'; refreshLenEntryStatus(); e.preventDefault(); return; }
+    if ((e.key === 'm' || e.key === 'M') && state.lenEntry) { state.lenEntry += 'm'; refreshLenEntryStatus(); e.preventDefault(); return; }
+    if (e.key === 'Backspace' && state.lenEntry) { state.lenEntry = state.lenEntry.slice(0,-1); refreshLenEntryStatus(); e.preventDefault(); return; }
+    if (e.key === 'Enter' && state.lenEntry) { commitPolyLengthEntry(); e.preventDefault(); return; }
+    if (e.key === 'Escape' && state.lenEntry) { state.lenEntry = ''; refreshLenEntryStatus(); e.preventDefault(); return; }
+  }
+
   if (e.shiftKey) window.shiftPressed = true;
   if (e.code === 'Space') {
     state.spacePressed = true;
