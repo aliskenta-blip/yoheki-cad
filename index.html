@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.37 (敷地作成:辺の長さを線上の平行ラベルに・境界は色変更可)</span>
+  <span class="ver">v1.38 (敷地作成:各辺を個別の線に・1本ずつ選択/色替え可)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -6188,15 +6188,18 @@ function createParcelFromEdges(){
   const color=document.getElementById('stroke-color').value||'#000';
   const sw=parseFloat(document.getElementById('stroke-width').value)||20;
   const made=[];
-  const shape = closeIt
-    ? new fabric.Polygon(verts.map(p=>({x:p.x,y:p.y})), {stroke:color, strokeWidth:sw, fill:'', strokeLineJoin:'round', _layer:state.activeLayer, selectable:(state.tool==='select'), evented:true})
-    : new fabric.Polyline(verts.map(p=>({x:p.x,y:p.y})), {stroke:color, strokeWidth:sw, fill:'', strokeLineJoin:'round', _layer:state.activeLayer, selectable:(state.tool==='select'), evented:true});
-  canvas.add(shape); made.push(shape);
-  // 重心(寸法を外側へ出す基準)
+  // 各辺を「個別の線」で作る(1本ずつ選択・色/太さ/線種を変更できる)
+  const dashArr = (function(){ const s=document.getElementById('stroke-style'); return (s && s.value) ? s.value.split(',').map(Number) : null; })();
   let cx=0,cy=0; verts.forEach(p=>{cx+=p.x;cy+=p.y;}); cx/=n; cy/=n;
   const edges=[];
   if (closeIt){ for(let i=0;i<n;i++) edges.push([verts[i], verts[(i+1)%n]]); }
   else { for(let i=0;i<n-1;i++) edges.push([verts[i], verts[i+1]]); }
+  edges.forEach(([a,b])=>{
+    const ln = new fabric.Line([a.x,a.y,b.x,b.y], { stroke:color, strokeWidth:sw, fill:'',
+      strokeDashArray:dashArr, strokeLineCap:'round', _layer:state.activeLayer,
+      selectable:(state.tool==='select'), evented:true });
+    canvas.add(ln); made.push(ln);
+  });
   if (document.getElementById('parcel-dim').checked){
     // 各辺の長さは「テキストラベル」で辺の中央に平行に置く(寸法オブジェクトにしない=境界線を選んで色替え可)
     const inM = document.getElementById('parcel-unit').value === 'm';
