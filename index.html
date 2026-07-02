@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.31 (敷地を辺長で一発作成:辺長入力→敷地線+寸法+面積)</span>
+  <span class="ver">v1.32 (使い方ガイドに「現況図の描き方」を追加)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -1248,10 +1248,11 @@
     <h3>📖 yoheki-cad 使い方ガイド</h3>
     <div class="guide-tabs">
       <div class="guide-tab active" onclick="switchGuide(0)">画面の見方</div>
-      <div class="guide-tab" onclick="switchGuide(1)">擁壁断面を描く</div>
-      <div class="guide-tab" onclick="switchGuide(2)">配筋を入れる</div>
-      <div class="guide-tab" onclick="switchGuide(3)">仕上げ・印刷</div>
-      <div class="guide-tab" onclick="switchGuide(4)">座標・パース</div>
+      <div class="guide-tab" onclick="switchGuide(1)">⭐ 現況図を描く</div>
+      <div class="guide-tab" onclick="switchGuide(2)">擁壁断面を描く</div>
+      <div class="guide-tab" onclick="switchGuide(3)">配筋を入れる</div>
+      <div class="guide-tab" onclick="switchGuide(4)">仕上げ・印刷</div>
+      <div class="guide-tab" onclick="switchGuide(5)">座標・パース</div>
     </div>
 
     <div class="guide-panel active" id="guide-0">
@@ -1260,6 +1261,19 @@
       <div class="guide-area"><span class="ico">⬅️</span><div><b>左パネル</b><br>表示設定(グリッド・スナップ・表示倍率)と図枠(用紙・縮尺)。各項目の「?」にカーソルを乗せると説明が出ます。</div></div>
       <div class="guide-area"><span class="ico">➡️</span><div><b>右パネル</b><br>レイヤー管理と、選択した図形のプロパティ(色・太さ・径など)を編集。</div></div>
       <div class="guide-area"><span class="ico">📋</span><div><b>上部メニュー</b><br>保存/開く・テンプレート・配筋ツール・検査・部品・座標取込・パース・印刷など。</div></div>
+    </div>
+
+    <div class="guide-panel" id="guide-genkyo">
+      <p><b>現況図（現地を縮尺した図面）の描き方</b> — 測量図・造成計画図の寸法を使って、順番に描いていきます。</p>
+      <div class="guide-step"><span class="num">1</span><div><b>用紙と縮尺を決める</b><br>左パネル「図枠」で用紙(例A3横)と縮尺(例1/100)を選ぶ。青い枠が「印刷される範囲」です。<b>作図は必ず青枠の中に</b>収めます。</div></div>
+      <div class="guide-step"><span class="num">2</span><div><b>敷地の外形を作る</b><br>メニュー<b>「🧱 敷地作成」</b>→ 各辺の<b>長さ(m)と角度(0=右/90=上/180=左/270=下)</b>を上から順に入力→「敷地を作成」。閉じた敷地線＋各辺の寸法＋面積が図枠中央に一発で出ます。四角形なら「＋辺を追加」で長さだけ入れればOK。</div></div>
+      <div class="guide-step"><span class="num">3</span><div><b>道路・建物・境界を描き足す</b><br><b>連続線</b>ツールで、クリック、または<b>長さを打って↵</b>(例 5500／5.5m／5500&lt;90=角度指定)で正確に線を引く。下のバーに<b>長さ・角度がリアルタイム表示</b>されます。Shiftで水平/垂直に固定。</div></div>
+      <div class="guide-step"><span class="num">4</span><div><b>部品・記号を置く</b><br><b>🧩部品</b>から方位記号・U字溝・ブロック・誘導員などをワンクリック配置。よく使う形は選択して部品登録しておくと次回すぐ使えます。</div></div>
+      <div class="guide-step"><span class="num">5</span><div><b>範囲を塗る(ハッチ)</b><br><b>ハッチ</b>ツールで車庫・切下げ・砕石などを模様や色で塗る。文字に重なる所は「文字を避ける」で<b>下のハッチが消えて読みやすく</b>なります。</div></div>
+      <div class="guide-step"><span class="num">6</span><div><b>寸法・注記を入れる</b><br><b>寸法線</b>で追加の寸法(数字はダブルクリックで手入力可、選択して「ラベル(注記)」で説明文もセット可)。<b>文字</b>ツールで「車庫」「道路中心線」などの注記。連続寸法は「Σ総寸法」で合計線も足せます。</div></div>
+      <div class="guide-step"><span class="num">7</span><div><b>表題欄を入れる</b><br>左パネル<b>「📋表題欄」</b>をON→図面名・現場住所などを記入。四隅どこにでも置けます。会社名はテンプレートとして残ります。</div></div>
+      <div class="guide-step"><span class="num">8</span><div><b>仕上げ・出力</b><br>「図枠を画面にフィット」で収まりを確認 → <b>🖨️印刷</b>(青枠の中だけ出力・画面のUIは印刷されません) / PNG・SVG出力 / 💾保存(JSON)。作業は自動保存され、次に開くと続きから再開できます。</div></div>
+      <div class="guide-step" style="background:#23323a;"><span class="num">💡</span><div><b>コツ</b>: 測量図があれば「📍座標取込」でX,Y座標から正確な敷地が作れます。線種・色は右パネルで後から変更可、矢印キーで微調整移動、Shift+ドラッグで直交移動できます。</div></div>
     </div>
 
     <div class="guide-panel" id="guide-1">
