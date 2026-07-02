@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.38 (敷地作成:各辺を個別の線に・1本ずつ選択/色替え可)</span>
+  <span class="ver">v1.39 (敷地作成:数字を各辺に垂直・内側・中央へ正しく配置)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -6201,17 +6201,19 @@ function createParcelFromEdges(){
     canvas.add(ln); made.push(ln);
   });
   if (document.getElementById('parcel-dim').checked){
-    // 各辺の長さは「テキストラベル」で辺の中央に平行に置く(寸法オブジェクトにしない=境界線を選んで色替え可)
+    // 各辺の長さを「テキストラベル」で、辺に垂直に・内側へ半文字分だけ寄せて中央に平行配置
     const inM = document.getElementById('parcel-unit').value === 'm';
     const dimSz = parseFloat((document.getElementById('dim-size')||{}).value) || 350;
-    const offD = dimSz * 0.6;   // 辺から少しだけ外側
+    const offD = dimSz * 0.55;   // 辺の内側へ約半文字分
+    const inPoly = (px,py)=>{ let ins=false; for(let i=0,jj=verts.length-1;i<verts.length;jj=i++){ const xi=verts[i].x,yi=verts[i].y,xj=verts[jj].x,yj=verts[jj].y; if(((yi>py)!==(yj>py)) && (px<(xj-xi)*(py-yi)/((yj-yi)||1e-9)+xi)) ins=!ins; } return ins; };
     edges.forEach(([a,b])=>{
       const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
-      let nx=mx-cx, ny=my-cy; const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl;
-      const L = Math.hypot(b.x-a.x, b.y-a.y);
-      const txt = inM ? (L/1000).toFixed(2)+' m' : Math.round(L)+' mm';
-      let ang = Math.atan2(b.y-a.y, b.x-a.x) * 180/Math.PI;
-      if (ang > 90 || ang < -90) ang += 180;   // 上下逆さ防止(読みやすい向きに)
+      const dx=b.x-a.x, dy=b.y-a.y; const len=Math.hypot(dx,dy)||1;
+      let nx=-dy/len, ny=dx/len;                        // 辺に垂直な単位ベクトル
+      if (!inPoly(mx+nx*20, my+ny*20)) { nx=-nx; ny=-ny; }   // 内側を向くよう反転
+      const txt = inM ? (len/1000).toFixed(2)+' m' : Math.round(len)+' mm';
+      let ang = Math.atan2(dy,dx) * 180/Math.PI;
+      if (ang > 90 || ang < -90) ang += 180;            // 上下逆さ防止(読みやすい向きに)
       const t = new fabric.IText(txt, { left:mx+nx*offD, top:my+ny*offD, originX:'center', originY:'center',
         angle:ang, fontSize:dimSz, fill:'#000', fontFamily:'Yu Gothic, sans-serif',
         _layer:state.activeLayer, selectable:(state.tool==='select'), _type:'edge-label' });
