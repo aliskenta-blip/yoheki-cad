@@ -277,7 +277,7 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.33 (敷地作成:閉合自動調整/境界標/m表示・寸法とShift直交の修正)</span>
+  <span class="ver">v1.34 (座標取込を図枠に展開・SIMA対応・丸点に吸着)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
@@ -1732,9 +1732,13 @@
       <label style="margin-left:10px;"><input type="checkbox" id="coord-label-z" checked> 標高ラベル</label>
     </div>
     <div class="prop-row">
+      <label><input type="checkbox" id="coord-fitframe" checked> 図枠に合わせて展開</label>
+      <label style="margin-left:10px;"><input type="checkbox" id="coord-swap"> 南北・東西を入替(向きがおかしい時)</label>
+    </div>
+    <div class="prop-row">
       <label>縮尺 1/</label>
-      <input type="number" id="coord-scale" value="500" min="1" max="5000" step="50">
-      <span style="font-size:10px; color:#999;">(実座標m → 図面)</span>
+      <input type="number" id="coord-scale" value="200" min="1" max="5000" step="50">
+      <span style="font-size:10px; color:#999;">(「図枠に合わせて展開」OFF時のみ使用)</span>
     </div>
     <div class="prop-row">
       <label>点記号</label>
@@ -2347,12 +2351,18 @@ function collectSnapCandidates() {
       endpoints.push({x:s[1].x, y:s[1].y});
       midpoints.push({x:(s[0].x+s[1].x)/2, y:(s[0].y+s[1].y)/2});
     });
-    // 円は中心と四象限点
+    // 円は中心と四象限点。測点(survey-pt)や境界標は中心だけ(=座標点に吸着)。
     if (obj.type === 'circle') {
       const cx = obj.left, cy = obj.top, r = obj.radius * (obj.scaleX||1);
       endpoints.push({x:cx, y:cy});
-      endpoints.push({x:cx+r, y:cy}); endpoints.push({x:cx-r, y:cy});
-      endpoints.push({x:cx, y:cy+r}); endpoints.push({x:cx, y:cy-r});
+      if (obj._type !== 'survey-pt') {
+        endpoints.push({x:cx+r, y:cy}); endpoints.push({x:cx-r, y:cy});
+        endpoints.push({x:cx, y:cy+r}); endpoints.push({x:cx, y:cy-r});
+      }
+    }
+    // 測点/境界標がグループ(十字など)の場合も、中心を吸着点に
+    if (obj.type === 'group' && (obj._type === 'survey-pt' || obj._partName === '境界標')) {
+      const c = obj.getCenterPoint(); endpoints.push({x:c.x, y:c.y});
     }
   });
   return {endpoints, midpoints, allSegs};
@@ -7774,7 +7784,7 @@ function openCoordImport() {
 
 function pickCoordFile() {
   const input = document.createElement('input');
-  input.type = 'file'; input.accept = '.csv,.sim,.txt,.dat';
+  input.type = 'file'; input.accept = '.csv,.sim,.sima,.txt,.dat';
   input.onchange = (e) => {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
@@ -7794,13 +7804,14 @@ function parseCoords(text, fmt) {
   // SIMA判定
   const isSima = fmt === 'sima' || (fmt === 'auto' && /^[A-Z]\d{2},/.test(lines[0] || ''));
   if (isSima) {
+    // SIMA A01: 点番号,点名称,X(北),Y(東),標高。実装差で東西が逆のことがあるので取込後「南北・東西を入替」で補正可。
     lines.forEach(l => {
-      const f = l.split(',');
-      // A01,点番,点名,Y(東),X(北),Z  (SIMA標準)
-      if (f[0] === 'A01' && f.length >= 6) {
-        const name = (f[2] || f[1] || '').trim();
-        const yE = parseFloat(f[3]), xN = parseFloat(f[4]), z = parseFloat(f[5]);
-        if (!isNaN(xN) && !isNaN(yE)) pts.push({name: name||f[1], x:xN, y:yE, z:isNaN(z)?null:z});
+      const f = l.split(',').map(x => x.trim());
+      if (f[0] === 'A01' && f.length >= 5) {
+        const name = (f[2] || f[1] || '');
+        const xN = parseFloat(f[3]), yE = parseFloat(f[4]);   // f[3]=X(北), f[4]=Y(東)
+        const z = f.length >= 6 ? parseFloat(f[5]) : NaN;
+        if (!isNaN(xN) && !isNaN(yE)) pts.push({name: name || f[1], x:xN, y:yE, z:isNaN(z)?null:z});
       }
     });
   } else {
@@ -7836,78 +7847,74 @@ function previewCoords() {
 function importCoords() {
   const text = document.getElementById('coord-text').value;
   const fmt = document.getElementById('coord-format').value;
-  const pts = parseCoords(text, fmt);
-  if (pts.length === 0) { alert('取り込める点がありません'); return; }
+  let pts = parseCoords(text, fmt);
+  const swap = document.getElementById('coord-swap') && document.getElementById('coord-swap').checked;
+  if (swap) pts = pts.map(p => ({name:p.name, x:p.y, y:p.x, z:p.z}));   // 南北↔東西を入替
+  if (pts.length === 0) { alert('取り込める点がありません。形式や「南北・東西を入替」を確認してください。'); return; }
 
-  const S = parseFloat(document.getElementById('coord-scale').value) || 500;
-  const sc = state.scale || 0.15;
-  // 実座標(m) → mm(×1000) → 図面mm(÷S) → px(×sc)
-  // 画面px = m * 1000 / S * sc
-  const k = 1000 / S * sc;
-
-  // 原点: 全点の最小X(北),最小Y(東)を基準に。画面: x=東(Y), y=-北(X)で北を上に。
-  const minX = Math.min(...pts.map(p=>p.x));
-  const maxX = Math.max(...pts.map(p=>p.x));
+  // 実座標(m)→相対mm。北(大きいX)を上に: 画面x=東(Y), y=-北(X)。
+  const minX = Math.min(...pts.map(p=>p.x)), maxX = Math.max(...pts.map(p=>p.x));
   const minY = Math.min(...pts.map(p=>p.y));
-  const ox = 80, oy = 80;
-  const toScreen = (p) => ({
-    x: ox + (p.y - minY) * k,
-    y: oy + (maxX - p.x) * k   // 北(大きいX)を上に
-  });
+  const raw = pts.map(p => ({name:p.name, z:p.z, x:(p.y-minY)*1000, y:(maxX-p.x)*1000}));
+  let bx0=Infinity,by0=Infinity,bx1=-Infinity,by1=-Infinity;
+  raw.forEach(p=>{bx0=Math.min(bx0,p.x);by0=Math.min(by0,p.y);bx1=Math.max(bx1,p.x);by1=Math.max(by1,p.y);});
+  const sw2=(bx1-bx0)||1, sh2=(by1-by0)||1, cxr=(bx0+bx1)/2, cyr=(by0+by1)/2;
+
+  // 図枠に合わせて配置(既定)。OFFなら縮尺1/Sの実寸(1単位=1mm)。
+  const fitFrame = !document.getElementById('coord-fitframe') || document.getElementById('coord-fitframe').checked;
+  let fw, fh, fcx, fcy;
+  if (paperFrame && paperFrame.rect) { const d=paperFrameDims(); fw=d.pxW; fh=d.pxH; fcx=state.framePos.x+fw/2; fcy=state.framePos.y+fh/2; }
+  else { fw=20000; fh=15000; try{ const vc=canvas.getVpCenter(); fcx=vc.x; fcy=vc.y; }catch(_){ fcx=0; fcy=0; } }
+  const fit = fitFrame ? Math.min((fw*0.85)/sw2, (fh*0.85)/sh2) : 1;
+  const toScreen = p => ({ x: fcx + (p.x-cxr)*fit, y: fcy + (p.y-cyr)*fit });
+
+  // 記号・文字サイズは描画される大きさに比例(縮尺に関係なく見える)
+  const drawnMax = Math.max(sw2,sh2)*fit;
+  const markR = Math.max(drawnMax*0.008, 30);
+  const lineW = Math.max(markR*0.3, 6);
+  const fontSz = Math.max(markR*2.2, 150);
 
   const connect = document.getElementById('coord-connect').checked;
   const close = document.getElementById('coord-close').checked;
   const showName = document.getElementById('coord-label-name').checked;
   const showZ = document.getElementById('coord-label-z').checked;
   const mark = document.getElementById('coord-mark').value;
-
   const added = [];
-  // 結線(先に描いて点を前面に)
-  if (connect && pts.length >= 2) {
-    const linePts = pts.map(toScreen);
+
+  if (connect && raw.length >= 2) {
+    const linePts = raw.map(toScreen);
     if (close) linePts.push(linePts[0]);
-    const poly = new fabric.Polyline(linePts, {
-      stroke:'#0066cc', strokeWidth:1.2, fill:'',
-      _layer: state.activeLayer, selectable:true, _type:'survey-line'
-    });
+    const poly = new fabric.Polyline(linePts, { stroke:'#0066cc', strokeWidth:lineW, fill:'',
+      _layer: state.activeLayer, selectable:(state.tool==='select'), _type:'survey-line' });
     canvas.add(poly); added.push(poly);
   }
-
-  pts.forEach(p => {
+  raw.forEach(p => {
     const s = toScreen(p);
     let m;
     if (mark === 'cross') {
-      const r=5;
-      m = new fabric.Group([
-        new fabric.Line([-r,0,r,0],{stroke:'#c00',strokeWidth:1}),
-        new fabric.Line([0,-r,0,r],{stroke:'#c00',strokeWidth:1})
-      ], {left:s.x, top:s.y, originX:'center', originY:'center'});
+      m = new fabric.Group([ new fabric.Line([-markR,0,markR,0],{stroke:'#c00',strokeWidth:lineW}),
+        new fabric.Line([0,-markR,0,markR],{stroke:'#c00',strokeWidth:lineW}) ], {left:s.x, top:s.y, originX:'center', originY:'center'});
     } else if (mark === 'dot') {
-      m = new fabric.Circle({left:s.x, top:s.y, radius:3, fill:'#c00', originX:'center', originY:'center'});
+      m = new fabric.Circle({left:s.x, top:s.y, radius:markR*0.6, fill:'#c00', originX:'center', originY:'center'});
     } else {
-      m = new fabric.Circle({left:s.x, top:s.y, radius:4, fill:'', stroke:'#c00', strokeWidth:1, originX:'center', originY:'center'});
+      m = new fabric.Circle({left:s.x, top:s.y, radius:markR, fill:'', stroke:'#c00', strokeWidth:lineW, originX:'center', originY:'center'});
     }
-    m._layer = state.activeLayer; m._type = 'survey-pt'; m.selectable = true;
+    m._layer = state.activeLayer; m._type = 'survey-pt'; m.selectable = (state.tool==='select');
     canvas.add(m); added.push(m);
-
     let label = '';
     if (showName) label += p.name;
     if (showZ && p.z !== null) label += (label?' ':'') + 'H='+p.z.toFixed(2);
     if (label) {
-      const t = new fabric.Text(label, {
-        left: s.x + 6, top: s.y - 6, fontSize: 11, fill:'#333',
-        fontFamily:'Yu Gothic, sans-serif', _layer: state.activeLayer, selectable:true, _type:'survey-label'
-      });
+      const t = new fabric.Text(label, { left: s.x + markR*1.2, top: s.y - markR*1.2, fontSize: fontSz, fill:'#333',
+        fontFamily:'Yu Gothic, sans-serif', _layer: state.activeLayer, selectable:(state.tool==='select'), _type:'survey-label' });
       canvas.add(t); added.push(t);
     }
   });
 
-  canvas.renderAll();
-  saveHistory(); updateStats();
+  canvas.renderAll(); saveHistory(); updateStats();
   closeModal('modal-coord');
-  // 取り込んだ範囲にフィット
-  setTimeout(() => { try { zoomFitObjects(added); } catch(e){} }, 50);
-  alert(`${pts.length}点を取り込みました`);
+  setTimeout(() => { try { fitFrame ? fitToFrame() : zoomFitObjects(added); } catch(e){} }, 50);
+  alert(`${pts.length}点を取り込みました（図枠に合わせて展開）。向きが逆なら「南北・東西を入替」で再取込してください。`);
 }
 
 // 指定オブジェクト群が画面に収まるようズーム
