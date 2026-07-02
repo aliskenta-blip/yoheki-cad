@@ -277,12 +277,13 @@
 <!-- メニューバー -->
 <div class="menubar">
   <span class="logo">📐 yoheki-cad</span>
-  <span class="ver">v1.30 (実測入力:長さを打って線を引く・長さ/角度をリアルタイム表示)</span>
+  <span class="ver">v1.31 (敷地を辺長で一発作成:辺長入力→敷地線+寸法+面積)</span>
   <span class="menu-divider">|</span>
   <span class="menu-item" onclick="newDrawing()">📄 新規</span>
   <span class="menu-item" onclick="openJSON()">📂 開く</span>
   <span class="menu-item" onclick="saveJSON()">💾 保存</span>
   <span class="menu-item" onclick="loadTemplateMenu()">📋 テンプレート</span>
+  <span class="menu-item" onclick="openParcelBuilder()">🧱 敷地作成</span>
   <span class="menu-item" onclick="openPartsLibrary()">🧩 部品</span>
   <span class="menu-item" onclick="openDXFImport()">📐 DXF読込</span>
   <span class="menu-item" onclick="openPDFImport()">📄 PDF・地図取込</span>
@@ -1559,6 +1560,27 @@
     <div class="modal-actions" style="justify-content:space-between;">
       <button class="btn" onclick="tbReset()">既定に戻す</button>
       <button class="btn primary" onclick="closeModal('modal-titleblock')">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 敷地を辺長で作成 モーダル -->
+<div class="modal-bg" id="modal-parcel">
+  <div class="modal" style="max-width:600px;">
+    <h3>🧱 敷地を辺長で作成</h3>
+    <p style="font-size:12px; color:#aaa;">各辺の<b>長さと向き(角度)</b>を順に入れると、閉じた敷地線・各辺の寸法・面積を自動で作ります。測量図や造成計画図の辺長を上から順に入れてください。図枠の中央に配置されます。</p>
+    <div style="display:flex; gap:12px; align-items:center; font-size:12px; margin-bottom:6px; flex-wrap:wrap;">
+      <span>単位: <select id="parcel-unit"><option value="m" selected>m</option><option value="mm">mm</option></select></span>
+      <label><input type="checkbox" id="parcel-close" checked> 最後に閉じる</label>
+      <label><input type="checkbox" id="parcel-dim" checked> 各辺に寸法</label>
+      <label><input type="checkbox" id="parcel-area" checked> 面積を記入</label>
+    </div>
+    <div style="font-size:11px; color:#9cf; margin-bottom:4px; line-height:1.5;">角度: <b>0=右 / 90=上 / 180=左 / 270(=-90)=下</b>。「＋辺を追加」を押すと前の辺から90°回った角度が入るので、四角形なら長さを入れるだけ。斜めの辺は角度を直接入力。</div>
+    <div id="parcel-rows" style="max-height:250px; overflow:auto; font-size:12px;"></div>
+    <button class="btn" style="margin-top:4px;" onclick="parcelAddRow()">＋ 辺を追加</button>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn primary" onclick="createParcelFromEdges()">敷地を作成</button>
+      <button class="btn" onclick="closeModal('modal-parcel')">閉じる</button>
     </div>
   </div>
 </div>
@@ -6076,6 +6098,77 @@ function setDimSideSelected(side){
 function onDimSidePanel(val){ const o = canvas.getActiveObject(); if (o && o._type === 'dimension') setDimSideSelected(val); }
 // 左パネルの「文字向き」変更: 寸法を選択中ならその寸法に即適用
 function onDimOrientPanel(val){ const o = canvas.getActiveObject(); if (o && o._type === 'dimension') updateDimOrient(val); }
+
+// ===== 敷地を辺長で作成 (v1.31) =====
+let parcelEdges = [];
+function openParcelBuilder(){
+  if (!parcelEdges.length) parcelEdges = [{len:'',ang:0},{len:'',ang:90},{len:'',ang:180},{len:'',ang:270}];
+  renderParcelRows();
+  document.getElementById('modal-parcel').classList.add('show');
+}
+function renderParcelRows(){
+  const div = document.getElementById('parcel-rows'); if (!div) return;
+  const arrows = ['→','↗','↑','↖','←','↙','↓','↘'];
+  div.innerHTML = parcelEdges.map((e,i) => {
+    const a = parseFloat(e.ang);
+    const arw = isNaN(a) ? '' : arrows[Math.round(((a%360)+360)%360/45)%8];
+    return `<div style="display:flex; gap:6px; align-items:center; margin-bottom:4px;">
+      <span style="width:22px; color:#888;">${i+1}</span>
+      <label style="color:#aaa;">長さ</label><input type="number" step="0.01" value="${e.len}" onchange="parcelRow(${i},'len',this.value)" style="width:88px;">
+      <label style="color:#aaa;">角度</label><input type="number" step="5" value="${e.ang}" onchange="parcelRow(${i},'ang',this.value)" style="width:66px;"> <span style="font-size:16px; width:18px;">${arw}</span>
+      <button class="btn" style="padding:2px 6px;" onclick="parcelDelRow(${i})">🗑</button>
+    </div>`;
+  }).join('');
+}
+function parcelRow(i,f,v){ if (parcelEdges[i]) parcelEdges[i][f]=v; if (f==='ang') renderParcelRows(); }
+function parcelAddRow(){ const last=parcelEdges[parcelEdges.length-1]; const prevA=last?(parseFloat(last.ang)||0):0; parcelEdges.push({len:'', ang:((prevA+90)%360)}); renderParcelRows(); }
+function parcelDelRow(i){ parcelEdges.splice(i,1); renderParcelRows(); }
+function createParcelFromEdges(){
+  const mult = document.getElementById('parcel-unit').value==='m' ? 1000 : 1;
+  const rows = parcelEdges.map(e=>({len:parseFloat(e.len)*mult, ang:parseFloat(e.ang)})).filter(r=>r.len>0 && !isNaN(r.ang));
+  if (rows.length < 2){ alert('辺を2つ以上、長さと角度を入れてください'); return; }
+  const pts=[{x:0,y:0}];
+  rows.forEach(r=>{ const a=r.ang*Math.PI/180; const p=pts[pts.length-1]; pts.push({x:p.x+Math.cos(a)*r.len, y:p.y-Math.sin(a)*r.len}); });
+  const closeIt = document.getElementById('parcel-close').checked;
+  let minx=Infinity,miny=Infinity,maxx=-Infinity,maxy=-Infinity;
+  pts.forEach(p=>{minx=Math.min(minx,p.x);miny=Math.min(miny,p.y);maxx=Math.max(maxx,p.x);maxy=Math.max(maxy,p.y);});
+  let ox=0,oy=0;
+  if (paperFrame && paperFrame.rect){ const d=paperFrameDims(); ox=state.framePos.x+d.pxW/2-(minx+maxx)/2; oy=state.framePos.y+d.pxH/2-(miny+maxy)/2; }
+  else { try{ const vc=canvas.getVpCenter(); ox=vc.x-(minx+maxx)/2; oy=vc.y-(miny+maxy)/2; }catch(_){} }
+  const wp = pts.map(p=>({x:p.x+ox, y:p.y+oy}));
+  const verts = closeIt ? wp.slice(0, wp.length-1) : wp.slice();   // 閉じるなら重複始点を除く
+  const n = verts.length;
+  const color=document.getElementById('stroke-color').value||'#000';
+  const sw=parseFloat(document.getElementById('stroke-width').value)||20;
+  const made=[];
+  const shape = closeIt
+    ? new fabric.Polygon(verts.map(p=>({x:p.x,y:p.y})), {stroke:color, strokeWidth:sw, fill:'', strokeLineJoin:'round', _layer:state.activeLayer, selectable:(state.tool==='select'), evented:true})
+    : new fabric.Polyline(verts.map(p=>({x:p.x,y:p.y})), {stroke:color, strokeWidth:sw, fill:'', strokeLineJoin:'round', _layer:state.activeLayer, selectable:(state.tool==='select'), evented:true});
+  canvas.add(shape); made.push(shape);
+  // 重心(寸法を外側へ出す基準)
+  let cx=0,cy=0; verts.forEach(p=>{cx+=p.x;cy+=p.y;}); cx/=n; cy/=n;
+  const edges=[];
+  if (closeIt){ for(let i=0;i<n;i++) edges.push([verts[i], verts[(i+1)%n]]); }
+  else { for(let i=0;i<n-1;i++) edges.push([verts[i], verts[i+1]]); }
+  if (document.getElementById('parcel-dim').checked){
+    edges.forEach(([a,b])=>{
+      const mx=(a.x+b.x)/2, my=(a.y+b.y)/2; let nx=mx-cx, ny=my-cy; const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl;
+      const dim=createDimensionLine(a,b,{textOff:{x:nx*600, y:ny*600}});
+      dim.selectable=true; dim.evented=true; canvas.add(dim); made.push(dim);
+    });
+  }
+  if (document.getElementById('parcel-area').checked && closeIt){
+    let s=0; for(let i=0;i<n;i++){ const p=verts[i], q=verts[(i+1)%n]; s+=p.x*q.y-q.x*p.y; }
+    const areaM2=Math.abs(s)/2/1e6;
+    const ts=(typeof defaultTextSize==='function')?defaultTextSize():300;
+    const t=new fabric.IText(areaM2.toFixed(2)+' ㎡',{left:cx,top:cy,originX:'center',originY:'center',fontSize:ts,fill:'#000',fontFamily:'Yu Gothic, sans-serif',_layer:state.activeLayer});
+    canvas.add(t); made.push(t);
+  }
+  canvas.renderAll(); saveHistory(); updateStats();
+  closeModal('modal-parcel');
+  const sm=document.getElementById('status-mode'); if(sm) sm.textContent=`敷地を作成しました（${edges.length}辺）`;
+  setTimeout(()=>{ try{ zoomFitObjects(made); }catch(_){} },60);
+}
 
 // ===== 連続寸法(チェーン): クリックで点を継いで寸法線を連続作成 =====
 function dimChainMode(){ return state.tool === 'dim' && !!((document.getElementById('dim-chain')||{}).checked); }
